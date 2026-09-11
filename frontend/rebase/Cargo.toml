@@ -1,0 +1,16 @@
+[package]
+name = "rebase"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+tokio = { version = "1", features = ["sync", "macros"] }
+
+[dev-dependencies]
+operation = { path = "../operation" }
+text = { path = "../text" }
+tokio = { version = "1", features = ["sync", "macros", "rt"] }
+
+[lib]
+path = "src/lib.rs"
