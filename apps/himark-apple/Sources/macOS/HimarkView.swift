@@ -369,14 +369,16 @@ final class HimarkView: NSView, NSTextInputClient {
 
     func attributedSubstring(forProposedRange range: NSRange,
                              actualRange: NSRangePointer?) -> NSAttributedString? {
-        guard let s = engine.substring(window: windowId, himarkRange(range)) else { return nil }
+        guard let himark = himarkRange(range),
+              let s = engine.substring(window: windowId, himark) else { return nil }
         actualRange?.pointee = range
         return NSAttributedString(string: s)
     }
 
     func firstRect(forCharacterRange range: NSRange,
                    actualRange: NSRangePointer?) -> NSRect {
-        guard let rect = engine.firstRect(window: windowId, himarkRange(range)) else { return .zero }
+        guard let himark = himarkRange(range),
+              let rect = engine.firstRect(window: windowId, himark) else { return .zero }
         let s = metalLayer.contentsScale
         let viewRect = NSRect(x: CGFloat(rect.x) / s,
                               y: bounds.height - CGFloat(rect.y + rect.height) / s,
@@ -485,7 +487,12 @@ final class HimarkView: NSView, NSTextInputClient {
         guard let r else { return NSRange(location: NSNotFound, length: 0) }
         return NSRange(location: Int(r.start), length: Int(r.length))
     }
-    private func himarkRange(_ r: NSRange) -> HimarkRange {
-        HimarkRange(start: UInt32(max(0, r.location)), length: UInt32(max(0, r.length)))
+    private func himarkRange(_ r: NSRange) -> HimarkRange? {
+        guard r.location != NSNotFound,
+              let start = UInt32(exactly: r.location),
+              let length = UInt32(exactly: r.length),
+              start <= UInt32.max - length
+        else { return nil }
+        return HimarkRange(start: start, length: length)
     }
 }

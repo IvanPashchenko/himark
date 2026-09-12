@@ -99,8 +99,9 @@ extension HimarkView: UITextInput {
 
     func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
         let text = markedText ?? ""
-        let selected = HimarkRange(start: UInt32(max(0, selectedRange.location)),
-                                   length: UInt32(max(0, selectedRange.length)))
+        let location = selectedRange.location == NSNotFound ? 0 : max(0, selectedRange.location)
+        let selected = HimarkRange(start: UInt32(clamping: location),
+                                   length: UInt32(clamping: max(0, selectedRange.length)))
 
         if engine.setMarkedText(window: windowId, text, selected: selected, replacement: nil) {
             request()
