@@ -315,6 +315,7 @@ impl SearchView {
     fn found_locations(
         &mut self,
         store: &mut Store,
+        ui: &UiCtx,
         mut locations: Vec<ResourceLocation>,
         fx: &mut imba::effect::Effects<'_, SearchCommand>,
     ) {
@@ -331,10 +332,10 @@ impl SearchView {
             |fx| entry.list.content_mut().fetch(fetch, fx),
         );
         self.put_list(store, entry);
-        self.refresh_contents(store);
+        self.refresh_contents(store, ui);
     }
 
-    fn refresh_contents(&mut self, store: &Store) {
+    fn refresh_contents(&mut self, store: &Store, ui: &UiCtx) {
         let Some(window) = self.window else {
             return;
         };
@@ -346,7 +347,7 @@ impl SearchView {
             return;
         }
         let set = list.content().result_locations();
-        self.contents = himark::TocView::for_locations(store, window, &set);
+        self.contents = himark::TocView::for_locations(store, ui, window, &set);
         self.contents_generation = Some(generation);
     }
 
@@ -467,22 +468,26 @@ impl View for SearchView {
                     fx.scope(
                         |command| SearchCommand::List(ScrollCommand::Content(command)),
                         |fx| {
-                            entry
-                                .list
-                                .content_mut()
-                                .install(store, &fonts, groups, Some(spans), fx)
+                            entry.list.content_mut().install(
+                                store,
+                                ui,
+                                &fonts,
+                                groups,
+                                Some(spans),
+                                fx,
+                            )
                         },
                     );
 
                     entry.list.set_scroll_y(0.0);
                     self.put_list(store, entry);
 
-                    self.refresh_contents(store);
+                    self.refresh_contents(store, ui);
 
                     self.scanned = hits.serial;
                     if let Some((serial, locations)) = self.pending_find.take() {
                         if serial == self.serial {
-                            self.found_locations(store, locations, fx);
+                            self.found_locations(store, ui, locations, fx);
                         }
                     }
                 }
@@ -504,7 +509,7 @@ impl View for SearchView {
                     let fonts = himark::env::ui_collection(store, ui);
                     fx.scope(
                         |command| SearchCommand::List(ScrollCommand::Content(command)),
-                        |fx| entry.list.content_mut().lift_budget(store, &fonts, fx),
+                        |fx| entry.list.content_mut().lift_budget(store, ui, &fonts, fx),
                     );
                 }
                 let rest = std::mem::take(&mut self.unfetched);
@@ -519,7 +524,7 @@ impl View for SearchView {
                     return;
                 }
                 if self.scanned == serial {
-                    self.found_locations(store, locations, fx);
+                    self.found_locations(store, ui, locations, fx);
                 } else {
                     self.pending_find = Some((serial, locations));
                 }
@@ -1107,6 +1112,7 @@ impl ModalView for SearchView {
     fn set_query(
         &mut self,
         store: &mut Store,
+        _ui: &UiCtx,
         query: &str,
         fx: &mut imba::effect::Effects<'_, imba::DynCommand>,
     ) {
@@ -1143,6 +1149,7 @@ impl PanelView for SearchView {
     fn drawer_view(
         &self,
         store: &Store,
+        ui: &UiCtx,
         window: himark::WindowId,
     ) -> Option<Box<dyn himark::ModalView>> {
         if let Some(contents) = &self.contents {
@@ -1152,7 +1159,7 @@ impl PanelView for SearchView {
             .list_ref(store)
             .map(|list| list.content().result_locations())
             .unwrap_or_default();
-        himark::TocView::for_locations(store, window, &locations)
+        himark::TocView::for_locations(store, ui, window, &locations)
             .map(|view| Box::new(view) as Box<dyn himark::ModalView>)
     }
 }

@@ -221,9 +221,9 @@ where
             let height = measured(&option, store, ui).height;
             let id = option.id().to_owned();
             if option.selectable() {
-                slice.push_keyed(id, option, height);
+                slice.push_keyed_sized(id, option, height);
             } else {
-                slice.push(option, height);
+                slice.push_sized(option, height);
             }
         }
         let len = self.list().len();
@@ -676,7 +676,7 @@ mod tests {
     use super::*;
 
     fn test_ui() -> UiCtx {
-        let ui = UiCtx::new();
+        let ui = UiCtx::cold();
         ui.set(::editor::env::UiFonts(crate::embedded_fonts::source()()));
         ui
     }

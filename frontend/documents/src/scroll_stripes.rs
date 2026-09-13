@@ -135,7 +135,7 @@ mod tests {
         }
         assert_eq!(outcomes.len(), 1, "one lane per enabled editor");
 
-        let ui = imba::UiCtx::new();
+        let ui = imba::UiCtx::cold();
         let outcome = outcomes.pop().expect("counted");
         let landing = editor::EditorCommand::ApplyScrollStripes(outcome);
         let mut document = OpenDocuments::document(&store, id).expect("registered");

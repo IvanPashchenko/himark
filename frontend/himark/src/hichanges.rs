@@ -958,6 +958,7 @@ fn folder_node(
             pick: false,
             dim: true,
             trail: Vec::new(),
+            tint: crate::TreeTint::Label,
             children: Vec::new(),
         }]
     };
@@ -1007,6 +1008,7 @@ fn folder_node(
         pick: false,
         dim: false,
         trail: Vec::new(),
+        tint: crate::TreeTint::Directory,
         children,
     }
 }
@@ -1043,6 +1045,7 @@ pub(crate) fn dir_forest(
             pick: false,
             dim: false,
             trail: Vec::new(),
+            tint: crate::TreeTint::Directory,
             children: nested,
         });
     }
@@ -1064,6 +1067,7 @@ pub(crate) fn dir_forest(
             pick: true,
             dim: false,
             trail,
+            tint: crate::TreeTint::File,
             children: Vec::new(),
         });
     }
@@ -1125,7 +1129,12 @@ impl Clone for ChangesView {
 }
 
 impl ChangesView {
-    pub fn open(store: &Store, window: crate::WindowId, workspace: crate::SessionId) -> Self {
+    pub fn open(
+        store: &Store,
+        ui: &UiCtx,
+        window: crate::WindowId,
+        workspace: crate::SessionId,
+    ) -> Self {
         let mut panel = Self {
             list: SpeedSearchView::new(
                 ForestList::new(store),
@@ -1140,7 +1149,7 @@ impl ChangesView {
             seen: 0,
             request: None,
         };
-        panel.refresh(store);
+        panel.refresh(store, ui);
         panel
     }
 
@@ -1165,7 +1174,7 @@ impl ChangesView {
         self.list.inner().forest.rows_trailed()
     }
 
-    fn refresh(&mut self, store: &Store) {
+    fn refresh(&mut self, store: &Store, ui: &UiCtx) {
         self.seen = Changes::generation(store);
         let mut items = rpds::HashTrieMapSync::new_sync();
         let chat = crate::env::Themes::of(store).ui().chat.clone();
@@ -1183,19 +1192,19 @@ impl ChangesView {
                 })
                 .collect();
         self.items = items;
-        self.list.inner_mut().set(&nodes);
+        self.list.inner_mut().set(&nodes, store, ui);
     }
 
-    pub fn activate(&mut self, index: usize) {
+    pub fn activate(&mut self, index: usize, store: &Store, ui: &UiCtx) {
         let Some(key) = self.list.inner().list().key_at(index).cloned() else {
             return;
         };
-        self.activate_key(&key);
+        self.activate_key(&key, store, ui);
     }
 
-    fn activate_key(&mut self, key: &ResourceLocation) {
+    fn activate_key(&mut self, key: &ResourceLocation, store: &Store, ui: &UiCtx) {
         match self.items.get(key).cloned() {
-            Some(RowItem::Branch) => self.list.inner_mut().toggle(key),
+            Some(RowItem::Branch) => self.list.inner_mut().toggle(key, store, ui),
             Some(RowItem::File { old, new }) => {
                 self.list.inner_mut().list_mut().select_only(key.clone());
 
@@ -1229,7 +1238,7 @@ impl View for ChangesView {
                 if let SpeedSearchCommand::Inner(inner) = &command {
                     if let Some((index, _)) = crate::tree_interaction(inner) {
                         self.message_focused = false;
-                        return self.activate(index);
+                        return self.activate(index, store, ui);
                     }
                 }
                 fx.scope(ChangesCommand::Rows, |fx| {
@@ -1276,13 +1285,13 @@ impl View for ChangesView {
                 )));
             }
             ChangesCommand::Select(delta) => self.list.inner_mut().list_mut().cursor_step(delta),
-            ChangesCommand::Fold(expand) => self.list.inner_mut().fold_cursor(expand),
+            ChangesCommand::Fold(expand) => self.list.inner_mut().fold_cursor(expand, store, ui),
             ChangesCommand::Pick => {
                 if let Some(key) = self.list.inner().list().cursor().cloned() {
-                    self.activate_key(&key);
+                    self.activate_key(&key, store, ui);
                 }
             }
-            ChangesCommand::Refresh => self.refresh(store),
+            ChangesCommand::Refresh => self.refresh(store, ui),
             ChangesCommand::Refetch => {
                 self.request = Some(ModalRequest::Perform(AppCommand::Dynamic(
                     self.window,
@@ -1551,7 +1560,7 @@ impl crate::DynamicCommand for ToggleChangesView {
             move |command| crate::AppCommand::Content(window, command),
             |fx| entity.dismiss_modal(store, fx),
         );
-        let panel = ChangesView::open(store, window, workspace);
+        let panel = ChangesView::open(store, &_app.ui_ctx(), window, workspace);
         let owner = self.id();
         fx.scope(
             move |command| crate::AppCommand::Content(window, command),

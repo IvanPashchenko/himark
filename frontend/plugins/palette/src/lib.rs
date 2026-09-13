@@ -48,7 +48,7 @@ pub struct PaletteView {
 }
 
 impl PaletteView {
-    pub fn new(store: &Store, commands: Vec<PresentableCommand<AppCommand>>) -> Self {
+    pub fn new(store: &Store, ui: &UiCtx, commands: Vec<PresentableCommand<AppCommand>>) -> Self {
         let shortcuts = himark::Keymaps::of(store).shortcuts_by_id();
         let entries = commands
             .into_iter()
@@ -66,7 +66,7 @@ impl PaletteView {
             list: himark::RowList::new(),
             request: Default::default(),
         };
-        palette.filter(store, "");
+        palette.filter(store, ui, "");
         palette
     }
 
@@ -77,7 +77,7 @@ impl PaletteView {
             .collect()
     }
 
-    fn filter(&mut self, store: &Store, query: &str) {
+    fn filter(&mut self, store: &Store, ui: &UiCtx, query: &str) {
         let query = query.to_lowercase();
         self.matches.clear();
         for (index, entry) in self.entries.iter().enumerate() {
@@ -99,7 +99,7 @@ impl PaletteView {
             .map(|&index| self.entries[index].shortcut.clone())
             .collect();
         self.list
-            .set_with_trails(store, &labels, &trails, None, self.selected);
+            .set_with_trails(store, ui, &labels, &trails, None, self.selected);
     }
 
     fn move_selection(&mut self, delta: isize) {
@@ -267,10 +267,11 @@ impl ModalView for PaletteView {
     fn set_query(
         &mut self,
         store: &mut Store,
+        ui: &UiCtx,
         query: &str,
         _fx: &mut imba::effect::Effects<'_, imba::DynCommand>,
     ) {
-        self.filter(store, query.trim());
+        self.filter(store, ui, query.trim());
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -283,7 +284,7 @@ pub fn overlay_surface() -> himark::OverlaySurface {
         prefix: Some('>'),
         open: std::sync::Arc::new(|store, ui, window, _fx| {
             let commands = himark::palette_commands(store, ui, window);
-            Box::new(PaletteView::new(store, commands))
+            Box::new(PaletteView::new(store, ui, commands))
         }),
     }
 }

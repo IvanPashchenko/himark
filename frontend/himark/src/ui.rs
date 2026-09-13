@@ -173,7 +173,6 @@ impl Surface {
 /// the group centers vertically in the row.
 #[derive(Clone)]
 pub struct RowStyle {
-    pub height: f32,
     /// The label's left inset.
     pub inset: f32,
     /// The last trail's right inset — separate because a frame (the
@@ -182,31 +181,35 @@ pub struct RowStyle {
     pub trail_inset: f32,
     pub label: TextStyle,
     pub trail: TextStyle,
+    /// The symmetric breathing room above and below the text block —
+    /// the row's height is the text plus twice this.
+    pub air: f32,
 }
 
 impl RowStyle {
     /// List/menu rows (peeker rows, combo menu, pickers).
     pub fn standard(store: &Store, ui: &UiCtx) -> Self {
         Self {
-            height: crate::env::Themes::of(store).ui().peeker.row_height,
             inset: space::L,
             trail_inset: space::L,
             label: label(store, ui),
             trail: caption(store, ui),
+            air: space::S,
         }
     }
 
-    /// Drawer/tree rows — larger, per the tree chrome. The label's
-    /// left inset is the TREE FRAME's business (the indent offset);
-    /// only the trails keep an inset of their own.
+    /// Drawer/tree rows — sized by the text, per the tree chrome's
+    /// FONT SIZE. The label's left inset is the TREE FRAME's business
+    /// (the indent offset); only the trails keep an inset of their
+    /// own.
     pub fn drawer(store: &Store, ui: &UiCtx) -> Self {
         let tree = crate::env::Themes::of(store).ui().tree.clone();
         Self {
-            height: tree.row_height,
             inset: 0.0,
             trail_inset: space::L,
             label: label(store, ui).sized(tree.font_size),
             trail: caption(store, ui).sized(tree.font_size),
+            air: space::S,
         }
     }
 
@@ -214,13 +217,13 @@ impl RowStyle {
     pub fn header(store: &Store, ui: &UiCtx) -> Self {
         let search = crate::env::Themes::of(store).ui().search.clone();
         Self {
-            height: search.group_header,
             inset: search.group_text_x,
             trail_inset: search.group_text_x,
             label: heading(store, ui)
                 .sized(search.group_font_size)
                 .colored(search.group_text.0),
             trail: caption(store, ui).sized(search.group_font_size),
+            air: space::S,
         }
     }
 }
@@ -324,8 +327,12 @@ impl<'a, Command: 'a> imba::Layout<'a, Command> for ListRow<'a, Command> {
                 }
             };
         }
+        // The row's height is ITS OWN: the label's text block plus
+        // the style's symmetric air — no shared row-height anywhere.
+        let metrics = style.label.font.metrics().1;
+        let height = (-metrics.ascent + metrics.descent).ceil() + 2.0 * style.air;
         row.align(imba::Alignment::CenterStart)
-            .height(style.height)
+            .height(height)
             .layout(arena, constraints)
     }
 }
@@ -335,18 +342,60 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "a timing probe, run with --nocapture to read it"]
+    fn timing_probe_pushes() {
+        let store = Store::new();
+        let ui = UiCtx::cold();
+        // Warm the ctx the way the app's long-lived one is warm: the
+        // first typeface resolution is a boot cost, not a push cost.
+        let mut warmup: imba::list::ListSlice<crate::TreeRow, u64> = imba::list::ListSlice::new();
+        warmup.push_keyed(
+            u64::MAX,
+            crate::TreeItemView::leaf(crate::TreeLabel::new("warmup".to_owned(), true, false), 1),
+            &store,
+            &ui,
+        );
+        let mut slice: imba::list::ListSlice<crate::TreeRow, u64> = imba::list::ListSlice::new();
+        let mut worst = 0.0f64;
+        let mut first = 0.0f64;
+        let started = std::time::Instant::now();
+        for n in 0..200u64 {
+            let one = std::time::Instant::now();
+            slice.push_keyed(
+                n,
+                crate::TreeItemView::leaf(
+                    crate::TreeLabel::new(format!("row {n}"), true, false),
+                    1,
+                ),
+                &store,
+                &ui,
+            );
+            let took = one.elapsed().as_secs_f64() * 1e3;
+            if n == 0 {
+                first = took;
+            }
+            worst = worst.max(took);
+        }
+        eprintln!(
+            "[timing] 200 pushes: total {:.1}ms, first {first:.1}ms, worst {worst:.1}ms",
+            started.elapsed().as_secs_f64() * 1e3
+        );
+    }
+
+    #[test]
     fn a_list_rows_text_centers_in_the_row() {
         // The regression: the flexible gap stretched to the row's
         // height, so the baseline group hugged the row's TOP — tree
         // labels floated above their disclosure glyphs.
         let store = Store::new();
-        let ui = UiCtx::new();
+        let ui = UiCtx::cold();
         let arena = Arena::default();
         let style = RowStyle::drawer(&store, &ui);
         let metrics = style.label.font.metrics().1;
         let ascent = -metrics.ascent;
-        let text_height = (ascent + metrics.descent).ceil().max(1.0);
-        let expected = (style.height - text_height) * 0.5 + ascent;
+        // The row is its own text block plus `space::S` each side,
+        // so the centered baseline sits at pad + ascent.
+        let expected = space::S + ascent;
 
         let thunk = imba::Layout::layout(
             ListRow::<()>::new(&arena, style.clone())
@@ -355,7 +404,7 @@ mod tests {
             &arena,
             Constraints {
                 min: skia_safe::Size::default(),
-                max: skia_safe::Size::new(400.0, style.height),
+                max: skia_safe::Size::new(400.0, f32::MAX),
             },
         );
         let baseline = imba::Thunk::first_baseline(&thunk).expect("the label answers a baseline");

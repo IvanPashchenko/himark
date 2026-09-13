@@ -502,7 +502,6 @@ fn build_document(
 #[cfg(test)]
 mod tests;
 
-
 /// The fenced-code embed pane, reified: the live document height,
 /// the pane clamped to the incoming width.
 struct EmbedFrame<'a> {

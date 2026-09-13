@@ -118,6 +118,7 @@ fn folder_node(
         pick: false,
         dim: false,
         trail: Vec::new(),
+        tint: crate::TreeTint::Label,
         children: dir_children(folder, trie, items),
     })
 }
@@ -147,6 +148,7 @@ fn dir_children(
             pick: false,
             dim: true,
             trail: Vec::new(),
+            tint: crate::TreeTint::Label,
             children: nested,
         });
     }
@@ -176,6 +178,7 @@ fn dir_children(
                 pick: true,
                 dim: record.resolved,
                 trail: Vec::new(),
+                tint: crate::TreeTint::Label,
                 children: Vec::new(),
             });
         }
@@ -185,6 +188,7 @@ fn dir_children(
             pick: false,
             dim: false,
             trail: Vec::new(),
+            tint: crate::TreeTint::Label,
             children: leaves,
         });
     }
@@ -232,7 +236,12 @@ impl Clone for CommentsView {
 }
 
 impl CommentsView {
-    pub fn open(store: &Store, window: crate::WindowId, workspace: crate::SessionId) -> Self {
+    pub fn open(
+        store: &Store,
+        ui: &UiCtx,
+        window: crate::WindowId,
+        workspace: crate::SessionId,
+    ) -> Self {
         let mut panel = Self {
             list: SpeedSearchView::new(
                 ForestList::new(store),
@@ -245,7 +254,7 @@ impl CommentsView {
             seen: 0,
             request: None,
         };
-        panel.refresh(store);
+        panel.refresh(store, ui);
         panel
     }
 
@@ -254,7 +263,7 @@ impl CommentsView {
         self.list.inner().forest.rows()
     }
 
-    fn refresh(&mut self, store: &Store) {
+    fn refresh(&mut self, store: &Store, ui: &UiCtx) {
         self.seen = Comments::generation(store);
         let records = Comments::records(store);
         let mut items = rpds::HashTrieMapSync::new_sync();
@@ -276,23 +285,24 @@ impl CommentsView {
                 pick: false,
                 dim: true,
                 trail: Vec::new(),
+                tint: crate::TreeTint::Label,
                 children: Vec::new(),
             });
         }
         self.items = items;
-        self.list.inner_mut().set(&nodes);
+        self.list.inner_mut().set(&nodes, store, ui);
     }
 
-    pub fn activate(&mut self, index: usize) {
+    pub fn activate(&mut self, index: usize, store: &Store, ui: &UiCtx) {
         let Some(key) = self.list.inner().list().key_at(index).cloned() else {
             return;
         };
-        self.activate_key(&key);
+        self.activate_key(&key, store, ui);
     }
 
-    fn activate_key(&mut self, key: &ResourceLocation) {
+    fn activate_key(&mut self, key: &ResourceLocation, store: &Store, ui: &UiCtx) {
         match self.items.get(key).cloned() {
-            Some(RowItem::Branch) => self.list.inner_mut().toggle(key),
+            Some(RowItem::Branch) => self.list.inner_mut().toggle(key, store, ui),
             Some(RowItem::Comment(id)) => {
                 self.list.inner_mut().list_mut().select_only(key.clone());
 
@@ -324,7 +334,7 @@ impl View for CommentsView {
             CommentsCommand::Rows(command) => {
                 if let SpeedSearchCommand::Inner(inner) = &command {
                     if let Some((index, _)) = crate::tree_interaction(inner) {
-                        return self.activate(index);
+                        return self.activate(index, store, ui);
                     }
                 }
                 fx.scope(CommentsCommand::Rows, |fx| {
@@ -332,13 +342,13 @@ impl View for CommentsView {
                 });
             }
             CommentsCommand::Select(delta) => self.list.inner_mut().list_mut().cursor_step(delta),
-            CommentsCommand::Fold(expand) => self.list.inner_mut().fold_cursor(expand),
+            CommentsCommand::Fold(expand) => self.list.inner_mut().fold_cursor(expand, store, ui),
             CommentsCommand::Pick => {
                 if let Some(key) = self.list.inner().list().cursor().cloned() {
-                    self.activate_key(&key);
+                    self.activate_key(&key, store, ui);
                 }
             }
-            CommentsCommand::Refresh => self.refresh(store),
+            CommentsCommand::Refresh => self.refresh(store, ui),
             CommentsCommand::SendAll => {
                 let ids: Vec<AnnotationId> = self
                     .items
@@ -612,7 +622,7 @@ impl crate::DynamicCommand for ToggleCommentsView {
             move |command| crate::AppCommand::Content(window, command),
             |fx| entity.dismiss_modal(store, fx),
         );
-        let panel = CommentsView::open(store, window, workspace);
+        let panel = CommentsView::open(store, &_app.ui_ctx(), window, workspace);
         let owner = self.id();
         fx.scope(
             move |command| crate::AppCommand::Content(window, command),

@@ -47,6 +47,7 @@ pub trait ModalView: imba::DynView + Send + Sync {
     fn set_query(
         &mut self,
         _store: &mut Store,
+        _ui: &imba::UiCtx,
         _query: &str,
         _fx: &mut imba::effect::Effects<'_, DynCommand>,
     ) {

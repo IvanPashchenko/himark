@@ -87,6 +87,7 @@ impl DirTrie {
                 pick: true,
                 dim: false,
                 trail: Vec::new(),
+                tint: crate::TreeTint::Label,
                 children: Vec::new(),
             });
             targets.insert_mut(key, file);
@@ -97,6 +98,7 @@ impl DirTrie {
             pick: false,
             dim: true,
             trail: Vec::new(),
+            tint: crate::TreeTint::Label,
             children,
         }
     }
@@ -105,6 +107,7 @@ impl DirTrie {
 impl TocView {
     pub fn for_locations(
         store: &Store,
+        ui: &UiCtx,
         window: crate::WindowId,
         locations: &[crate::ResourceLocation],
     ) -> Option<Self> {
@@ -144,13 +147,14 @@ impl TocView {
                 pick: true,
                 dim: false,
                 trail: Vec::new(),
+                tint: crate::TreeTint::Label,
                 children: Vec::new(),
             });
             targets.insert_mut(key, file);
         }
 
         let mut forest = ForestList::new(store);
-        forest.set(&nodes);
+        forest.set(&nodes, store, ui);
         Some(Self {
             window,
             context: match (capped, total) {
@@ -177,13 +181,13 @@ impl TocView {
         self.search.inner().list().len()
     }
 
-    fn pick(&mut self, key: u64) {
+    fn pick(&mut self, key: u64, store: &Store, ui: &UiCtx) {
         match self.targets.get(&key) {
             Some(location) => {
                 self.request = Some(ModalRequest::OpenLocations(vec![location.clone()]));
             }
 
-            None => self.search.inner_mut().toggle(&key),
+            None => self.search.inner_mut().toggle(&key, store, ui),
         }
     }
 }
@@ -207,8 +211,8 @@ impl View for TocView {
                         };
                         self.search.inner_mut().list_mut().select_only(key);
                         match toggle || !self.targets.contains_key(&key) {
-                            true => self.search.inner_mut().toggle(&key),
-                            false => self.pick(key),
+                            true => self.search.inner_mut().toggle(&key, store, ui),
+                            false => self.pick(key, store, ui),
                         }
                         return;
                     }
@@ -220,10 +224,10 @@ impl View for TocView {
             TocCommand::Select(delta) => self.search.inner_mut().list_mut().cursor_step(delta),
             TocCommand::Pick => {
                 if let Some(key) = self.search.inner().list().cursor().copied() {
-                    self.pick(key);
+                    self.pick(key, store, ui);
                 }
             }
-            TocCommand::Fold(expand) => self.search.inner_mut().fold_cursor(expand),
+            TocCommand::Fold(expand) => self.search.inner_mut().fold_cursor(expand, store, ui),
             TocCommand::Dismiss => {
                 self.request = Some(ModalRequest::Close);
             }
@@ -389,11 +393,12 @@ impl crate::DynamicCommand for ToggleToc {
             crate::Windows::put(store, window, entity);
             return;
         }
-        let Some(panel) = entity
-            .workbench()
-            .root
-            .focused_pane()
-            .drawer_view(store, window)
+        let Some(panel) =
+            entity
+                .workbench()
+                .root
+                .focused_pane()
+                .drawer_view(store, &_app.ui_ctx(), window)
         else {
             crate::Windows::put(store, window, entity);
             return;
@@ -624,7 +629,7 @@ impl View for OutlineView {
                         };
                         self.search.inner_mut().list_mut().select_only(key);
                         match toggle {
-                            true => self.search.inner_mut().toggle(&key),
+                            true => self.search.inner_mut().toggle(&key, store, ui),
                             false => self.pick(store, key),
                         }
                         return;
@@ -640,7 +645,7 @@ impl View for OutlineView {
                     self.pick(store, key);
                 }
             }
-            OutlineCommand::Fold(expand) => self.search.inner_mut().fold_cursor(expand),
+            OutlineCommand::Fold(expand) => self.search.inner_mut().fold_cursor(expand, store, ui),
             OutlineCommand::Dismiss => {
                 self.request = Some(ModalRequest::Close);
             }
@@ -677,13 +682,14 @@ impl View for OutlineView {
                             pick: true,
                             dim: false,
                             trail: vec![(row.line.to_string(), line_color)],
+                            tint: crate::TreeTint::Label,
                             children: Vec::new(),
                         },
                     ));
                 }
                 settle(&mut stack, &mut nodes, 0);
 
-                self.search.inner_mut().set(&nodes);
+                self.search.inner_mut().set(&nodes, store, ui);
             }
         }
     }

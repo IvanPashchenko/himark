@@ -5,7 +5,7 @@ use super::*;
 use imba::effect::Batch;
 
 fn test_ui() -> UiCtx {
-    let ui = UiCtx::new();
+    let ui = UiCtx::cold();
     ui.set(::editor::env::UiFonts(crate::embedded_fonts::source()()));
     ui
 }

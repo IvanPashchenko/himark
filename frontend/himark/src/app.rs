@@ -313,7 +313,7 @@ impl Application {
         store.put(::editor::env::Fonts(fonts.source()));
         store.put(::editor::env::Themes(theme.clone()));
 
-        let ui = std::rc::Rc::new(UiCtx::new());
+        let ui = std::rc::Rc::new(UiCtx::cold());
         ui.set(::editor::env::UiFonts((fonts.source())()));
 
         let scrollbar = &theme.ui().scrollbar;

@@ -162,20 +162,26 @@ impl RowList {
         }
     }
 
-    pub fn set(&mut self, store: &Store, labels: &[String], note: Option<String>, selected: usize) {
-        self.set_with_trails(store, labels, &[], note, selected)
+    pub fn set(
+        &mut self,
+        store: &Store,
+        ui: &UiCtx,
+        labels: &[String],
+        note: Option<String>,
+        selected: usize,
+    ) {
+        self.set_with_trails(store, ui, labels, &[], note, selected)
     }
 
     pub fn set_with_trails(
         &mut self,
         store: &Store,
+        ui: &UiCtx,
         labels: &[String],
         trails: &[Option<String>],
         note: Option<String>,
         selected: usize,
     ) {
-        let chrome = crate::env::Themes::of(store).ui().peeker.clone();
-        let row_height = chrome.row_height.max(1.0);
         self.len = labels.len();
         let selected = selected.min(self.len.saturating_sub(1));
         let mut slice: ListSlice<LabelRow, usize> = ListSlice::new();
@@ -187,7 +193,8 @@ impl RowList {
                     dim: false,
                     trail: trails.get(index).cloned().flatten(),
                 },
-                row_height,
+                store,
+                ui,
             );
         }
         if let Some(label) = note {
@@ -197,7 +204,8 @@ impl RowList {
                     dim: true,
                     trail: None,
                 },
-                row_height,
+                store,
+                ui,
             );
         }
         let scroll_y = self.scroll.scroll_y();
@@ -291,10 +299,10 @@ mod tests {
     #[test]
     fn selection_reveal_glides_the_scroll_until_visible() {
         let mut store = Store::new();
-        let ui = UiCtx::new();
+        let ui = UiCtx::cold();
         let mut list = RowList::new();
         let labels: Vec<String> = (0..300).map(|index| format!("row {index}")).collect();
-        list.set(&store, &labels, None, 0);
+        list.set(&store, &imba::UiCtx::cold(), &labels, None, 0);
         list.select(250);
         assert_eq!(list.scroll_y(), 0.0);
 

@@ -644,12 +644,13 @@ fn header_band_layout<'a>(
         color: chrome.text_color.0,
         tracking: 0.0,
     };
+    let _ = height;
     let style = crate::ui::RowStyle {
-        height,
         inset: chrome.pad,
         trail_inset: chrome.pad,
         label: text.clone(),
         trail: text.clone(),
+        air: crate::ui::space::S,
     };
     let mut band = crate::ui::ListRow::new(arena, style).label(title);
     if let Some(added) = header.added.filter(|n| *n > 0) {

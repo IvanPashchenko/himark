@@ -75,7 +75,6 @@ pub enum AgentsCommand {
 
 pub struct AgentsPanel {
     list: TreeList,
-    row_height: f32,
     window: crate::WindowId,
     booted: bool,
 
@@ -91,7 +90,6 @@ impl Clone for AgentsPanel {
     fn clone(&self) -> Self {
         Self {
             list: self.list.clone(),
-            row_height: self.row_height,
             window: self.window,
             booted: self.booted,
             collapsed: self.collapsed.clone(),
@@ -105,11 +103,8 @@ impl Clone for AgentsPanel {
 
 impl AgentsPanel {
     pub fn open(store: &Store, window: crate::WindowId) -> Self {
-        let theme = crate::env::Themes::of(store);
-        let tree = theme.ui().tree.clone();
-        let mut panel = Self {
+        let panel = Self {
             list: ScrollView::new(ListView::empty().with_selection(crate::selection_style(store))),
-            row_height: tree.row_height.max(1.0),
             window,
             booted: false,
             collapsed: rpds::HashTrieSetSync::new_sync(),
@@ -117,7 +112,8 @@ impl AgentsPanel {
             adding: None,
             request: None,
         };
-        panel.refresh(store);
+        // The first fill happens on Boot (perform has the UiCtx the
+        // row measurement needs).
         panel
     }
 
@@ -129,7 +125,7 @@ impl AgentsPanel {
             .collect()
     }
 
-    fn refresh(&mut self, store: &Store) {
+    fn refresh(&mut self, store: &Store, ui: &UiCtx) {
         let cursor = self.list.content().cursor().cloned();
         let mut slice: ListSlice<TreeRow, AgentKey> = ListSlice::new();
 
@@ -145,7 +141,8 @@ impl AgentsPanel {
                 AgentKey::Server(server),
                 crate::TreeItemView::branch(TreeLabel::new(label, false, false), 0, expanded)
                     .toggling_on_body(),
-                self.row_height,
+                store,
+                ui,
             );
             if !expanded {
                 continue;
@@ -158,7 +155,8 @@ impl AgentsPanel {
                             TreeLabel::new("connecting…".to_owned(), false, true),
                             1,
                         ),
-                        self.row_height,
+                        store,
+                        ui,
                     );
                 }
                 HostStatus::Failed(error) => {
@@ -168,7 +166,8 @@ impl AgentsPanel {
                             TreeLabel::new(format!("failed: {error}"), false, true),
                             1,
                         ),
-                        self.row_height,
+                        store,
+                        ui,
                     );
                 }
                 HostStatus::Connected => {
@@ -180,7 +179,8 @@ impl AgentsPanel {
                                     .with_trail(age_trail(now, dim, summary)),
                                 1,
                             ),
-                            self.row_height,
+                            store,
+                            ui,
                         );
                     }
                     {
@@ -190,7 +190,8 @@ impl AgentsPanel {
                                 TreeLabel::new("+ New Session…".to_owned(), true, false),
                                 1,
                             ),
-                            self.row_height,
+                            store,
+                            ui,
                         );
                     }
                 }
@@ -199,7 +200,8 @@ impl AgentsPanel {
         slice.push_keyed(
             AgentKey::AddHost,
             crate::TreeItemView::leaf(TreeLabel::new("+ Add Host…".to_owned(), true, false), 0),
-            self.row_height,
+            store,
+            ui,
         );
         let len = self.list.content().len();
         self.list.content_mut().splice_slice(0..len, slice);
@@ -266,18 +268,20 @@ impl AgentsPanel {
     pub fn activate(
         &mut self,
         store: &mut Store,
+        ui: &UiCtx,
         index: usize,
         fx: &mut Effects<'_, AgentsCommand>,
     ) {
         let Some(key) = self.list.content().key_at(index).cloned() else {
             return;
         };
-        self.activate_key(store, &key, fx);
+        self.activate_key(store, ui, &key, fx);
     }
 
     fn activate_key(
         &mut self,
         store: &mut Store,
+        ui: &UiCtx,
         key: &AgentKey,
         fx: &mut Effects<'_, AgentsCommand>,
     ) {
@@ -298,7 +302,7 @@ impl AgentsPanel {
                 {
                     self.connect(store, *server, fx);
                 }
-                self.refresh(store);
+                self.refresh(store, ui);
             }
             AgentKey::Session(server, session) => {
                 self.list.content_mut().select_only(key.clone());
@@ -418,7 +422,7 @@ impl View for AgentsPanel {
                         self.connect(store, server, fx);
                     }
                 }
-                self.refresh(store);
+                self.refresh(store, ui);
             }
             AgentsCommand::Connected(server, result) => {
                 match result {
@@ -432,7 +436,7 @@ impl View for AgentsPanel {
                         Agents::set_status(store, server, HostStatus::Failed(error));
                     }
                 }
-                self.refresh(store);
+                self.refresh(store, ui);
             }
             AgentsCommand::Listed {
                 server,
@@ -449,18 +453,18 @@ impl View for AgentsPanel {
                     }
                     Err(error) => eprintln!("[higent] listSessions failed: {error}"),
                 }
-                self.refresh(store);
+                self.refresh(store, ui);
             }
             AgentsCommand::Events(server, events) => {
                 for event in events {
                     Agents::apply_event(store, server, event);
                 }
                 self.relaunch_poll(store, server, fx);
-                self.refresh(store);
+                self.refresh(store, ui);
             }
             AgentsCommand::Rows(command) => {
                 if let Some((index, _)) = crate::tree_interaction(&command) {
-                    self.activate(store, index, fx);
+                    self.activate(store, ui, index, fx);
                     return;
                 }
                 fx.scope(AgentsCommand::Rows, |fx| {
@@ -475,13 +479,13 @@ impl View for AgentsPanel {
                 if let AgentKey::Server(server) = key {
                     let expanded = !self.collapsed.contains(&server);
                     if expanded != expand {
-                        self.activate_key(store, &AgentKey::Server(server), fx);
+                        self.activate_key(store, ui, &AgentKey::Server(server), fx);
                     }
                 }
             }
             AgentsCommand::Pick => {
                 if let Some(key) = self.list.content().cursor().cloned() {
-                    self.activate_key(store, &key, fx);
+                    self.activate_key(store, ui, &key, fx);
                 }
             }
             AgentsCommand::Dismiss => {
@@ -557,7 +561,7 @@ impl View for AgentsPanel {
             panel.place(inset + 1.0, inset + header + PANEL_PAD, rows);
             if let Some(input) = &self.adding {
                 let search = theme.ui().search.clone();
-                let well_height = self.row_height + 8.0;
+                let well_height = input.content_height() + 2.0 * crate::ui::space::S;
                 let well_width = (PANEL_WIDTH - inset * 2.0).max(1.0);
                 let well_y = size.height - inset - well_height;
                 let input_fill = search.input_fill;

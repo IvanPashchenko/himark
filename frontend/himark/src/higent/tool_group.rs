@@ -121,9 +121,14 @@ impl View for ToolRowView {
                         chat.notice_color.0
                     };
                     let text = face.text.clone();
+                    // The face row's height is ITS OWN: its text
+                    // block plus a symmetric padding.
+                    let metrics = font.metrics().1;
+                    let height =
+                        (-metrics.ascent + metrics.descent).ceil() + 2.0 * crate::ui::space::S;
                     imba::ThunkBox::new(
                         arena,
-                        leaf::<ToolRowCommand>(width, tree.row_height).paint_instead(
+                        leaf::<ToolRowCommand>(width, height).paint_instead(
                             move |_arena, canvas, rect| {
                                 let mut paint = Paint::default();
                                 paint.set_anti_alias(true);
@@ -455,24 +460,32 @@ impl ToolGroup {
         let mut slice = ListSlice::new();
         for key in &wanted[head..wanted.len() - tail] {
             let key = key.clone();
-            let (view, height) = match &key {
-                ToolRowKey::Group => self.group_row(store, ui),
-                ToolRowKey::Face(id) => self.face_row(store, ui, id),
-                ToolRowKey::Body(id) => match self.rows.row_range(&key) {
-                    Some(range) => {
-                        let view = self.rows.rows_from(range.start).next();
-                        match view {
-                            Some(view) => {
-                                let height = self.measure(store, ui, &view);
-                                (view, height)
+            match &key {
+                // Group and face rows measure themselves; a BODY is a
+                // cell whose height depends on the laid width, so it
+                // keeps its width-true measurement.
+                ToolRowKey::Group => slice.push_keyed(key, self.group_row(store, ui), store, ui),
+                ToolRowKey::Face(id) => {
+                    let view = self.face_row(store, ui, id);
+                    slice.push_keyed(key, view, store, ui)
+                }
+                ToolRowKey::Body(id) => {
+                    let (view, height) = match self.rows.row_range(&key) {
+                        Some(range) => {
+                            let view = self.rows.rows_from(range.start).next();
+                            match view {
+                                Some(view) => {
+                                    let height = self.measure(store, ui, &view);
+                                    (view, height)
+                                }
+                                None => self.body_row(store, ui, id, fx),
                             }
-                            None => self.body_row(store, ui, id, fx),
                         }
-                    }
-                    None => self.body_row(store, ui, id, fx),
-                },
-            };
-            slice.push_keyed(key, view, height);
+                        None => self.body_row(store, ui, id, fx),
+                    };
+                    slice.push_keyed_sized(key, view, height);
+                }
+            }
         }
         self.rows
             .splice_slice_animated(head..present.len() - tail, slice);
@@ -497,13 +510,13 @@ impl ToolGroup {
     fn rebuild(&mut self, store: &Store, ui: &UiCtx) {
         let mut slice = ListSlice::new();
         for key in self.wanted_keys() {
-            let (view, height) = match &key {
+            let view = match &key {
                 ToolRowKey::Group => self.group_row(store, ui),
                 ToolRowKey::Face(id) => self.face_row(store, ui, id),
 
                 ToolRowKey::Body(_) => continue,
             };
-            slice.push_keyed(key, view, height);
+            slice.push_keyed(key, view, store, ui);
         }
         let len = self.rows.len();
         self.rows.splice_slice(0..len, slice);
@@ -517,20 +530,20 @@ impl ToolGroup {
             })
             .collect();
         for (index, id) in keys {
-            let (view, height) = self.face_row(store, ui, &id);
+            let view = self.face_row(store, ui, &id);
             let mut slice = ListSlice::new();
-            slice.push_keyed(ToolRowKey::Face(id), view, height);
+            slice.push_keyed(ToolRowKey::Face(id), view, store, ui);
             self.rows.splice_slice(index..index + 1, slice);
         }
         if self.has_group_row() {
-            let (view, height) = self.group_row(store, ui);
+            let view = self.group_row(store, ui);
             let mut slice = ListSlice::new();
-            slice.push_keyed(ToolRowKey::Group, view, height);
+            slice.push_keyed(ToolRowKey::Group, view, store, ui);
             self.rows.splice_slice(0..1, slice);
         }
     }
 
-    fn group_row(&self, store: &Store, ui: &UiCtx) -> (TreeItemView<ToolRowView>, f32) {
+    fn group_row(&self, store: &Store, ui: &UiCtx) -> TreeItemView<ToolRowView> {
         let failed = self.calls.iter().any(|call| call.face.failed);
         let live = self.calls.iter().any(|call| call.face.live);
         let view = TreeItemView::branch(
@@ -543,11 +556,11 @@ impl ToolGroup {
             self.expanded,
         )
         .toggling_on_body();
-        let height = row_height(store, ui);
-        (view, height)
+        let _ = (store, ui);
+        view
     }
 
-    fn face_row(&self, store: &Store, ui: &UiCtx, id: &str) -> (TreeItemView<ToolRowView>, f32) {
+    fn face_row(&self, store: &Store, ui: &UiCtx, id: &str) -> TreeItemView<ToolRowView> {
         let call = self.call(id);
         let line = call.map(|call| call.face.line.clone()).unwrap_or_default();
         let failed = call.map(|call| call.face.failed).unwrap_or(false);
@@ -563,7 +576,8 @@ impl ToolGroup {
             open,
         )
         .toggling_on_body();
-        (view, row_height(store, ui))
+        let _ = (store, ui);
+        view
     }
 
     fn body_row(
@@ -655,10 +669,6 @@ impl ToolGroup {
     ) -> impl Thunk<'a, ToolRowsCommand> + 'a {
         self.rows.layout(arena, store, ui, constraints)
     }
-}
-
-fn row_height(store: &Store, _ui: &UiCtx) -> f32 {
-    env::Themes::of(store).ui().tree.row_height
 }
 
 fn materialize(text: &crate::Text) -> String {

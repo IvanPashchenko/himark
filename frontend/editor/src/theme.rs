@@ -863,7 +863,6 @@ impl Default for FoldChipChrome {
 #[derive(Clone, Deserialize)]
 #[serde(default)]
 pub struct TreeChrome {
-    pub row_height: f32,
     pub font_size: f32,
 
     pub indent: f32,
@@ -876,7 +875,6 @@ pub struct TreeChrome {
 impl Default for TreeChrome {
     fn default() -> Self {
         Self {
-            row_height: 44.0,
             font_size: 24.0,
             indent: 26.0,
             text_x: 36.0,

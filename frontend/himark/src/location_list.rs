@@ -20,6 +20,26 @@ use crate::{
 };
 use editor::EditorId;
 
+/// The group band's OWN height — the header `ListRow` laid once.
+/// Groups and notes declare list heights from this measurement, not
+/// from a themed constant.
+fn header_band_height(store: &Store, ui: &UiCtx) -> f32 {
+    let arena = Arena::default();
+    let band: crate::ui::ListRow<'_, GroupCommand> =
+        crate::ui::ListRow::new(&arena, crate::ui::RowStyle::header(store, ui)).label("");
+    let thunk = imba::Layout::layout(
+        band,
+        &arena,
+        Constraints {
+            min: Size::default(),
+            max: Size::new(1_000.0, f32::MAX),
+        },
+    );
+    let height = imba::Thunk::size(&thunk).height;
+    drop(thunk);
+    height
+}
+
 fn trace_repair() -> bool {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ENABLED.get_or_init(|| std::env::var_os("HIMARK_TRACE_REPAIR").is_some())
@@ -476,6 +496,7 @@ impl LocationList {
     pub fn install(
         &mut self,
         store: &mut Store,
+        ui: &UiCtx,
         fonts: &skia_safe::textlayout::FontCollection,
         groups: Vec<InstallGroup>,
         spans: Option<SpanSource>,
@@ -485,24 +506,7 @@ impl LocationList {
         self.spans = spans;
         let theme = crate::env::Themes::of(store);
 
-        let mut retracted: Vec<DocumentId> = Vec::new();
-        for previous in self.installed.drain(..) {
-            if let Some(mut document) = crate::OpenDocuments::document(store, previous.document) {
-                for editor in &previous.editors {
-                    document.remove_editor(*editor);
-                }
-                document.remove_fragment_set(previous.fragments);
-                document.remove_markup(
-                    previous.markup,
-                    &previous.matches,
-                    fonts,
-                    &theme,
-                    &mut imba::effect::Batch::new().effects(),
-                );
-                crate::OpenDocuments::put_document(store, previous.document, document);
-            }
-            retracted.push(previous.document);
-        }
+        let retracted = self.retract_installed(store, fonts);
 
         self.shown = 0;
         self.overflow.clear();
@@ -547,6 +551,7 @@ impl LocationList {
             }
             if let Some((install, group, height)) = self.install_document(
                 store,
+                ui,
                 fonts,
                 &theme,
                 document_id,
@@ -559,19 +564,46 @@ impl LocationList {
             ) {
                 self.shown += group.rows.len();
                 self.installed.push(install);
-                installed.push_keyed(document_id, group, height);
+                installed.push_keyed_sized(document_id, group, height);
             }
         }
         let panel_width = f32::from_bits(self.row_width.load(std::sync::atomic::Ordering::Relaxed));
         self.results = ListView::from_slice_at(panel_width, installed)
             .with_separators(document_separator(&theme.ui().search));
         if !self.overflow.is_empty() {
-            self.push_note(store);
+            self.push_note(store, ui);
         }
 
         for document in retracted {
             crate::OpenDocuments::remove_if_editorless(store, document, fx);
         }
+    }
+
+    fn retract_installed(
+        &mut self,
+        store: &mut Store,
+        fonts: &skia_safe::textlayout::FontCollection,
+    ) -> Vec<DocumentId> {
+        let theme = crate::env::Themes::of(store);
+        let mut retracted: Vec<DocumentId> = Vec::new();
+        for previous in self.installed.drain(..) {
+            if let Some(mut document) = crate::OpenDocuments::document(store, previous.document) {
+                for editor in &previous.editors {
+                    document.remove_editor(*editor);
+                }
+                document.remove_fragment_set(previous.fragments);
+                document.remove_markup(
+                    previous.markup,
+                    &previous.matches,
+                    fonts,
+                    &theme,
+                    &mut imba::effect::Batch::new().effects(),
+                );
+                crate::OpenDocuments::put_document(store, previous.document, document);
+            }
+            retracted.push(previous.document);
+        }
+        retracted
     }
 
     pub fn fetch(
@@ -597,6 +629,7 @@ impl LocationList {
     pub fn lift_budget(
         &mut self,
         store: &mut Store,
+        ui: &UiCtx,
         fonts: &skia_safe::textlayout::FontCollection,
         fx: &mut imba::effect::Effects<'_, LocationListCommand>,
     ) {
@@ -633,6 +666,7 @@ impl LocationList {
             };
             if let Some((install, group, height)) = self.install_document(
                 store,
+                ui,
                 fonts,
                 &theme,
                 document_id,
@@ -649,7 +683,7 @@ impl LocationList {
 
                 let mut lifted: imba::list::ListSlice<ResultGroup, DocumentId> =
                     imba::list::ListSlice::new();
-                lifted.push_keyed(document_id, group, height);
+                lifted.push_keyed_sized(document_id, group, height);
                 self.results.splice_slice(group_index..group_index, lifted);
             } else {
                 crate::OpenDocuments::remove_if_editorless(store, document_id, fx);
@@ -663,20 +697,23 @@ impl LocationList {
 
     pub fn uninstall(&mut self, store: &mut Store) {
         let fonts = crate::env::Fonts::of(store)();
-        self.install(
-            store,
-            &fonts,
-            Vec::new(),
-            None,
-            &mut imba::effect::Batch::new().effects(),
-        );
+        self.generation += 1;
+        self.spans = None;
+        self.shown = 0;
+        self.overflow.clear();
+        self.noted = false;
+        let retracted = self.retract_installed(store, &fonts);
+        self.results = ListView::empty();
+        let mut batch: imba::effect::Batch<LocationListCommand> = imba::effect::Batch::new();
+        for document in retracted {
+            crate::OpenDocuments::remove_if_editorless(store, document, &mut batch.effects());
+        }
     }
 
-    fn push_note(&mut self, store: &Store) {
+    fn push_note(&mut self, store: &Store, ui: &UiCtx) {
         if self.noted {
             return;
         }
-        let chrome = crate::env::Themes::of(store).ui().search.clone();
         let note = ResultGroup {
             name: (self.note)(self.shown),
             document: None,
@@ -684,8 +721,8 @@ impl LocationList {
             rows: ListView::empty(),
         };
         let index = self.results.len();
-        self.results
-            .splice(index..index, [(note, chrome.group_header)]);
+        let height = header_band_height(store, ui);
+        self.results.splice(index..index, [(note, height)]);
         self.noted = true;
     }
 
@@ -702,6 +739,7 @@ impl LocationList {
     fn install_document(
         &mut self,
         store: &mut Store,
+        ui: &UiCtx,
         fonts: &skia_safe::textlayout::FontCollection,
         theme: &crate::Theme,
         document_id: DocumentId,
@@ -752,7 +790,7 @@ impl LocationList {
         let chrome = &theme.ui().search;
         let list = ListView::from_rope_at(width, imba::list::measured(rows))
             .with_separators(occurrence_separator(chrome));
-        let height = chrome.group_header + list.total_height();
+        let height = header_band_height(store, ui) + list.total_height();
         Some((
             installed,
             ResultGroup {
@@ -890,7 +928,16 @@ impl View for LocationList {
 
     fn destroy(&mut self, store: &mut Store, fx: &mut imba::effect::Effects<'_, Self::Command>) {
         let fonts = crate::env::Fonts::of(store)();
-        self.install(store, &fonts, Vec::new(), None, fx);
+        self.generation += 1;
+        self.spans = None;
+        self.shown = 0;
+        self.overflow.clear();
+        self.noted = false;
+        let retracted = self.retract_installed(store, &fonts);
+        self.results = ListView::empty();
+        for document in retracted {
+            crate::OpenDocuments::remove_if_editorless(store, document, fx);
+        }
     }
 
     fn perform(
@@ -994,7 +1041,7 @@ impl View for LocationList {
                         ranges,
                         matches: marks,
                     });
-                    self.push_note(store);
+                    self.push_note(store, ui);
                     return;
                 }
 
@@ -1011,6 +1058,7 @@ impl View for LocationList {
                 let theme = crate::env::Themes::of(store);
                 match self.install_document(
                     store,
+                    ui,
                     &fonts,
                     &theme,
                     document_id,
@@ -1124,23 +1172,27 @@ impl View for ListPanel {
         imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
             let size = constraints.max;
             let chrome = crate::env::Themes::of(store).ui().search.clone();
-            let header = chrome.group_header;
             let mut panel = imba::container::container(arena, size);
             let title = LocationLists::entry_ref(store, self.id)
                 .map(|entry| entry.title.clone())
                 .unwrap_or_else(|| "Results".to_owned());
-            panel.place_boxed(
-                0.0,
-                0.0,
-                crate::ui::ListRow::new(arena, crate::ui::RowStyle::header(store, ui))
-                    .label(title)
-                    .backdrop(
-                        crate::ui::Surface::fill(chrome.group_fill.0)
-                            .radius(0.0)
-                            .painter(),
-                    )
-                    .layout(arena, Constraints::tight(Size::new(size.width, header))),
-            );
+            // The band sizes ITSELF; the rows start where it ends.
+            let band = crate::ui::ListRow::new(arena, crate::ui::RowStyle::header(store, ui))
+                .label(title)
+                .backdrop(
+                    crate::ui::Surface::fill(chrome.group_fill.0)
+                        .radius(0.0)
+                        .painter(),
+                )
+                .layout(
+                    arena,
+                    Constraints {
+                        min: Size::new(size.width, 0.0),
+                        max: Size::new(size.width, f32::MAX),
+                    },
+                );
+            let header = imba::Thunk::size(&band).height;
+            panel.place_boxed(0.0, 0.0, band);
             match LocationLists::entry_ref(store, self.id) {
                 Some(entry) => panel.place(
                     0.0,
@@ -1239,11 +1291,12 @@ impl crate::PanelView for ListPanel {
     fn drawer_view(
         &self,
         store: &Store,
+        ui: &UiCtx,
         window: crate::WindowId,
     ) -> Option<Box<dyn crate::ModalView>> {
         let entry = LocationLists::entry_ref(store, self.id)?;
         let locations = entry.list.content().result_locations();
-        crate::TocView::for_locations(store, window, &locations)
+        crate::TocView::for_locations(store, ui, window, &locations)
             .map(|view| Box::new(view) as Box<dyn crate::ModalView>)
     }
 }

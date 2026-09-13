@@ -165,6 +165,7 @@ impl DynamicCommand for ApplyNavigation {
             [target] => navigate(store, window, target, &self.outcome.built, fx),
             targets => open_references(
                 store,
+                &_app.ui_ctx(),
                 window,
                 &self.outcome.title,
                 targets,
@@ -211,6 +212,7 @@ fn navigate(
 
 fn open_references(
     store: &mut Store,
+    ui: &imba::UiCtx,
     window: himark::WindowId,
     title: &str,
     targets: &[CodeTarget],
@@ -269,7 +271,7 @@ fn open_references(
     let mut list = LocationList::new();
     let fonts = himark::env::Fonts::of(store)();
     fx.scope(identity_routed(window, group_documents), |fx| {
-        list.install(store, &fonts, groups, None, fx)
+        list.install(store, ui, &fonts, groups, None, fx)
     });
 
     let id = himark::ListId::mint();

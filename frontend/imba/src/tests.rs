@@ -260,7 +260,7 @@ fn scroll_view_clamps_wheel_commands_to_content_bounds() {
     });
     let arena = Arena::default();
     let store = Store::new();
-    let ui = crate::ui::UiCtx::new();
+    let ui = crate::ui::UiCtx::cold();
     let widget = view
         .layout(
             &arena,
@@ -380,7 +380,7 @@ fn scrolled(
 ) -> EventResult<ScrollCommand<f32>> {
     let arena = Arena::default();
     let store = Store::new();
-    let ui = crate::ui::UiCtx::new();
+    let ui = crate::ui::UiCtx::cold();
     let widget = view
         .layout(
             &arena,
@@ -472,7 +472,7 @@ fn a_fitted_view_never_claims() {
     let view = ScrollView::new(Short);
     let arena = Arena::default();
     let store = Store::new();
-    let ui = crate::ui::UiCtx::new();
+    let ui = crate::ui::UiCtx::cold();
     let widget = view
         .layout(
             &arena,
@@ -504,7 +504,7 @@ fn scroll_view_translates_mouse_coordinates_into_scrolled_content_space() {
         size: Size::new(100.0, 500.0),
     });
     let mut store = Store::new();
-    let ui = crate::ui::UiCtx::new();
+    let ui = crate::ui::UiCtx::cold();
     perform_into(&mut view, &mut store, &ui, ScrollCommand::SetScrollY(75.0));
     let arena = Arena::default();
     let widget = view
@@ -721,7 +721,7 @@ fn boxed_dyn_view_routes_commands_back_to_the_typed_view() {
 
     let arena = Arena::default();
     let mut store = Store::new();
-    let ui = crate::ui::UiCtx::new();
+    let ui = crate::ui::UiCtx::cold();
     let command = {
         let widget = view
             .layout(
@@ -760,7 +760,7 @@ fn split_view_routes_clicks_to_the_pane_under_the_point() {
     );
     let arena = Arena::default();
     let store = Store::new();
-    let ui = crate::ui::UiCtx::new();
+    let ui = crate::ui::UiCtx::cold();
     let widget = view
         .layout(
             &arena,
@@ -820,7 +820,7 @@ fn split_view_divides_the_main_axis_by_ratio() {
     .with_ratio(0.25);
     let arena = Arena::default();
     let store = Store::new();
-    let ui = crate::ui::UiCtx::new();
+    let ui = crate::ui::UiCtx::cold();
     let widget = view
         .layout(
             &arena,
@@ -869,7 +869,7 @@ fn split_view_perform_routes_to_the_addressed_pane() {
         }),
     );
     let mut store = Store::new();
-    let ui = crate::ui::UiCtx::new();
+    let ui = crate::ui::UiCtx::cold();
 
     perform_into(
         &mut view,
@@ -893,7 +893,7 @@ fn split_view_scrolls_the_pane_under_the_pointer_and_keys_follow_focus() {
         }),
     );
     let mut store = Store::new();
-    let ui = crate::ui::UiCtx::new();
+    let ui = crate::ui::UiCtx::cold();
     let arena = Arena::default();
 
     {
@@ -1068,7 +1068,7 @@ fn an_absurd_row_height_cannot_wrap_the_lists_offsets() {
 #[test]
 fn list_stacks_rows_and_a_click_focuses_the_hit_row() {
     let mut store = Store::new();
-    let ui = crate::ui::UiCtx::new();
+    let ui = crate::ui::UiCtx::cold();
     let arena = Arena::default();
     let mut list = row_list();
 
@@ -1115,7 +1115,7 @@ fn list_stacks_rows_and_a_click_focuses_the_hit_row() {
 #[test]
 fn list_routes_position_less_events_to_the_focused_row() {
     let mut store = Store::new();
-    let ui = crate::ui::UiCtx::new();
+    let ui = crate::ui::UiCtx::cold();
     let arena = Arena::default();
     let mut list = row_list();
 
@@ -1159,7 +1159,7 @@ fn list_routes_position_less_events_to_the_focused_row() {
 #[test]
 fn list_drops_commands_addressed_to_missing_rows() {
     let mut store = Store::new();
-    let ui = crate::ui::UiCtx::new();
+    let ui = crate::ui::UiCtx::cold();
     let mut list = row_list();
     let mut batch = crate::effect::Batch::new();
     list.perform(
@@ -1249,7 +1249,7 @@ fn paint_broadcasts_and_merges_every_mismatch() {
 fn list_paint_reconciles_stale_row_heights() {
     let mut surface = skia_safe::surfaces::raster_n32_premul((100, 60)).expect("surface");
     let mut store = Store::new();
-    let ui = crate::ui::UiCtx::new();
+    let ui = crate::ui::UiCtx::cold();
     let arena = Arena::default();
 
     let mut list: ListView<Row> = ListView::from_rope(crate::list::measured([
@@ -1319,7 +1319,7 @@ fn list_scroll_benchmark() {
     };
 
     let mut store = Store::new();
-    let ui = crate::ui::UiCtx::new();
+    let ui = crate::ui::UiCtx::cold();
     let built_started = std::time::Instant::now();
     let mut view = ScrollView::new(ListView::from_rope(crate::list::measured(
         (0..ROWS).map(|_| (Row { height: ROW_HEIGHT }, ROW_HEIGHT)),
@@ -1414,7 +1414,7 @@ fn focus_commands_of<V: View>(
 #[test]
 fn commands_follow_focus_and_map_up_the_tree() {
     let mut store = Store::new();
-    let ui = crate::ui::UiCtx::new();
+    let ui = crate::ui::UiCtx::cold();
 
     let mut view = ScrollView::new(row_list());
     assert!(focus_commands_of(&view, &store, &ui).is_empty());
@@ -1450,7 +1450,7 @@ fn commands_follow_focus_and_map_up_the_tree() {
 #[test]
 fn split_and_dyn_views_carry_commands() {
     let mut store = Store::new();
-    let ui = crate::ui::UiCtx::new();
+    let ui = crate::ui::UiCtx::cold();
     let mut focused_list = row_list();
     perform_into(
         &mut focused_list,
@@ -1499,7 +1499,7 @@ mod list_tree {
     fn slice(keys: &[u64]) -> ListSlice<Row, u64> {
         let mut slice = ListSlice::new();
         for key in keys {
-            slice.push_keyed(*key, Row { height: 10.0 }, 10.0);
+            slice.push_keyed_sized(*key, Row { height: 10.0 }, 10.0);
         }
         slice
     }
@@ -1512,7 +1512,7 @@ mod list_tree {
         let range = list.row_range(&key).expect("node exists");
         let mut block = slice(&[key]);
         for child in children {
-            block.push_keyed(*child, Row { height: 10.0 }, 10.0);
+            block.push_keyed_sized(*child, Row { height: 10.0 }, 10.0);
         }
         block.cover(key, 0..children.len() + 1);
         list.splice_slice(range, block);
@@ -1635,9 +1635,9 @@ mod list_tree {
     #[test]
     fn cursor_steps_over_keyed_rows_only() {
         let mut block: ListSlice<Row, u64> = ListSlice::new();
-        block.push_keyed(1, Row { height: 10.0 }, 10.0);
-        block.push(Row { height: 10.0 }, 10.0);
-        block.push_keyed(2, Row { height: 10.0 }, 10.0);
+        block.push_keyed_sized(1, Row { height: 10.0 }, 10.0);
+        block.push_sized(Row { height: 10.0 }, 10.0);
+        block.push_keyed_sized(2, Row { height: 10.0 }, 10.0);
         let mut list = ListView::from_slice(block).with_selection(Default::default());
         list.select_only(1);
         list.cursor_step(1);
@@ -1697,7 +1697,7 @@ mod animated_splice {
         perform_into(
             list,
             store,
-            &crate::ui::UiCtx::new(),
+            &crate::ui::UiCtx::cold(),
             ListCommand::Animate(AnimationClock::from_millis(at_ms)),
         );
     }
@@ -1749,7 +1749,7 @@ mod animated_splice {
     #[test]
     fn paint_does_not_snap_animating_rows() {
         let mut store = Store::new();
-        let ui = crate::ui::UiCtx::new();
+        let ui = crate::ui::UiCtx::cold();
         let mut list = ListView::from_rope(crate::list::measured([(Row { height: 20.0 }, 20.0)]));
         list.splice_animated(0..1, (0..4).map(|_| (Row { height: 20.0 }, 20.0)));
         let entering = cached_total(&list);
@@ -1911,7 +1911,7 @@ fn knob_event(
 ) -> EventResult<ScrollCommand<ContentCommand>> {
     let arena = Arena::default();
     let store = Store::new();
-    let ui = crate::ui::UiCtx::new();
+    let ui = crate::ui::UiCtx::cold();
     ui.set(scrollbar_style());
     let widget = view
         .layout(
@@ -1926,7 +1926,7 @@ fn knob_event(
 
 fn knob_perform(view: &mut ScrollView<FixedContent>, command: ScrollCommand<ContentCommand>) {
     let mut batch = crate::effect::Batch::new();
-    let ui = crate::ui::UiCtx::new();
+    let ui = crate::ui::UiCtx::cold();
     view.perform(&mut Store::new(), &ui, command, &mut batch.effects());
 }
 

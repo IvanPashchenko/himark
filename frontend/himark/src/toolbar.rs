@@ -480,7 +480,7 @@ pub(crate) fn toolbar_query(
     let (class, payload) = surfaces.split(raw);
     let entity = crate::Windows::window_ref(store, window).expect("the window entity");
     if entity.toolbar_session_class() == Some(class) && entity.has_modal() {
-        return feed_query(store, window, &payload, fx);
+        return feed_query(store, ui, window, &payload, fx);
     }
 
     let Some(surface) = surfaces.find(class).cloned() else {
@@ -520,13 +520,19 @@ fn mount_surface(
         |fx| entity.set_overlay(store, modal, fx),
     );
     crate::Windows::put(store, window, entity);
-    feed_query(store, window, payload, fx);
+    feed_query(store, ui, window, payload, fx);
 }
 
-fn feed_query(store: &mut Store, window: crate::WindowId, payload: &str, fx: &mut AppFx<'_>) {
+fn feed_query(
+    store: &mut Store,
+    ui: &imba::UiCtx,
+    window: crate::WindowId,
+    payload: &str,
+    fx: &mut AppFx<'_>,
+) {
     let mut entity = crate::Windows::window(store, window).expect("the window entity");
     fx.scope(crate::modal_scope(window), |fx| {
-        entity.modal_set_query(store, payload, fx)
+        entity.modal_set_query(store, ui, payload, fx)
     });
     crate::Windows::put(store, window, entity);
 }

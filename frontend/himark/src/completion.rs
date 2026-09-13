@@ -314,7 +314,7 @@ impl Completion {
             if query != self.query {
                 self.query = query;
                 self.launch_path(fx, wrap);
-                self.refresh(store, document, editor);
+                self.refresh(store, ui, document, editor);
             }
             return;
         }
@@ -406,10 +406,10 @@ impl Completion {
                     }
                 );
                 if grew && !incomplete {
-                    self.refresh(store, document, editor);
+                    self.refresh(store, ui, document, editor);
                 } else {
                     self.launch_lsp(document, editor, location, fx, wrap);
-                    self.refresh(store, document, editor);
+                    self.refresh(store, ui, document, editor);
                 }
             }
             return;
@@ -519,7 +519,7 @@ impl Completion {
         self.markup = Some(markup);
         self.installed = installed;
         self.anchor_offset = anchor_offset;
-        self.refresh_rows(store);
+        self.refresh_rows(store, ui);
         let view = self.view();
 
         let range = cover..cover + 1;
@@ -550,6 +550,7 @@ impl Completion {
     pub fn land(
         &mut self,
         store: &Store,
+        ui: &UiCtx,
         document: &mut crate::Document,
         editor: ::editor::EditorId,
         found: CompletionFound,
@@ -591,7 +592,7 @@ impl Completion {
             }
             _ => return,
         }
-        self.refresh(store, document, editor);
+        self.refresh(store, ui, document, editor);
     }
 
     pub fn select(
@@ -775,14 +776,15 @@ impl Completion {
     pub fn refresh(
         &mut self,
         store: &Store,
+        ui: &UiCtx,
         document: &mut crate::Document,
         editor: ::editor::EditorId,
     ) {
-        self.refresh_rows(store);
+        self.refresh_rows(store, ui);
         self.swap_view(document, editor);
     }
 
-    fn refresh_rows(&mut self, store: &Store) {
+    fn refresh_rows(&mut self, store: &Store, ui: &UiCtx) {
         let query = self.query.to_lowercase();
         let mut labels = Vec::new();
         let mut trails = Vec::new();
@@ -842,7 +844,7 @@ impl Completion {
             .selected()
             .min(self.source.row_count().saturating_sub(1));
         self.list
-            .set_with_trails(store, &labels, &trails, note, selected);
+            .set_with_trails(store, ui, &labels, &trails, note, selected);
     }
 
     fn view(&self) -> CompletionPopupView {

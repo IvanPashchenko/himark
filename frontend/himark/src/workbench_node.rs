@@ -57,9 +57,10 @@ pub trait PanelView: imba::CloneDynView + Clone + Sized + 'static {
     fn drawer_view(
         &self,
         store: &Store,
+        ui: &UiCtx,
         window: crate::WindowId,
     ) -> Option<Box<dyn crate::ModalView>> {
-        let _ = (store, window);
+        let _ = (store, ui, window);
         None
     }
 }
@@ -83,6 +84,7 @@ pub trait DynPanelView: imba::CloneDynView {
     fn drawer_view_dyn(
         &self,
         store: &Store,
+        ui: &UiCtx,
         window: crate::WindowId,
     ) -> Option<Box<dyn crate::ModalView>>;
 }
@@ -130,9 +132,10 @@ impl<P: PanelView> DynPanelView for P {
     fn drawer_view_dyn(
         &self,
         store: &Store,
+        ui: &UiCtx,
         window: crate::WindowId,
     ) -> Option<Box<dyn crate::ModalView>> {
-        self.drawer_view(store, window)
+        self.drawer_view(store, ui, window)
     }
 }
 
@@ -299,6 +302,7 @@ impl Panel {
     pub(crate) fn drawer_view(
         &self,
         store: &Store,
+        ui: &UiCtx,
         window: crate::WindowId,
     ) -> Option<Box<dyn crate::ModalView>> {
         match self {
@@ -317,7 +321,7 @@ impl Panel {
                     location,
                 )) as Box<dyn crate::ModalView>)
             }
-            Self::Plugin(view) => view.drawer_view_dyn(store, window),
+            Self::Plugin(view) => view.drawer_view_dyn(store, ui, window),
         }
     }
 
@@ -754,7 +758,8 @@ impl PaneSlot {
             self.completion.clear();
             return;
         };
-        self.completion.land(store, &mut document, editor, found);
+        self.completion
+            .land(store, ui, &mut document, editor, found);
         crate::OpenDocuments::put_document(store, id, document);
     }
 

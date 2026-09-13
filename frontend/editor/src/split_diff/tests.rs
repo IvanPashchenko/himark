@@ -86,7 +86,7 @@ fn launches(
 }
 
 fn drain(view: &mut SplitDiffView, effects: Vec<imba::effect::AnyEffect<SplitDiffCommand>>) {
-    let ui = UiCtx::new();
+    let ui = UiCtx::cold();
     let mut store = Store::new();
     let workshop = test_workshop();
     let mut pending = effects;
@@ -113,7 +113,7 @@ fn normalize(view: &mut SplitDiffView) {
         .right
         .document
         .install_normalized_diff(id, minimal, base_revision));
-    let ui = UiCtx::new();
+    let ui = UiCtx::cold();
     let mut store = Store::new();
     let effects = perform_collect(view, &mut store, &ui, SplitDiffCommand::Resync);
     drain(view, effects);
@@ -270,7 +270,7 @@ fn a_fresh_pair_settles_aligned_with_marks() {
     let _ = perform_collect(
         &mut view,
         &mut store,
-        &UiCtx::new(),
+        &UiCtx::cold(),
         SplitDiffCommand::Left(EditorCommand::Move {
             motion: crate::editor_view::Motion::Right,
             select: false,
@@ -290,7 +290,7 @@ fn settling_without_changes_leaves_the_markup_generation_alone() {
     let _ = perform_collect(
         &mut view,
         &mut store,
-        &UiCtx::new(),
+        &UiCtx::cold(),
         SplitDiffCommand::Left(EditorCommand::Move {
             motion: crate::editor_view::Motion::Right,
             select: false,
@@ -304,7 +304,7 @@ fn settling_without_changes_leaves_the_markup_generation_alone() {
         let _ = perform_collect(
             &mut view,
             &mut store,
-            &UiCtx::new(),
+            &UiCtx::cold(),
             SplitDiffCommand::Right(EditorCommand::Move {
                 motion: crate::editor_view::Motion::Right,
                 select: false,
@@ -326,7 +326,7 @@ fn typing_and_landings_keep_the_pair_aligned() {
         240.0,
     );
     let mut store = Store::new();
-    let ui = UiCtx::new();
+    let ui = UiCtx::cold();
     let workshop = test_workshop();
 
     let mut pending: Vec<imba::effect::AnyEffect<SplitDiffCommand>> = Vec::new();
@@ -392,7 +392,7 @@ fn typing_across_boundaries_never_leaves_stale_spacers() {
     let source = "one\ntwo\nthree\nfour\nfive\nsix\n";
     let mut view = pair(source, source, 240.0);
     let mut store = Store::new();
-    let ui = UiCtx::new();
+    let ui = UiCtx::cold();
 
     let _ = perform_collect(
         &mut view,
@@ -432,7 +432,7 @@ fn a_stale_repair_landing_must_not_revert_spacers() {
     let right_source = format!("{head}added A\nadded B\nadded C\n{tail}");
     let mut view = pair(&left_source, &right_source, 240.0);
     let mut store = Store::new();
-    let ui = UiCtx::new();
+    let ui = UiCtx::cold();
     let workshop = test_workshop();
 
     let viewport = || EditorCommand::Viewport {
@@ -526,7 +526,7 @@ fn scrolling_derives_marks_for_the_revealed_window_only_once() {
         left_source.replace("paragraph number 1599 with", "paragraph number 1599 WITH");
     let mut view = pair(&left_source, &right_source, 240.0);
     let mut store = Store::new();
-    let ui = UiCtx::new();
+    let ui = UiCtx::cold();
 
     let _ = perform_collect(
         &mut view,
@@ -580,7 +580,7 @@ fn a_line_typed_before_a_shared_paragraph_aligns_that_paragraph() {
     let source = "alpha alpha\nbeta beta\ngamma gamma\n";
     let mut view = pair(source, source, 240.0);
     let mut store = Store::new();
-    let ui = UiCtx::new();
+    let ui = UiCtx::cold();
 
     let beta = source.find("beta").unwrap() as u32;
     let beta_y = view.right.document.editors[&view.right.editor]
@@ -625,7 +625,7 @@ fn a_line_typed_before_a_shared_paragraph_aligns_that_paragraph() {
 fn clicking_a_half_takes_focus_from_the_other() {
     let mut view = pair("alpha\nbeta\n", "alpha\nBETA\n", 240.0);
     let mut store = Store::new();
-    let ui = UiCtx::new();
+    let ui = UiCtx::cold();
     let click = |x: f32, y: f32| EditorCommand::Click {
         kind: crate::editor_view::ClickKind::Set,
         point: skia_safe::Point::new(x, y),
@@ -665,7 +665,7 @@ fn height_only_commands_resync_without_rediffing() {
         240.0,
     );
     let mut store = Store::new();
-    let ui = UiCtx::new();
+    let ui = UiCtx::cold();
     let effects = perform_collect(
         &mut view,
         &mut store,
@@ -704,7 +704,7 @@ fn fuzzed_editing_keeps_the_pair_aligned() {
         "x",
         "longish-token-that-wraps",
     ];
-    let ui = UiCtx::new();
+    let ui = UiCtx::cold();
     let workshop = test_workshop();
 
     for seed in 0..40u64 {
@@ -1061,7 +1061,7 @@ fn the_plain_repair_lane_skips_pair_managed_halves() {
 fn a_typing_storm_holds_one_pair_repair_in_flight() {
     use imba::effect::Message;
     let mut view = pair("alpha\nbeta\n", "alpha\ngamma\n", 400.0);
-    let ui = UiCtx::new();
+    let ui = UiCtx::cold();
     let mut store = Store::new();
 
     let tokens = |batch: imba::effect::Batch<SplitDiffCommand>| {
@@ -1139,7 +1139,7 @@ fn folds_derive_on_the_marks_worker_and_adjust_in_lockstep() {
     );
     assert_aligned(&view);
 
-    let ui = UiCtx::new();
+    let ui = UiCtx::cold();
     let mut store = Store::new();
     let key = crate::markup::InlayKey {
         layer: crate::markup::MarkupLayer::Markup(lm),
@@ -1457,7 +1457,7 @@ fn a_width_mismatched_pane_idles_instead_of_livelocking() {
         state,
     );
 
-    let ui = UiCtx::new();
+    let ui = UiCtx::cold();
     let mut store = Store::new();
     let workshop = test_workshop();
     let mut batch = imba::effect::Batch::new();
@@ -1509,7 +1509,7 @@ fn folds_at_the_end_of_the_diff_survive_every_edge_command() {
         "the strip runs to EOF — the shape that crashed"
     );
 
-    let ui = UiCtx::new();
+    let ui = UiCtx::cold();
     let mut store = Store::new();
     for command in [
         fold::FoldCommand::RevealBottom,

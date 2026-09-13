@@ -74,7 +74,7 @@ impl TreeDemoRow {
     }
 
     fn keyed(id: u64, expanded: bool, slice: &mut ListSlice<TreeDemoRow, u64>) {
-        slice.push_keyed(id, TreeDemoRow { id, expanded }, ROW_HEIGHT);
+        slice.push_keyed_sized(id, TreeDemoRow { id, expanded }, ROW_HEIGHT);
     }
 }
 

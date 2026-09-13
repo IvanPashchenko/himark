@@ -205,13 +205,36 @@ impl<T: Clone, K: Clone + Eq + Hash> ListSlice<T, K> {
         }
     }
 
-    pub fn push(&mut self, view: T, height: f32) {
+    /// The view is the one that knows how to lay itself out, so it is
+    /// laid RIGHT HERE and enters the slice already measured — the
+    /// rope's invariant (every element carries its real height) holds
+    /// at the door. Only for rows whose height ignores the width.
+    pub fn push(&mut self, view: T, store: &Store, ui: &UiCtx)
+    where
+        T: View,
+    {
+        let height = laid_row_height(&view, store, ui);
+        self.push_sized(view, height);
+    }
+
+    pub fn push_keyed(&mut self, key: K, view: T, store: &Store, ui: &UiCtx)
+    where
+        T: View,
+    {
+        let height = laid_row_height(&view, store, ui);
+        self.push_keyed_sized(key, view, height);
+    }
+
+    /// A row whose height the caller already knows — measured at a
+    /// real width (width-dependent rows) or carried over from an
+    /// existing rope element.
+    pub fn push_sized(&mut self, view: T, height: f32) {
         self.pending.push(ListElement { view, height });
     }
 
-    pub fn push_keyed(&mut self, key: K, view: T, height: f32) {
+    pub fn push_keyed_sized(&mut self, key: K, view: T, height: f32) {
         let index = self.len() as u32;
-        self.push(view, height);
+        self.push_sized(view, height);
         self.spans.push(Interval {
             range: index..index + 1,
             greedy_left: true,
@@ -398,6 +421,16 @@ impl<T: Clone, K: Clone + Eq + Hash> ListView<T, K> {
                 )
             })
             .collect()
+    }
+
+    /// The row's measured height, straight from the rope — carriers
+    /// re-splicing existing rows bring these along instead of
+    /// re-measuring.
+    pub fn height_at(&self, index: usize) -> Option<f32> {
+        let mut cursor = self.items.cursor();
+        cursor
+            .seek_to_index(index as u32)
+            .then(|| cursor.element().height)
     }
 
     pub fn key_at(&self, index: usize) -> Option<&K> {
@@ -1063,6 +1096,27 @@ impl<T: Clone, K: Clone + Eq + Hash> Clone for ListView<T, K> {
             generation: self.generation,
         }
     }
+}
+
+/// Lays a row view once to learn its height — the store carries the
+/// theme; fonts resolve identically under a fresh `UiCtx`.
+/// Lays a row view once to learn its height — with the CALLER's
+/// `UiCtx`, so font caches are the app's own, warm ones: a
+/// measurement costs a text measure, never a font-manager build.
+fn laid_row_height<T: View>(view: &T, store: &Store, ui: &UiCtx) -> f32 {
+    let arena = Arena::default();
+    let thunk = view.layout(
+        &arena,
+        store,
+        ui,
+        Constraints {
+            min: Size::default(),
+            max: Size::new(f32::MAX, f32::MAX),
+        },
+    );
+    let height = thunk.size().height;
+    drop(thunk);
+    height
 }
 
 impl<T, K> View for ListView<T, K>

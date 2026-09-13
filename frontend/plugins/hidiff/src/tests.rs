@@ -1051,7 +1051,7 @@ fn a_repair_captured_before_a_caret_move_discards_itself() {
         &mut imba::effect::Batch::new().effects(),
     );
     let mut store = imba::store::Store::new();
-    let ui = imba::UiCtx::new();
+    let ui = imba::UiCtx::cold();
     let mut perform = |document: &mut himark::Document, command| {
         let mut batch = imba::effect::Batch::new();
         document.perform(&mut store, &ui, editor, command, &mut batch.effects());

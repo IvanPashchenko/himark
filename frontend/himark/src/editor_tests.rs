@@ -69,7 +69,7 @@ impl TestPane {
         let mut batch = imba::effect::Batch::new();
         self.view.perform(
             &mut self.store,
-            &imba::UiCtx::new(),
+            &imba::UiCtx::cold(),
             command,
             &mut batch.effects(),
         );
@@ -86,7 +86,7 @@ impl TestPane {
             let mut batch = imba::effect::Batch::new();
             self.view.perform(
                 &mut self.store,
-                &imba::UiCtx::new(),
+                &imba::UiCtx::cold(),
                 command,
                 &mut batch.effects(),
             );
@@ -198,7 +198,7 @@ fn editors_sharing_a_document_see_each_others_edits() {
         let mut batch = imba::effect::Batch::new();
         left_view.perform(
             &mut store,
-            &imba::UiCtx::new(),
+            &imba::UiCtx::cold(),
             EditorCommand::InsertText {
                 text: "typed ".to_owned(),
             },
@@ -443,7 +443,7 @@ fn repairs_for_a_repointed_entity_discard_themselves() {
         let mut batch = imba::effect::Batch::new();
         pane.view.perform(
             &mut pane.store,
-            &imba::UiCtx::new(),
+            &imba::UiCtx::cold(),
             EditorCommand::InsertText {
                 text: "x".to_owned(),
             },
@@ -485,7 +485,7 @@ fn repairs_for_a_repointed_entity_discard_themselves() {
         let mut discarded = imba::effect::Batch::new();
         pane.view.perform(
             &mut pane.store,
-            &imba::UiCtx::new(),
+            &imba::UiCtx::cold(),
             command,
             &mut discarded.effects(),
         );
@@ -512,7 +512,7 @@ fn stale_repairs_discard_and_the_fresh_one_converges() {
         let mut batch = imba::effect::Batch::new();
         pane.view.perform(
             &mut pane.store,
-            &imba::UiCtx::new(),
+            &imba::UiCtx::cold(),
             EditorCommand::InsertText {
                 text: "first ".to_owned(),
             },
@@ -526,7 +526,7 @@ fn stale_repairs_discard_and_the_fresh_one_converges() {
         let mut batch = imba::effect::Batch::new();
         pane.view.perform(
             &mut pane.store,
-            &imba::UiCtx::new(),
+            &imba::UiCtx::cold(),
             EditorCommand::InsertText {
                 text: "second ".to_owned(),
             },
@@ -543,7 +543,7 @@ fn stale_repairs_discard_and_the_fresh_one_converges() {
         let mut discarded = imba::effect::Batch::new();
         pane.view.perform(
             &mut pane.store,
-            &imba::UiCtx::new(),
+            &imba::UiCtx::cold(),
             command,
             &mut discarded.effects(),
         );
@@ -562,7 +562,7 @@ fn stale_repairs_discard_and_the_fresh_one_converges() {
         let mut batch = imba::effect::Batch::new();
         pane.view.perform(
             &mut pane.store,
-            &imba::UiCtx::new(),
+            &imba::UiCtx::cold(),
             command,
             &mut batch.effects(),
         );
@@ -617,7 +617,7 @@ fn focus_moves_between_text_and_inlays() {
 
     {
         let arena = Arena::default();
-        let ui = imba::UiCtx::new();
+        let ui = imba::UiCtx::cold();
         let widget = pane.view.layout(
             &arena,
             &pane.store,
@@ -639,7 +639,7 @@ fn focus_moves_between_text_and_inlays() {
 
     {
         let arena = Arena::default();
-        let ui = imba::UiCtx::new();
+        let ui = imba::UiCtx::cold();
         let widget = pane.view.layout(
             &arena,
             &pane.store,
@@ -806,7 +806,7 @@ fn an_inlay_paints_focused_only_while_it_holds_the_editors_focus() {
 
     let paint = |pane: &TestPane| -> Vec<EditorCommand> {
         let arena = imba::arena::Arena::default();
-        let ui = imba::UiCtx::new();
+        let ui = imba::UiCtx::cold();
         let view = pane.gathered();
         let widget = View::layout(
             &view,
@@ -932,7 +932,7 @@ fn a_repair_from_before_a_resize_discards_itself() {
         let mut batch = imba::effect::Batch::new();
         pane.view.perform(
             &mut pane.store,
-            &imba::UiCtx::new(),
+            &imba::UiCtx::cold(),
             EditorCommand::InsertText {
                 text: "first ".to_owned(),
             },
@@ -953,7 +953,7 @@ fn a_repair_from_before_a_resize_discards_itself() {
         let mut discarded = imba::effect::Batch::new();
         pane.view.perform(
             &mut pane.store,
-            &imba::UiCtx::new(),
+            &imba::UiCtx::cold(),
             command,
             &mut discarded.effects(),
         );
@@ -1007,7 +1007,7 @@ fn opening_a_document_lays_out_the_viewport_and_repairs_the_rest() {
             let mut batch = imba::effect::Batch::new();
             node.perform(
                 &mut store,
-                &imba::UiCtx::new(),
+                &imba::UiCtx::cold(),
                 command,
                 &mut batch.effects(),
             );
@@ -1023,7 +1023,7 @@ fn opening_a_document_lays_out_the_viewport_and_repairs_the_rest() {
             let mut batch = imba::effect::Batch::new();
             node.perform(
                 &mut store,
-                &imba::UiCtx::new(),
+                &imba::UiCtx::cold(),
                 command,
                 &mut batch.effects(),
             );
@@ -1432,7 +1432,7 @@ fn retheme_reshapes_the_viewport_synchronously_and_the_tail_in_repairs() {
         let mut batch = imba::effect::Batch::new();
         pane.view.perform(
             &mut pane.store,
-            &imba::UiCtx::new(),
+            &imba::UiCtx::cold(),
             EditorCommand::Retheme {
                 top,
                 bottom,
@@ -1477,7 +1477,7 @@ fn retheme_reshapes_the_viewport_synchronously_and_the_tail_in_repairs() {
             let mut batch = imba::effect::Batch::new();
             pane.view.perform(
                 &mut pane.store,
-                &imba::UiCtx::new(),
+                &imba::UiCtx::cold(),
                 command,
                 &mut batch.effects(),
             );
@@ -1522,7 +1522,7 @@ fn a_stale_theme_repair_landing_discards_itself() {
         let mut batch = imba::effect::Batch::new();
         pane.view.perform(
             &mut pane.store,
-            &imba::UiCtx::new(),
+            &imba::UiCtx::cold(),
             EditorCommand::Retheme {
                 top: 0.0,
                 bottom: 600.0,
@@ -1552,7 +1552,7 @@ fn a_stale_theme_repair_landing_discards_itself() {
             let mut batch = imba::effect::Batch::new();
             pane.view.perform(
                 &mut pane.store,
-                &imba::UiCtx::new(),
+                &imba::UiCtx::cold(),
                 command,
                 &mut batch.effects(),
             );
@@ -1574,7 +1574,7 @@ fn a_stale_theme_repair_landing_discards_itself() {
             let mut batch = imba::effect::Batch::new();
             pane.view.perform(
                 &mut pane.store,
-                &imba::UiCtx::new(),
+                &imba::UiCtx::cold(),
                 command,
                 &mut batch.effects(),
             );
@@ -2565,7 +2565,7 @@ fn double_and_triple_click_select_word_and_line() {
     assert_eq!(primary(&pane).offset(), 6);
 
     let arena = Arena::default();
-    let ui = imba::UiCtx::new();
+    let ui = imba::UiCtx::cold();
     let click = |count: u8, alt: bool| -> Option<ClickKind> {
         let mut event = Event::MouseDown {
             point: in_beta,
@@ -3355,7 +3355,7 @@ mod toc {
             .clone();
         assert!(view.rows().is_empty(), "nothing landed yet");
 
-        let ui = imba::UiCtx::new();
+        let ui = imba::UiCtx::cold();
         let mut store = app.store().clone();
         let mut batch = imba::effect::Batch::new();
         view.perform(
@@ -3446,6 +3446,7 @@ mod toc {
         };
         let toc = crate::TocView::for_locations(
             &store,
+            &imba::UiCtx::cold(),
             window,
             &[at("src", "b.rs"), at("docs", "a.md"), at("src", "a.rs")],
         )
@@ -3463,7 +3464,7 @@ mod toc {
         );
 
         let mut toc = toc;
-        let ui = imba::UiCtx::new();
+        let ui = imba::UiCtx::cold();
         let mut scratch = Store::new();
         toc.perform(
             &mut scratch,
@@ -3478,8 +3479,13 @@ mod toc {
         };
         assert_eq!(locations, vec![at("docs", "a.md")]);
 
-        let mut band =
-            crate::TocView::for_locations(&store, window, &[at("src", "x.rs")]).expect("rows");
+        let mut band = crate::TocView::for_locations(
+            &store,
+            &imba::UiCtx::cold(),
+            window,
+            &[at("src", "x.rs")],
+        )
+        .expect("rows");
         band.perform(
             &mut scratch,
             &ui,
@@ -3511,6 +3517,7 @@ mod toc {
         };
         let toc = crate::TocView::for_locations(
             &store,
+            &imba::UiCtx::cold(),
             window,
             &[
                 at(&["src", "ui", "widgets", "c.rs"]),
@@ -3532,8 +3539,13 @@ mod toc {
             "real nesting, folders before files"
         );
 
-        let chain = crate::TocView::for_locations(&store, window, &[at(&["a", "b", "c", "x.rs"])])
-            .expect("rows");
+        let chain = crate::TocView::for_locations(
+            &store,
+            &imba::UiCtx::cold(),
+            window,
+            &[at(&["a", "b", "c", "x.rs"])],
+        )
+        .expect("rows");
         assert_eq!(
             chain.rows(),
             vec![(0, "a/b/c".to_owned(), false), (1, "x.rs".to_owned(), true),],
@@ -3552,12 +3564,16 @@ mod toc {
                 vec![dir.to_owned(), name.to_owned()],
             )
         };
-        let mut toc =
-            crate::TocView::for_locations(&store, window, &[at("src", "a.rs"), at("src", "b.rs")])
-                .expect("rows");
+        let mut toc = crate::TocView::for_locations(
+            &store,
+            &imba::UiCtx::cold(),
+            window,
+            &[at("src", "a.rs"), at("src", "b.rs")],
+        )
+        .expect("rows");
         assert_eq!(toc.visible_rows(), 3, "the band and both files");
 
-        let ui = imba::UiCtx::new();
+        let ui = imba::UiCtx::cold();
         let mut scratch = Store::new();
         let mut drive = |toc: &mut crate::TocView, command| {
             toc.perform(
@@ -3609,7 +3625,7 @@ mod toc {
             .expect("outline")
             .clone();
 
-        let ui = imba::UiCtx::new();
+        let ui = imba::UiCtx::cold();
         let mut store = app.store().clone();
         let mut batch = imba::effect::Batch::new();
         view.perform(
@@ -3707,7 +3723,7 @@ mod toc {
             .expect("outline")
             .clone();
 
-        let ui = imba::UiCtx::new();
+        let ui = imba::UiCtx::cold();
         let mut store = app.store().clone();
         let mut batch = imba::effect::Batch::new();
         view.perform(
@@ -3831,7 +3847,7 @@ mod toc {
             .expect("outline")
             .clone();
 
-        let ui = imba::UiCtx::new();
+        let ui = imba::UiCtx::cold();
         let mut store = app.store().clone();
         let mut batch = imba::effect::Batch::new();
         view.perform(
@@ -3876,11 +3892,12 @@ fn installed_result_rows_paint_their_match_tints() {
         let id =
             crate::OpenDocuments::register(&mut store, document, None, "tint-test".to_owned(), 0);
         let mut list = crate::LocationList::new();
-        let ui = imba::UiCtx::new();
+        let ui = imba::UiCtx::cold();
         let workshop = crate::test_support::test_workshop(::editor::theme::Theme::embedded());
         let mut batch = imba::effect::Batch::new();
         list.install(
             &mut store,
+            &imba::UiCtx::cold(),
             &fonts,
             vec![crate::InstallGroup::open(
                 id,
@@ -4629,15 +4646,26 @@ mod dock_tests {
         }
 
         let mut store = app.store_mut().clone();
-        let ui = imba::UiCtx::new();
+        let ui = imba::UiCtx::cold();
         let mut panel = crate::higent::AgentsPanel::open(&store, window);
+        {
+            let mut boot: imba::effect::Batch<crate::higent::AgentsCommand> =
+                imba::effect::Batch::new();
+            imba::View::perform(
+                &mut panel,
+                &mut store,
+                &ui,
+                crate::higent::AgentsCommand::Boot,
+                &mut boot.effects(),
+            );
+        }
         let rows = panel.rows();
         let index = rows
             .iter()
             .position(|(label, _)| label == "+ Add Host…")
             .expect("the add-host row stands");
         let mut batch = imba::effect::Batch::new();
-        panel.activate(&mut store, index, &mut batch.effects());
+        panel.activate(&mut store, &ui, index, &mut batch.effects());
         assert_eq!(
             panel.add_host_text().as_deref(),
             Some(""),
@@ -4671,7 +4699,7 @@ mod dock_tests {
             "the capability received the URL"
         );
 
-        panel.activate(&mut store, index, &mut batch.effects());
+        panel.activate(&mut store, &ui, index, &mut batch.effects());
         panel.perform(
             &mut store,
             &ui,
@@ -5099,7 +5127,7 @@ fn a_pane_documents_popup_paints_in_the_window() {
             }),
             MagentaPopup,
         ),
-        &crate::env::ui_collection(app.store(), &imba::UiCtx::new()),
+        &crate::env::ui_collection(app.store(), &imba::UiCtx::cold()),
         &crate::env::Themes::of(app.store()),
         &mut imba::effect::Batch::new().effects(),
     );
@@ -5135,7 +5163,7 @@ fn a_pane_documents_popup_paints_in_the_window() {
     document.remove_markup(
         markup,
         &[],
-        &crate::env::ui_collection(app.store(), &imba::UiCtx::new()),
+        &crate::env::ui_collection(app.store(), &imba::UiCtx::cold()),
         &crate::env::Themes::of(app.store()),
         &mut imba::effect::Batch::new().effects(),
     );

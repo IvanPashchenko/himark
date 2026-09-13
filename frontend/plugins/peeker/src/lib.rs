@@ -113,6 +113,7 @@ const PEEKER_SHOWN: usize = 200;
 impl Peeker {
     pub fn open(
         store: &mut Store,
+        ui: &UiCtx,
         viewport: Size,
         recents: Vec<ResourceLocation>,
         widgets: Vec<(WidgetOrigin, Box<dyn himark::DynPanelView>)>,
@@ -147,7 +148,7 @@ impl Peeker {
             chrome,
             request: Default::default(),
         };
-        peeker.filter(store, "");
+        peeker.filter(store, ui, "");
         peeker.ensure_preview(store, fx);
         peeker
     }
@@ -171,7 +172,7 @@ impl Peeker {
         self.rows.len()
     }
 
-    fn refilter(&mut self, store: &Store) {
+    fn refilter(&mut self, store: &Store, ui: &UiCtx) {
         let query = self.filter_query.to_lowercase();
         self.rows.clear();
         self.labels.clear();
@@ -222,7 +223,7 @@ impl Peeker {
         }
         self.selected = self.selected.min(self.row_count().saturating_sub(1));
         let note = (self.hidden > 0).then(|| format!("… {} more — narrow the filter", self.hidden));
-        self.list.set(store, &self.labels, note, self.selected);
+        self.list.set(store, ui, &self.labels, note, self.selected);
     }
 
     pub fn labels(&self) -> &[String] {
@@ -249,16 +250,16 @@ impl Peeker {
         }
     }
 
-    fn filter(&mut self, store: &Store, query: &str) {
+    fn filter(&mut self, store: &Store, ui: &UiCtx, query: &str) {
         self.filter_query = query.to_owned();
-        self.refilter(store);
+        self.refilter(store, ui);
     }
 
-    fn launch_find(&mut self, store: &Store, query: &str, fx: &mut PeekerEffects<'_>) {
+    fn launch_find(&mut self, store: &Store, ui: &UiCtx, query: &str, fx: &mut PeekerEffects<'_>) {
         self.find_serial += 1;
         if self.workspace.is_empty() || query.len() < 2 {
             self.found.clear();
-            self.refilter(store);
+            self.refilter(store, ui);
             return;
         }
         let serial = self.find_serial;
@@ -487,7 +488,7 @@ impl View for Peeker {
                     .into_iter()
                     .filter(|location| !self.recents.contains(location))
                     .collect();
-                self.refilter(store);
+                self.refilter(store, ui);
                 self.ensure_preview(store, fx)
             }
             PeekerCommand::FetchedPreview { location, text } => {
@@ -756,6 +757,7 @@ impl ModalView for Peeker {
     fn set_query(
         &mut self,
         store: &mut Store,
+        ui: &UiCtx,
         query: &str,
         fx: &mut imba::effect::Effects<'_, imba::DynCommand>,
     ) {
@@ -763,8 +765,8 @@ impl ModalView for Peeker {
             |command: PeekerCommand| Box::new(command) as imba::DynCommand,
             |fx| {
                 let query = query.trim();
-                self.filter(store, query);
-                self.launch_find(store, query, fx);
+                self.filter(store, ui, query);
+                self.launch_find(store, ui, query, fx);
                 self.ensure_preview(store, fx);
             },
         )
@@ -785,7 +787,7 @@ impl ModalView for Peeker {
 pub fn overlay_surface() -> himark::OverlaySurface {
     himark::OverlaySurface {
         prefix: None,
-        open: std::sync::Arc::new(|store, _ui, window, fx| {
+        open: std::sync::Arc::new(|store, ui, window, fx| {
             let mut entity = himark::Windows::window(store, window).expect("the window entity");
             let viewport = entity.viewport_size();
 
@@ -808,7 +810,7 @@ pub fn overlay_surface() -> himark::OverlaySurface {
             let peeker = fx.scope(himark::modal_scope(window), |fx| {
                 fx.scope(
                     |command: PeekerCommand| Box::new(command) as imba::DynCommand,
-                    |fx| Peeker::open(store, viewport, recents, widgets, folders, fx),
+                    |fx| Peeker::open(store, ui, viewport, recents, widgets, folders, fx),
                 )
             });
             himark::Windows::put(store, window, entity);

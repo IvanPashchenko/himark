@@ -1048,11 +1048,12 @@ impl Window {
     pub(crate) fn modal_set_query(
         &mut self,
         store: &mut Store,
+        ui: &imba::UiCtx,
         query: &str,
         fx: &mut Effects<'_, imba::DynCommand>,
     ) {
         if let Some(modal) = &mut self.content.modal {
-            modal.set_query(store, query, fx);
+            modal.set_query(store, ui, query, fx);
         }
     }
 

@@ -610,11 +610,11 @@ impl ChatPanel {
         let chrome = env::Themes::of(store).ui().chat.clone();
         let mut slice = ListSlice::new();
         if self.cursor.is_some() {
-            slice.push(ChatRow::Loader { armed: true }, chrome.loader_height);
+            slice.push_sized(ChatRow::Loader { armed: true }, chrome.loader_height);
         }
         for turn in turns {
             let (view, height) = self.build_turn(store, ui, &turn.id, turn_cells(turn), fx);
-            slice.push_keyed(turn.id.clone(), ChatRow::Turn(view), height);
+            slice.push_keyed_sized(turn.id.clone(), ChatRow::Turn(view), height);
         }
         slice
     }
@@ -876,7 +876,7 @@ impl ChatPanel {
                         fx,
                     );
                     let mut slice = ListSlice::new();
-                    slice.push_keyed(action.turn_id.clone(), ChatRow::Turn(view), height);
+                    slice.push_keyed_sized(action.turn_id.clone(), ChatRow::Turn(view), height);
 
                     let range = self
                         .pending
@@ -1397,7 +1397,7 @@ impl ChatPanel {
         let (view, height) = self.build_turn(store, ui, &key, cells, fx);
 
         let mut slice = ListSlice::new();
-        slice.push_keyed(key.clone(), ChatRow::Turn(view), height);
+        slice.push_keyed_sized(key.clone(), ChatRow::Turn(view), height);
         let len = self.rows.content().len();
         self.rows.content_mut().splice_slice(len..len, slice);
         self.pending = Some((key.clone(), text.clone()));
@@ -1445,7 +1445,7 @@ impl ChatPanel {
         ];
         let (view, height) = self.build_turn(store, ui, &placeholder, cells, fx);
         let mut slice = ListSlice::new();
-        slice.push_keyed(placeholder.clone(), ChatRow::Turn(view), height);
+        slice.push_keyed_sized(placeholder.clone(), ChatRow::Turn(view), height);
         self.rows.content_mut().splice_slice(range, slice);
         if follow {
             self.reveal_tail();
@@ -1674,7 +1674,7 @@ impl View for ChatPanel {
             ChatPanelCommand::CompletionFound(found) => {
                 let editor = self.composer.editor();
                 self.completion
-                    .land(store, self.composer.document_mut(), editor, found);
+                    .land(store, ui, self.composer.document_mut(), editor, found);
             }
             ChatPanelCommand::Composer(ComposerCommand::Submit) => self.send(store, ui, fx),
             ChatPanelCommand::Composer(ComposerCommand::Stop) => self.stop(store, fx),
@@ -1814,6 +1814,30 @@ impl View for ChatPanel {
                 size.height - toolbar_h + 1.0,
                 toolbar_h - 1.0,
             );
+
+            // The footer's edges: a hairline between the transcript
+            // and the composer band, and one above the toolbar row
+            // (whose placement already reserves the pixel).
+            {
+                let rule = theme.ui().toolbar.rule.0;
+                let hairline =
+                    move |_arena: &Arena, canvas: &skia_safe::Canvas, rect: skia_safe::Rect| {
+                        let mut paint = skia_safe::Paint::default();
+                        paint.set_anti_alias(false);
+                        paint.set_color(rule);
+                        canvas.draw_rect(rect, &paint);
+                    };
+                panel.place(
+                    0.0,
+                    rows_height,
+                    leaf::<ChatPanelCommand>(size.width, 1.0).paint_instead(hairline),
+                );
+                panel.place(
+                    0.0,
+                    size.height - toolbar_h,
+                    leaf::<ChatPanelCommand>(size.width, 1.0).paint_instead(hairline),
+                );
+            }
 
             {
                 let ui_theme = theme.ui();

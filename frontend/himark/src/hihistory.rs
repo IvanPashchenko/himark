@@ -752,6 +752,7 @@ fn graph_node(
             pick: false,
             dim: true,
             trail: Vec::new(),
+            tint: crate::TreeTint::Label,
             children: Vec::new(),
         }
     };
@@ -807,6 +808,7 @@ fn graph_node(
                         pick: true,
                         dim: false,
                         trail,
+                        tint: crate::TreeTint::Label,
                         children,
                     });
                 }
@@ -824,6 +826,7 @@ fn graph_node(
                         pick: false,
                         dim: true,
                         trail: Vec::new(),
+                        tint: crate::TreeTint::Label,
                         children: Vec::new(),
                     });
                 }
@@ -842,6 +845,7 @@ fn graph_node(
         pick: false,
         dim: false,
         trail: Vec::new(),
+        tint: crate::TreeTint::Label,
         children,
     }
 }
@@ -1010,7 +1014,12 @@ impl Clone for HistoryView {
 }
 
 impl HistoryView {
-    pub fn open(store: &Store, window: crate::WindowId, workspace: crate::SessionId) -> Self {
+    pub fn open(
+        store: &Store,
+        ui: &UiCtx,
+        window: crate::WindowId,
+        workspace: crate::SessionId,
+    ) -> Self {
         let mut section = Self {
             list: TooltipView::new(
                 SpeedSearchView::new(
@@ -1027,7 +1036,7 @@ impl HistoryView {
             grown: rpds::HashTrieMapSync::new_sync(),
             request: None,
         };
-        section.refresh(store);
+        section.refresh(store, ui);
         section
     }
 
@@ -1055,7 +1064,7 @@ impl HistoryView {
         self.request.take()
     }
 
-    pub(crate) fn refresh(&mut self, store: &Store) {
+    pub(crate) fn refresh(&mut self, store: &Store, ui: &UiCtx) {
         self.seen = History::generation(store);
         let mut items = rpds::HashTrieMapSync::new_sync();
         let themes = crate::env::Themes::of(store);
@@ -1086,17 +1095,17 @@ impl HistoryView {
             }
         }
         self.items = items;
-        self.list.view_mut().inner_mut().set(&nodes);
+        self.list.view_mut().inner_mut().set(&nodes, store, ui);
     }
 
-    fn activate(&mut self, index: usize) {
+    fn activate(&mut self, index: usize, store: &Store, ui: &UiCtx) {
         let Some(key) = self.list.view().inner().list().key_at(index).cloned() else {
             return;
         };
-        self.activate_key(&key);
+        self.activate_key(&key, store, ui);
     }
 
-    fn activate_key(&mut self, key: &ResourceLocation) {
+    fn activate_key(&mut self, key: &ResourceLocation, store: &Store, ui: &UiCtx) {
         if !matches!(self.items.get(key), Some(RowItem::Note) | None) {
             self.list
                 .view_mut()
@@ -1105,9 +1114,9 @@ impl HistoryView {
                 .select_only(key.clone());
         }
         match self.items.get(key).cloned() {
-            Some(RowItem::Branch) => self.list.view_mut().inner_mut().toggle(key),
+            Some(RowItem::Branch) => self.list.view_mut().inner_mut().toggle(key, store, ui),
             Some(RowItem::Commit { folder, id }) => {
-                self.list.view_mut().inner_mut().toggle(key);
+                self.list.view_mut().inner_mut().toggle(key, store, ui);
 
                 self.request = Some(ModalRequest::Perform(AppCommand::Dynamic(
                     self.window,
@@ -1146,7 +1155,7 @@ impl View for HistoryView {
             HistoryCommand::Rows(command) => {
                 if let TooltipCommand::Host(SpeedSearchCommand::Inner(inner)) = &command {
                     if let Some((index, _)) = crate::tree_interaction(inner) {
-                        return self.activate(index);
+                        return self.activate(index, store, ui);
                     }
                 }
                 fx.scope(HistoryCommand::Rows, |fx| {
@@ -1176,11 +1185,14 @@ impl View for HistoryView {
                         }
                     }
                 }
-                self.list.view_mut().inner_mut().fold_cursor(expand);
+                self.list
+                    .view_mut()
+                    .inner_mut()
+                    .fold_cursor(expand, store, ui);
             }
             HistoryCommand::Pick => {
                 if let Some(key) = self.list.view().inner().list().cursor().cloned() {
-                    self.activate_key(&key);
+                    self.activate_key(&key, store, ui);
                 }
             }
             HistoryCommand::AutoGrow => {
@@ -1201,7 +1213,7 @@ impl View for HistoryView {
                     break;
                 }
             }
-            HistoryCommand::Refresh => self.refresh(store),
+            HistoryCommand::Refresh => self.refresh(store, ui),
             HistoryCommand::Dismiss => {
                 self.request = Some(ModalRequest::Close);
             }
@@ -1274,8 +1286,7 @@ impl View for HistoryView {
             let near_tail = {
                 let list = self.list.view().inner();
                 list.scroll_y() + rows_height
-                    >= list.list().total_height()
-                        - crate::env::Themes::of(store).ui().tree.row_height
+                    >= list.list().total_height() - 2.0 * crate::ui::space::XL
             };
             let pageable = crate::higent::session_folders(store, &self.workspace)
                 .iter()
@@ -1378,7 +1389,7 @@ impl crate::DynamicCommand for ToggleHistoryView {
             move |command| crate::AppCommand::Content(window, command),
             |fx| entity.dismiss_modal(store, fx),
         );
-        let panel = HistoryView::open(store, window, workspace);
+        let panel = HistoryView::open(store, &_app.ui_ctx(), window, workspace);
         let owner = self.id();
         fx.scope(
             move |command| crate::AppCommand::Content(window, command),

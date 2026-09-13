@@ -64,7 +64,6 @@ impl crate::Searcher for LocationSearcher {
 #[derive(Clone)]
 struct LocationTree {
     list: SpeedSearchView<TreeList, LocationSearcher>,
-    row_height: f32,
 
     pending: rpds::HashTrieSetSync<ResourceLocation>,
 
@@ -75,15 +74,12 @@ struct LocationTree {
 
 impl LocationTree {
     fn new(store: &Store) -> Self {
-        let theme = crate::env::Themes::of(store);
-        let tree = theme.ui().tree.clone();
         Self {
             list: SpeedSearchView::new(
                 ScrollView::new(ListView::empty().with_selection(crate::selection_style(store))),
                 LocationSearcher,
                 crate::env::Fonts::of(store),
             ),
-            row_height: tree.row_height.max(1.0),
             pending: rpds::HashTrieSetSync::new_sync(),
             watches: rpds::HashTrieMapSync::new_sync(),
             by_subscription: rpds::HashTrieMapSync::new_sync(),
@@ -92,14 +88,11 @@ impl LocationTree {
 
     fn row(&self, location: &ResourceLocation, depth: u16, expanded: bool) -> TreeRow {
         let directory = location.kind().is_directory();
-        let name = match directory {
-            true => format!("{}/", location.name()),
-            false => location.name().to_owned(),
-        };
-        let mut label = crate::TreeLabel::new(name, !directory, false);
-        if directory {
-            label = label.strong();
-        }
+        let name = location.name().to_owned();
+        let label = crate::TreeLabel::new(name, !directory, false).tinted(match directory {
+            true => crate::TreeTint::Directory,
+            false => crate::TreeTint::File,
+        });
         match directory {
             true => crate::TreeItemView::branch(label, depth, expanded).toggling_on_body(),
             false => crate::TreeItemView::leaf(label, depth),
@@ -157,13 +150,13 @@ impl LocationTree {
         Descend::Dead
     }
 
-    fn ensure_roots(&mut self, folders: &[ResourceLocation]) {
+    fn ensure_roots(&mut self, folders: &[ResourceLocation], store: &Store, ui: &UiCtx) {
         let mut slice: ListSlice<TreeRow, ResourceLocation> = ListSlice::new();
         for folder in folders {
             if self.is_visible(folder) {
                 continue;
             }
-            slice.push_keyed(folder.clone(), self.row(folder, 0, false), self.row_height);
+            slice.push_keyed(folder.clone(), self.row(folder, 0, false), store, ui);
         }
         if slice.is_empty() {
             return;
@@ -175,7 +168,12 @@ impl LocationTree {
             .splice_slice(len..len, slice);
     }
 
-    fn activate_key(&mut self, location: &ResourceLocation) -> Activation {
+    fn activate_key(
+        &mut self,
+        location: &ResourceLocation,
+        store: &Store,
+        ui: &UiCtx,
+    ) -> Activation {
         self.list
             .inner_mut()
             .content_mut()
@@ -192,7 +190,8 @@ impl LocationTree {
             slice.push_keyed(
                 location.clone(),
                 self.row(location, depth, false),
-                self.row_height,
+                store,
+                ui,
             );
             self.list
                 .inner_mut()
@@ -212,6 +211,8 @@ impl LocationTree {
         &mut self,
         parent: ResourceLocation,
         entries: Option<Vec<ResourceLocation>>,
+        store: &Store,
+        ui: &UiCtx,
     ) -> Vec<ResourceLocation> {
         self.pending.remove_mut(&parent);
         let Some(entries) = entries else {
@@ -257,6 +258,10 @@ impl LocationTree {
             .rows_from(range.start)
             .take(range.len())
             .collect();
+        let old_heights: Vec<f32> = range
+            .clone()
+            .map(|index| self.list.inner().content().height_at(index).unwrap_or(1.0))
+            .collect();
         let old_keys: Vec<Option<ResourceLocation>> = range
             .clone()
             .map(|index| self.list.inner().content().key_at(index).cloned())
@@ -264,11 +269,7 @@ impl LocationTree {
         let expanded = self.list.inner().content().spans_within(range.clone());
 
         let mut slice: ListSlice<TreeRow, ResourceLocation> = ListSlice::new();
-        slice.push_keyed(
-            parent.clone(),
-            self.row(&parent, depth, true),
-            self.row_height,
-        );
+        slice.push_keyed(parent.clone(), self.row(&parent, depth, true), store, ui);
 
         let by_key: std::collections::HashMap<&ResourceLocation, &std::ops::Range<usize>> =
             blocks.iter().map(|(key, span)| (key, span)).collect();
@@ -283,16 +284,14 @@ impl LocationTree {
                         let Some(key) = old_keys[at].clone() else {
                             continue;
                         };
-                        slice.push_keyed(key, old_rows[at].clone(), self.row_height);
+                        // Carried rows BRING their measured heights;
+                        // only fresh rows measure themselves.
+                        slice.push_keyed_sized(key, old_rows[at].clone(), old_heights[at]);
                     }
                     carried.push((span.clone(), landing));
                 }
                 None => {
-                    slice.push_keyed(
-                        child.clone(),
-                        self.row(child, depth + 1, false),
-                        self.row_height,
-                    );
+                    slice.push_keyed(child.clone(), self.row(child, depth + 1, false), store, ui);
                 }
             }
         }
@@ -413,12 +412,17 @@ impl Clone for SessionTreeView {
 impl SessionTreeView {
     pub fn open(
         store: &mut Store,
+        ui: &UiCtx,
         workspace: crate::SessionId,
         reveal: Option<ResourceLocation>,
         fx: &mut imba::effect::Effects<'_, TreeCommand>,
     ) -> Self {
         let mut tree = SessionTree::find_or_create(store);
-        tree.ensure_roots(&crate::higent::session_folders(store, &workspace));
+        tree.ensure_roots(
+            &crate::higent::session_folders(store, &workspace),
+            store,
+            ui,
+        );
         let mut panel = Self {
             tree,
             workspace,
@@ -480,20 +484,28 @@ impl SessionTreeView {
         )
     }
 
-    pub fn activate(&mut self, index: usize, fx: &mut imba::effect::Effects<'_, TreeCommand>) {
+    pub fn activate(
+        &mut self,
+        index: usize,
+        store: &Store,
+        ui: &UiCtx,
+        fx: &mut imba::effect::Effects<'_, TreeCommand>,
+    ) {
         let Some(location) = self.tree.list.inner().content().key_at(index).cloned() else {
             return;
         };
-        self.activate_key(&location, fx);
+        self.activate_key(&location, store, ui, fx);
     }
 
     fn activate_key(
         &mut self,
         location: &ResourceLocation,
+        store: &Store,
+        ui: &UiCtx,
         fx: &mut imba::effect::Effects<'_, TreeCommand>,
     ) {
         self.pending_reveal = None;
-        match self.tree.activate_key(location) {
+        match self.tree.activate_key(location, store, ui) {
             Activation::Done => {}
             Activation::List(parent) => {
                 let _ = fx.push(self.list_effect(parent));
@@ -550,7 +562,7 @@ impl View for SessionTreeView {
             TreeCommand::Rows(command) => {
                 if let SpeedSearchCommand::Inner(inner) = &command {
                     if let Some((index, _)) = crate::tree_interaction(inner) {
-                        self.activate(index, fx);
+                        self.activate(index, store, ui, fx);
                         return self.persist(store);
                     }
                 }
@@ -577,9 +589,9 @@ impl View for SessionTreeView {
                 let directory = location.kind().is_directory();
                 let listed = self.tree.is_listed(&location);
                 match (expand, directory, listed) {
-                    (true, true, false) => self.activate_key(&location, fx),
+                    (true, true, false) => self.activate_key(&location, store, ui, fx),
 
-                    (false, true, true) => self.activate_key(&location, fx),
+                    (false, true, true) => self.activate_key(&location, store, ui, fx),
 
                     (false, _, _) => {
                         if location.path().len() > 1 {
@@ -598,12 +610,12 @@ impl View for SessionTreeView {
             }
             TreeCommand::Pick => {
                 if let Some(location) = self.tree.list.inner().content().cursor().cloned() {
-                    self.activate_key(&location, fx);
+                    self.activate_key(&location, store, ui, fx);
                 }
             }
             TreeCommand::Listed { parent, entries } => {
                 let listed = entries.is_some();
-                let removed = self.tree.splice_listing(parent.clone(), entries);
+                let removed = self.tree.splice_listing(parent.clone(), entries, store, ui);
 
                 for gone in removed
                     .iter()
@@ -861,7 +873,10 @@ impl crate::DynamicCommand for ToggleSessionTree {
         let panel = fx.scope(crate::dock_scope(window), |fx| {
             fx.scope(
                 |command: TreeCommand| Box::new(command) as imba::DynCommand,
-                |fx| SessionTreeView::open(store, workspace, reveal, fx).following(window),
+                |fx| {
+                    SessionTreeView::open(store, &app.ui_ctx(), workspace, reveal, fx)
+                        .following(window)
+                },
             )
         });
         let owner = self.id();

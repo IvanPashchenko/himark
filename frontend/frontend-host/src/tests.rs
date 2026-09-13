@@ -527,16 +527,29 @@ fn dock_x(x: f32) -> f32 {
     900.0 - himark::DOCK_WIDTH + x
 }
 
+/// Mirrors `ListRow`'s own sizing (text block + 8px each side) so the
+/// click helpers land where the rows actually laid themselves.
+fn derived_row_height(font_size: f32) -> f32 {
+    let typeface = skia_safe::FontMgr::new()
+        .legacy_make_typeface(None, skia_safe::FontStyle::normal())
+        .expect("a system typeface");
+    let metrics = skia_safe::Font::from_typeface(typeface, font_size)
+        .metrics()
+        .1;
+    // Tree rows breathe with space::M on each side.
+    (-metrics.ascent + metrics.descent).ceil() + 24.0
+}
+
 fn tree_row_y(index: usize) -> f32 {
     let ui = himark::Theme::embedded();
-    let row = ui.ui().tree.row_height;
+    let row = derived_row_height(ui.ui().tree.font_size);
 
     ui.ui().toolbar.height + 6.0 + row * index as f32 + row / 2.0
 }
 
 fn changes_row_y(index: usize) -> f32 {
     let ui = himark::Theme::embedded();
-    let row = ui.ui().tree.row_height;
+    let row = derived_row_height(ui.ui().tree.font_size);
     let peeker = &ui.ui().peeker;
     let search = &ui.ui().search;
     let band = peeker.margin + peeker.hint_size * 2.0 + 6.0 + search.input_height + 6.0;
@@ -556,7 +569,7 @@ fn changes_message_y() -> f32 {
 
 fn history_row_y(index: usize) -> f32 {
     let ui = himark::Theme::embedded();
-    let row = ui.ui().tree.row_height;
+    let row = derived_row_height(ui.ui().tree.font_size);
     ui.ui().toolbar.height + 6.0 + row * index as f32 + row / 2.0
 }
 
@@ -2045,7 +2058,7 @@ fn an_addressed_fence_embeds_a_sibling_file() {
         let _ = imba::View::perform(
             &mut view,
             &mut *engine.app.store_mut(),
-            &imba::UiCtx::new(),
+            &imba::UiCtx::cold(),
             himark::EditorCommand::Inlay {
                 key: inlay_key,
                 command: Box::new(himark::EditorCommand::Viewport {
@@ -3989,7 +4002,7 @@ fn the_chat_runs_through_the_himark_host() {
     let wait_for = |engine: &mut HimarkEngine,
                     surface: &mut skia_safe::Surface,
                     what: &str,
-                    mut done: &mut dyn FnMut(&HimarkEngine) -> bool| {
+                    done: &mut dyn FnMut(&HimarkEngine) -> bool| {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
         while !done(engine) {
             assert!(

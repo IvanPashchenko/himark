@@ -4,14 +4,20 @@
 use std::any::{Any, TypeId};
 use std::cell::RefCell;
 
-#[derive(Default)]
 pub struct UiCtx {
     slots: RefCell<Vec<(TypeId, Box<dyn Any>)>>,
 }
 
 impl UiCtx {
-    pub fn new() -> Self {
-        Self::default()
+    /// A COLD context: every env slot downstream (typefaces, font
+    /// collections, shapers) starts empty and pays its full
+    /// resolution cost on first use. Mint one per UI thread or effect
+    /// handler and KEEP it — a ctx minted per row or per frame is the
+    /// classic cold-cache bug.
+    pub fn cold() -> Self {
+        Self {
+            slots: RefCell::new(Vec::new()),
+        }
     }
 
     pub fn set<T: 'static>(&self, value: T) {

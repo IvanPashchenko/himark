@@ -11,7 +11,7 @@ use imba::{
     UiCtx, View,
 };
 
-use crate::tree_item::{TreeItemView, TreeLabel, TreeListCommand};
+use crate::tree_item::{TreeItemView, TreeLabel, TreeListCommand, TreeTint};
 
 pub struct ForestNode<K> {
     pub key: K,
@@ -22,6 +22,7 @@ pub struct ForestNode<K> {
     pub dim: bool,
 
     pub trail: Vec<(String, skia_safe::Color)>,
+    pub tint: TreeTint,
     pub children: Vec<ForestNode<K>>,
 }
 
@@ -33,6 +34,7 @@ struct Entry<K> {
     pick: bool,
     dim: bool,
     trail: Vec<(String, skia_safe::Color)>,
+    tint: TreeTint,
     depth: u16,
     children: Vec<K>,
 }
@@ -43,7 +45,6 @@ pub struct Forest<K: Clone + Eq + Hash> {
     roots: rpds::VectorSync<K>,
     parents: rpds::HashTrieMapSync<K, K>,
     collapsed: rpds::HashTrieSetSync<K>,
-    row_height: f32,
 }
 
 impl<K: Clone + Eq + Hash + Send + Sync> Forest<K> {
@@ -53,18 +54,11 @@ impl<K: Clone + Eq + Hash + Send + Sync> Forest<K> {
             roots: rpds::VectorSync::new_sync(),
             parents: rpds::HashTrieMapSync::new_sync(),
             collapsed: rpds::HashTrieSetSync::new_sync(),
-            row_height: 1.0,
         }
     }
 
-    pub fn new(store: &imba::store::Store) -> Self {
-        Self {
-            entries: rpds::HashTrieMapSync::new_sync(),
-            roots: rpds::VectorSync::new_sync(),
-            parents: rpds::HashTrieMapSync::new_sync(),
-            collapsed: rpds::HashTrieSetSync::new_sync(),
-            row_height: crate::env::Themes::of(store).ui().tree.row_height.max(1.0),
-        }
+    pub fn new(_store: &imba::store::Store) -> Self {
+        Self::empty()
     }
 
     pub fn set(&mut self, forest: &[ForestNode<K>]) {
@@ -85,6 +79,7 @@ impl<K: Clone + Eq + Hash + Send + Sync> Forest<K> {
                 pick: node.pick,
                 dim: node.dim,
                 trail: node.trail.clone(),
+                tint: node.tint,
                 depth,
                 children: node
                     .children
@@ -121,30 +116,46 @@ impl<K: Clone + Eq + Hash + Send + Sync> Forest<K> {
         self.parents.get(key)
     }
 
-    pub fn slice(&self) -> ListSlice<TreeRow, K> {
+    pub fn slice(&self, store: &imba::store::Store, ui: &imba::UiCtx) -> ListSlice<TreeRow, K> {
         let mut slice = ListSlice::new();
         for key in self.roots.iter() {
-            self.emit(key, &mut slice);
+            self.emit(key, &mut slice, store, ui);
         }
         slice
     }
 
-    pub fn subtree_slice(&self, key: &K) -> ListSlice<TreeRow, K> {
+    pub fn subtree_slice(
+        &self,
+        key: &K,
+        store: &imba::store::Store,
+        ui: &imba::UiCtx,
+    ) -> ListSlice<TreeRow, K> {
         let mut slice = ListSlice::new();
-        self.emit(key, &mut slice);
+        self.emit(key, &mut slice, store, ui);
         slice
     }
 
-    pub fn folded_slice(&self, key: &K) -> ListSlice<TreeRow, K> {
+    pub fn folded_slice(
+        &self,
+        key: &K,
+        store: &imba::store::Store,
+        ui: &imba::UiCtx,
+    ) -> ListSlice<TreeRow, K> {
         let mut slice = ListSlice::new();
         let Some(entry) = self.entries.get(key) else {
             return slice;
         };
-        slice.push_keyed(key.clone(), self.row(key, entry, false), self.row_height);
+        slice.push_keyed(key.clone(), self.row(key, entry, false), store, ui);
         slice
     }
 
-    fn emit(&self, key: &K, slice: &mut ListSlice<TreeRow, K>) {
+    fn emit(
+        &self,
+        key: &K,
+        slice: &mut ListSlice<TreeRow, K>,
+        store: &imba::store::Store,
+        ui: &imba::UiCtx,
+    ) {
         let Some(entry) = self.entries.get(key) else {
             return;
         };
@@ -153,11 +164,12 @@ impl<K: Clone + Eq + Hash + Send + Sync> Forest<K> {
         slice.push_keyed(
             key.clone(),
             self.row(key, entry, !entry.children.is_empty() && !folded),
-            self.row_height,
+            store,
+            ui,
         );
         if !folded {
             for child in &entry.children {
-                self.emit(child, slice);
+                self.emit(child, slice, store, ui);
             }
         }
         if !entry.children.is_empty() {
@@ -166,11 +178,9 @@ impl<K: Clone + Eq + Hash + Send + Sync> Forest<K> {
     }
 
     fn row(&self, _key: &K, entry: &Entry<K>, expanded: bool) -> TreeRow {
-        let mut label = TreeLabel::new(entry.label.clone(), entry.pick, entry.dim)
-            .with_trail(entry.trail.clone());
-        if !entry.children.is_empty() && !entry.dim {
-            label = label.strong();
-        }
+        let label = TreeLabel::new(entry.label.clone(), entry.pick, entry.dim)
+            .with_trail(entry.trail.clone())
+            .tinted(entry.tint);
         let row = match entry.children.is_empty() {
             true => TreeItemView::leaf(label, entry.depth),
             false => TreeItemView::branch(label, entry.depth, expanded),
@@ -181,20 +191,30 @@ impl<K: Clone + Eq + Hash + Send + Sync> Forest<K> {
         }
     }
 
-    pub fn fold(&mut self, key: &K) -> Option<ListSlice<TreeRow, K>> {
+    pub fn fold(
+        &mut self,
+        key: &K,
+        store: &imba::store::Store,
+        ui: &imba::UiCtx,
+    ) -> Option<ListSlice<TreeRow, K>> {
         if !self.is_branch(key) {
             return None;
         }
         self.collapsed.insert_mut(key.clone());
-        Some(self.folded_slice(key))
+        Some(self.folded_slice(key, store, ui))
     }
 
-    pub fn unfold(&mut self, key: &K) -> Option<ListSlice<TreeRow, K>> {
+    pub fn unfold(
+        &mut self,
+        key: &K,
+        store: &imba::store::Store,
+        ui: &imba::UiCtx,
+    ) -> Option<ListSlice<TreeRow, K>> {
         if !self.is_branch(key) {
             return None;
         }
         self.collapsed.remove_mut(key);
-        Some(self.subtree_slice(key))
+        Some(self.subtree_slice(key, store, ui))
     }
 
     pub fn flatten(&self) -> Vec<(u8, String, bool, K)> {
@@ -244,28 +264,40 @@ impl<K: Clone + Eq + Hash + Send + Sync> Forest<K> {
 }
 
 impl<K: Clone + Eq + Hash + Send + Sync + 'static> Forest<K> {
-    pub fn toggle_in(&mut self, list: &mut imba::list::ListView<TreeRow, K>, key: &K) {
+    pub fn toggle_in(
+        &mut self,
+        list: &mut imba::list::ListView<TreeRow, K>,
+        key: &K,
+        store: &Store,
+        ui: &imba::UiCtx,
+    ) {
         let Some(range) = list.row_range(key) else {
             return;
         };
         let slice = match self.is_collapsed(key) {
-            true => self.unfold(key),
-            false => self.fold(key),
+            true => self.unfold(key, store, ui),
+            false => self.fold(key, store, ui),
         };
         if let Some(slice) = slice {
             list.splice_slice_animated(range, slice);
         }
     }
 
-    pub fn fold_cursor(&mut self, list: &mut imba::list::ListView<TreeRow, K>, expand: bool) {
+    pub fn fold_cursor(
+        &mut self,
+        list: &mut imba::list::ListView<TreeRow, K>,
+        expand: bool,
+        store: &Store,
+        ui: &imba::UiCtx,
+    ) {
         let Some(key) = list.cursor().cloned() else {
             return;
         };
         let branch = self.is_branch(&key);
         let folded = self.is_collapsed(&key);
         match (expand, branch, folded) {
-            (true, true, true) => self.toggle_in(list, &key),
-            (false, true, false) => self.toggle_in(list, &key),
+            (true, true, true) => self.toggle_in(list, &key, store, ui),
+            (false, true, false) => self.toggle_in(list, &key, store, ui),
             (false, _, _) => {
                 if let Some(parent) = self.parent(&key).cloned() {
                     list.select_only(parent);
@@ -292,10 +324,10 @@ impl<K: Clone + Eq + Hash + Send + Sync + 'static> ForestList<K> {
         }
     }
 
-    pub fn set(&mut self, nodes: &[ForestNode<K>]) {
+    pub fn set(&mut self, nodes: &[ForestNode<K>], store: &Store, ui: &imba::UiCtx) {
         self.forest.set(nodes);
         let len = self.list.content().len();
-        let slice = self.forest.slice();
+        let slice = self.forest.slice(store, ui);
         self.list.content_mut().splice_slice(0..len, slice);
         if self.list.content().cursor().is_none() {
             if let Some(first) = self.first_pickable(nodes) {
@@ -343,15 +375,15 @@ impl<K: Clone + Eq + Hash + Send + Sync + 'static> ForestList<K> {
         self.list.content_mut()
     }
 
-    pub fn toggle(&mut self, key: &K) {
+    pub fn toggle(&mut self, key: &K, store: &Store, ui: &imba::UiCtx) {
         let mut forest = std::mem::replace(&mut self.forest, Forest::empty());
-        forest.toggle_in(self.list.content_mut(), key);
+        forest.toggle_in(self.list.content_mut(), key, store, ui);
         self.forest = forest;
     }
 
-    pub fn fold_cursor(&mut self, expand: bool) {
+    pub fn fold_cursor(&mut self, expand: bool, store: &Store, ui: &imba::UiCtx) {
         let mut forest = std::mem::replace(&mut self.forest, Forest::empty());
-        forest.fold_cursor(self.list.content_mut(), expand);
+        forest.fold_cursor(self.list.content_mut(), expand, store, ui);
         self.forest = forest;
     }
 }

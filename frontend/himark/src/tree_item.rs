@@ -11,13 +11,24 @@ use imba::{
 };
 use skia_safe::{Paint, Size};
 
+/// What the label NAMES — resolved to a theme color at display time
+/// (rows live long in ropes; a baked color would survive a theme
+/// switch).
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub enum TreeTint {
+    #[default]
+    Label,
+    Directory,
+    File,
+}
+
 #[derive(Clone)]
 pub struct TreeLabel {
     label: String,
     pick: bool,
     dim: bool,
 
-    strong: bool,
+    tint: TreeTint,
 
     trail: Vec<(String, skia_safe::Color)>,
 }
@@ -33,13 +44,13 @@ impl TreeLabel {
             label,
             pick,
             dim,
-            strong: false,
+            tint: TreeTint::Label,
             trail: Vec::new(),
         }
     }
 
-    pub fn strong(mut self) -> Self {
-        self.strong = true;
+    pub fn tinted(mut self, tint: TreeTint) -> Self {
+        self.tint = tint;
         self
     }
 
@@ -71,11 +82,19 @@ impl View for TreeLabel {
         store: &'a Store,
         ui: &'a UiCtx,
     ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
-        let style = crate::ui::RowStyle::drawer(store, ui);
-        let label_style = match (self.strong, self.dim) {
-            (true, _) => crate::ui::heading(store, ui).sized(style.label.font.size()),
-            (false, true) => style.trail.clone(),
-            (false, false) => style.label.clone(),
+        let mut style = crate::ui::RowStyle::drawer(store, ui);
+        // Tree rows breathe more than menu rows.
+        style.air = crate::ui::space::M;
+        let theme = crate::env::Themes::of(store);
+        let syntax = |slot: ::editor::ThemeStyleId| match theme.attributes(slot).color {
+            Some(color) => style.label.clone().colored(color),
+            None => style.label.clone(),
+        };
+        let label_style = match (self.dim, self.tint) {
+            (true, _) => style.trail.clone(),
+            (false, TreeTint::Directory) => syntax(::editor::ThemeStyleId::Function),
+            (false, TreeTint::File) => syntax(::editor::ThemeStyleId::Variable),
+            (false, TreeTint::Label) => style.label.clone(),
         };
         let mut row = crate::ui::ListRow::new(arena, style.clone())
             .label_styled(&label_style, self.label.clone());
@@ -217,7 +236,7 @@ where
                 max: Size::new((width - offset).max(1.0), constraints.max.height),
             },
         );
-        let height = inner.size().height.max(tree.row_height);
+        let height = inner.size().height;
         imba::ThunkBox::new(
             arena,
             TreeItemWidget {
@@ -322,22 +341,28 @@ where
         match event {
             Event::Paint { canvas, .. } => {
                 if let Some(expanded) = self.expanded {
+                    // The STANDARD chevron — the same stroke the
+                    // editor gutter draws for folds: down when
+                    // expanded, right when collapsed.
                     let mut paint = Paint::default();
                     paint.set_anti_alias(true);
                     paint.set_color(self.color);
-                    let center_y = self.size.height * 0.5;
-                    let half = self.triangle_half;
-                    let left = self.triangle_x;
-                    let frame =
-                        skia_safe::Rect::from_xywh(left, center_y - half, half * 2.0, half * 2.0);
                     paint.set_stroke(true);
-                    paint.set_stroke_width(1.5);
-                    canvas.draw_rect(frame.with_inset((0.75, 0.75)), &paint);
+                    paint.set_stroke_width(2.0);
+                    let cx = self.triangle_x + self.triangle_half;
+                    let cy = self.size.height * 0.5;
+                    let arm = self.triangle_half * 0.8;
+                    let mut path = skia_safe::PathBuilder::new();
                     if expanded {
-                        paint.set_stroke(false);
-                        let inset = half * 0.55;
-                        canvas.draw_rect(frame.with_inset((inset, inset)), &paint);
+                        path.move_to((cx - arm, cy - arm * 0.6));
+                        path.line_to((cx, cy + arm * 0.8));
+                        path.line_to((cx + arm, cy - arm * 0.6));
+                    } else {
+                        path.move_to((cx - arm * 0.6, cy - arm));
+                        path.line_to((cx + arm * 0.8, cy));
+                        path.line_to((cx - arm * 0.6, cy + arm));
                     }
+                    canvas.draw_path(&path.detach(), &paint);
                 }
                 canvas.save();
                 canvas.translate((self.offset, 0.0));

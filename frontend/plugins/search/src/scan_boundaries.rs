@@ -25,6 +25,7 @@ fn scan_windows_never_split_characters() {
 #[test]
 fn two_panels_highlight_one_document_independently() {
     let mut store = imba::store::Store::new();
+    let ui = imba::UiCtx::cold();
     let mut document =
         himark::test_document::plain_document("alpha needle beta\ngamma needle delta\n");
     let fonts = himark::embedded_fonts::source()();
@@ -47,6 +48,7 @@ fn two_panels_highlight_one_document_independently() {
     let mut entry1 = panel1.take_list(&mut store);
     entry1.list.content_mut().install(
         &mut store,
+        &ui,
         &fonts,
         vec![himark::InstallGroup::open(
             id,
@@ -62,6 +64,7 @@ fn two_panels_highlight_one_document_independently() {
     let mut entry2 = panel2.take_list(&mut store);
     entry2.list.content_mut().install(
         &mut store,
+        &ui,
         &fonts,
         vec![himark::InstallGroup::open(
             id,
@@ -112,6 +115,7 @@ fn two_panels_highlight_one_document_independently() {
     let mut entry1 = panel1.take_list(&mut store);
     entry1.list.content_mut().install(
         &mut store,
+        &ui,
         &fonts,
         Vec::new(),
         None,

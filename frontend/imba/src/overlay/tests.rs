@@ -501,7 +501,7 @@ fn scroll_carries_anchors_by_the_scroll_offset() {
 
     let arena = Arena::default();
     let store = Store::default();
-    let ui = UiCtx::default();
+    let ui = UiCtx::cold();
     let mut view = ScrollView::new(Tall);
     {
         let mut batch = crate::effect::Batch::new();

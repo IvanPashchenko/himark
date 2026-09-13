@@ -5,7 +5,7 @@ use super::*;
 
 fn resolved(before: &str, after: &str) -> Cell {
     let mut store = Store::new();
-    let ui = UiCtx::new();
+    let ui = UiCtx::cold();
     let (mut cell, _) = Cell::pending_diff(
         &store,
         DiffHeader {
@@ -98,7 +98,7 @@ fn edited_sources() -> (String, String) {
 #[test]
 fn a_diff_cell_lays_out_sane_heights_and_settles_its_rewrap() {
     let mut store = Store::new();
-    let ui = UiCtx::new();
+    let ui = UiCtx::cold();
     let (before, after) = edited_sources();
     let mut cell = resolved(&before, &after);
 
@@ -131,7 +131,7 @@ fn expanded_before_cards_grow_to_their_content() {
     use imba::anim::AnimationClock;
 
     let mut store = Store::new();
-    let ui = UiCtx::new();
+    let ui = UiCtx::cold();
     let (before, after) = edited_sources();
     let mut cell = resolved(&before, &after);
 
@@ -216,7 +216,7 @@ fn a_scrolled_turn_of_cells_paints_and_keeps_its_extent() {
     use imba::scroll::ScrollView;
 
     let store = Store::new();
-    let ui = UiCtx::new();
+    let ui = UiCtx::cold();
     let (before, after) = edited_sources();
     let mut cells: Vec<(Cell, f32)> = Vec::new();
     let mut batch = imba::effect::Batch::new();

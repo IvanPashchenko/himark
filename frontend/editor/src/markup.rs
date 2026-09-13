@@ -1986,7 +1986,7 @@ impl Inlay {
         let arena = Arena::default();
         let store = Store::new();
 
-        let ui = UiCtx::new();
+        let ui = UiCtx::cold();
         let widget = self.layout(&arena, &store, &ui, constraints);
         widget.size()
     }

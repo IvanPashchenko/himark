@@ -206,7 +206,8 @@ mod workspace {
             .plugin_modal()
             .and_then(|modal| modal.as_any().downcast_ref::<SearchView>())
             .expect("the search modal is up");
-        let drawer = himark::PanelView::drawer_view(view, app.store(), app.sole_window());
+        let drawer =
+            himark::PanelView::drawer_view(view, app.store(), &app.ui_ctx(), app.sole_window());
         assert!(drawer.is_some(), "the drawer hands out the live tree");
     }
 
@@ -943,7 +944,7 @@ fn a_new_query_cancels_the_in_flight_scan_and_find() {
         )],
     );
     let mut view = SearchView::for_workspace(Some(workspace));
-    let ui = imba::UiCtx::new();
+    let ui = imba::UiCtx::cold();
 
     let type_query = |view: &mut SearchView, store: &mut imba::store::Store, text: &str| {
         let mut batch: Batch<SearchCommand> = Batch::new();

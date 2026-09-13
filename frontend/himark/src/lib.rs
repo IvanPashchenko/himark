@@ -47,6 +47,7 @@ pub use speedsearch::{
 };
 pub use tree_item::{
     tree_interaction, TreeItemCommand, TreeItemView, TreeLabel, TreeLabelCommand, TreeListCommand,
+    TreeTint,
 };
 mod family_rows;
 mod toolbar;
