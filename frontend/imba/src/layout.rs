@@ -114,9 +114,22 @@ impl CrossAlign {
     }
 }
 
+/// Per-child cross-axis behavior — Compose's `RowScope`/`ColumnScope`
+/// modifiers: inherit the stack's `align_items`, override it
+/// (`Modifier.align`), or ride the baseline group
+/// (`Modifier.alignByBaseline`, rows only).
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+enum ChildCross {
+    #[default]
+    Inherit,
+    Align(CrossAlign),
+    Baseline,
+}
+
 struct StackChild<'a, Command> {
     layout: LayoutBox<'a, Command>,
     weight: Option<f32>,
+    cross: ChildCross,
 }
 
 /// The one flex algorithm, parameterized by axis (Column = vertical).
@@ -182,6 +195,7 @@ impl<'a, Command: 'a> Stack<'a, Command> {
         let mut used = 0.0f32;
         let mut main_sizes = vec![0.0f32; children.len()];
         let mut cross_sizes = vec![0.0f32; children.len()];
+        let mut baselines: Vec<Option<f32>> = vec![None; children.len()];
         let leftover_at = |used: f32| bounded(main_max).map(|max| (max - gaps - used).max(0.0));
         let mut leftover_for_weights = 0.0f32;
         let mut weighted_started = false;
@@ -211,7 +225,27 @@ impl<'a, Command: 'a> Stack<'a, Command> {
             }
             main_sizes[index] = main;
             cross_sizes[index] = cross;
+            baselines[index] = thunk.first_baseline();
             thunks[index] = Some(thunk);
+        }
+
+        // The baseline group (rows only): children aligned by their
+        // first baseline share one line — the deepest baseline among
+        // them — and the group's extent is that line plus the
+        // deepest descent below it (Compose's alignByBaseline).
+        let by_baseline = |index: usize| {
+            self.horizontal
+                && children[index].cross == ChildCross::Baseline
+                && baselines[index].is_some()
+        };
+        let mut line = 0.0f32;
+        let mut below = 0.0f32;
+        for index in 0..children.len() {
+            if by_baseline(index) {
+                let baseline = baselines[index].expect("guarded");
+                line = line.max(baseline);
+                below = below.max(cross_sizes[index] - baseline);
+            }
         }
 
         let content_main: f32 = main_sizes.iter().sum::<f32>() + gaps;
@@ -221,7 +255,12 @@ impl<'a, Command: 'a> Stack<'a, Command> {
         };
         let cross_extent = cross_sizes
             .iter()
-            .fold(0.0f32, |widest, cross| widest.max(*cross))
+            .enumerate()
+            .map(|(index, cross)| match by_baseline(index) {
+                true => line + below,
+                false => *cross,
+            })
+            .fold(0.0f32, |widest, cross| widest.max(cross))
             .max(cross_min)
             .min(cross_max);
 
@@ -233,7 +272,13 @@ impl<'a, Command: 'a> Stack<'a, Command> {
         let mut at = 0.0f32;
         for (index, thunk) in thunks.into_iter().enumerate() {
             let Some(thunk) = thunk else { continue };
-            let along = self.cross.offset(cross_extent, cross_sizes[index]);
+            let along = match children[index].cross {
+                ChildCross::Baseline if by_baseline(index) => {
+                    line - baselines[index].expect("guarded")
+                }
+                ChildCross::Align(cross) => cross.offset(cross_extent, cross_sizes[index]),
+                _ => self.cross.offset(cross_extent, cross_sizes[index]),
+            };
             let (x, y) = match self.horizontal {
                 true => (at, along),
                 false => (along, at),
@@ -287,6 +332,7 @@ impl<'a, Command: 'a> Column<'a, Command> {
         self.stack.children.push(StackChild {
             layout: LayoutBox::new(self.stack.arena, child),
             weight: None,
+            cross: ChildCross::Inherit,
         });
         self
     }
@@ -295,6 +341,7 @@ impl<'a, Command: 'a> Column<'a, Command> {
         self.stack.children.push(StackChild {
             layout: LayoutBox::new(self.stack.arena, child),
             weight: Some(weight.max(0.0)),
+            cross: ChildCross::Inherit,
         });
         self
     }
@@ -339,6 +386,7 @@ impl<'a, Command: 'a> Row<'a, Command> {
         self.stack.children.push(StackChild {
             layout: LayoutBox::new(self.stack.arena, child),
             weight: None,
+            cross: ChildCross::Inherit,
         });
         self
     }
@@ -347,6 +395,36 @@ impl<'a, Command: 'a> Row<'a, Command> {
         self.stack.children.push(StackChild {
             layout: LayoutBox::new(self.stack.arena, child),
             weight: Some(weight.max(0.0)),
+            cross: ChildCross::Inherit,
+        });
+        self
+    }
+}
+
+impl<'a, Command: 'a> Row<'a, Command> {
+    /// Compose's `Modifier.align` on one child: overrides
+    /// `align_items` for it.
+    pub fn child_aligned(
+        mut self,
+        cross: CrossAlign,
+        child: impl Layout<'a, Command> + 'a,
+    ) -> Self {
+        self.stack.children.push(StackChild {
+            layout: LayoutBox::new(self.stack.arena, child),
+            weight: None,
+            cross: ChildCross::Align(cross),
+        });
+        self
+    }
+
+    /// Compose's `Modifier.alignByBaseline`: the child joins the
+    /// row's baseline group (falls back to `align_items` when its
+    /// thunk answers no line).
+    pub fn child_by_baseline(mut self, child: impl Layout<'a, Command> + 'a) -> Self {
+        self.stack.children.push(StackChild {
+            layout: LayoutBox::new(self.stack.arena, child),
+            weight: None,
+            cross: ChildCross::Baseline,
         });
         self
     }
@@ -635,6 +713,28 @@ pub trait LayoutExt<'a, Command: 'a>: Layout<'a, Command> + Sized + 'a {
 
 impl<'a, Command: 'a, L: Layout<'a, Command> + Sized + 'a> LayoutExt<'a, Command> for L {}
 
+/// A thunk carrying its `FirstBaseline` line — the provider side of
+/// baseline alignment. `Text` wraps itself in one; any custom thunk
+/// with a known baseline can too.
+pub struct WithBaseline<T> {
+    pub thunk: T,
+    pub baseline: f32,
+}
+
+impl<'a, Command: 'a, T: Thunk<'a, Command> + 'a> Thunk<'a, Command> for WithBaseline<T> {
+    fn size(&self) -> Size {
+        self.thunk.size()
+    }
+
+    fn first_baseline(&self) -> Option<f32> {
+        Some(self.baseline)
+    }
+
+    fn realize(self, arena: &'a Arena, viewport: skia_safe::Rect) -> crate::WidgetBox<'a, Command> {
+        self.thunk.realize(arena, viewport)
+    }
+}
+
 /// Compose's `Text`, single-line: measures itself from the font's
 /// metrics and paints its own glyphs — labels stop being hand-rolled
 /// `draw_str` closures inside leaves. Wider text than the incoming
@@ -706,7 +806,13 @@ impl<'a, Command: 'a> Layout<'a, Command> for Text {
                 }
             },
         );
-        ThunkBox::new(arena, label)
+        ThunkBox::new(
+            arena,
+            WithBaseline {
+                thunk: label,
+                baseline: ascent,
+            },
+        )
     }
 }
 
@@ -857,5 +963,109 @@ mod tests {
                 },
             );
         assert_eq!(thunk.size().height, 80.0);
+    }
+}
+
+#[cfg(test)]
+mod baseline_tests {
+    use super::*;
+    use crate::leaf::leaf;
+
+    struct Lined {
+        width: f32,
+        height: f32,
+        baseline: f32,
+    }
+
+    impl<'a> Layout<'a, ()> for Lined {
+        fn layout(self, arena: &'a Arena, _constraints: Constraints) -> ThunkBox<'a, ()> {
+            ThunkBox::new(
+                arena,
+                WithBaseline {
+                    thunk: leaf::<()>(self.width, self.height),
+                    baseline: self.baseline,
+                },
+            )
+        }
+    }
+
+    fn bounds() -> Constraints {
+        Constraints {
+            min: Size::default(),
+            max: Size::new(400.0, 400.0),
+        }
+    }
+
+    #[test]
+    fn a_baseline_group_shares_the_deepest_line() {
+        let arena = Arena::default();
+        // Lines at 15 and 10; descents 5 and 20. The shared line sits
+        // at 15, the group extends 15 + 20 = 35.
+        let thunk = Row::new(&arena)
+            .child_by_baseline(Lined {
+                width: 10.0,
+                height: 20.0,
+                baseline: 15.0,
+            })
+            .child_by_baseline(Lined {
+                width: 10.0,
+                height: 30.0,
+                baseline: 10.0,
+            })
+            .layout(&arena, bounds());
+        assert_eq!(thunk.size().height, 35.0);
+        // The row's OWN first baseline is the group's shared line —
+        // containers propagate the topmost placed line.
+        assert_eq!(thunk.first_baseline(), Some(15.0));
+    }
+
+    #[test]
+    fn a_taller_plain_neighbor_still_wins_the_extent() {
+        let arena = Arena::default();
+        let thunk = Row::new(&arena)
+            .child_by_baseline(Lined {
+                width: 10.0,
+                height: 20.0,
+                baseline: 15.0,
+            })
+            .child(Lined {
+                width: 10.0,
+                height: 60.0,
+                baseline: 5.0,
+            })
+            .layout(&arena, bounds());
+        assert_eq!(thunk.size().height, 60.0);
+    }
+
+    #[test]
+    fn pad_offsets_the_propagated_line() {
+        let arena = Arena::default();
+        let thunk = Lined {
+            width: 10.0,
+            height: 20.0,
+            baseline: 12.0,
+        }
+        .pad_insets(Insets {
+            left: 0.0,
+            top: 7.0,
+            right: 0.0,
+            bottom: 0.0,
+        })
+        .layout(&arena, bounds());
+        assert_eq!(thunk.first_baseline(), Some(19.0));
+    }
+
+    #[test]
+    fn text_answers_its_font_ascent_as_the_line() {
+        let arena = Arena::default();
+        let typeface = skia_safe::FontMgr::new()
+            .legacy_make_typeface(None, skia_safe::FontStyle::normal())
+            .expect("a system typeface");
+        let font = skia_safe::Font::new(typeface, 24.0);
+        let thunk: ThunkBox<'_, ()> =
+            text("hello", font.clone(), skia_safe::Color::WHITE).layout(&arena, bounds());
+        let (_, metrics) = font.metrics();
+        assert_eq!(thunk.first_baseline(), Some(-metrics.ascent));
+        assert!(thunk.size().width > 0.0, "a real face measures");
     }
 }

@@ -68,6 +68,20 @@ impl<'a, Command: 'a> Container<'a, Command> {
 }
 
 impl<'a, Command: 'a> Thunk<'a, Command> for Container<'a, Command> {
+    fn first_baseline(&self) -> Option<f32> {
+        // Propagate the TOPMOST placed line (Compose merges
+        // FirstBaseline with min), offset by the child's placement.
+        self.children
+            .iter()
+            .filter_map(|(_, y, child)| child.first_baseline().map(|line| line + y))
+            .fold(None, |best, line| {
+                Some(match best {
+                    Some(best) if best <= line => best,
+                    _ => line,
+                })
+            })
+    }
+
     fn size(&self) -> Size {
         self.size
     }
@@ -89,6 +103,10 @@ where
 {
     fn size(&self) -> Size {
         self.container.size
+    }
+
+    fn first_baseline(&self) -> Option<f32> {
+        self.container.first_baseline()
     }
 
     fn realize(self, arena: &'a Arena, viewport: Rect) -> WidgetBox<'a, Command> {

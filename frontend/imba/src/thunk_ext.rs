@@ -176,6 +176,10 @@ where
         self.inner.size()
     }
 
+    fn first_baseline(&self) -> Option<f32> {
+        self.inner.first_baseline()
+    }
+
     fn realize(self, arena: &'a Arena, viewport: Rect) -> WidgetBox<'a, ParentCommand> {
         let MapThunk { inner, map, .. } = self;
         WidgetBox::new(
@@ -201,6 +205,10 @@ where
 {
     fn size(&self) -> Size {
         self.inner.size()
+    }
+
+    fn first_baseline(&self) -> Option<f32> {
+        self.inner.first_baseline()
     }
 
     fn realize(self, arena: &'a Arena, viewport: Rect) -> WidgetBox<'a, Command> {
@@ -231,6 +239,10 @@ where
         self.inner.size()
     }
 
+    fn first_baseline(&self) -> Option<f32> {
+        self.inner.first_baseline()
+    }
+
     fn realize(self, arena: &'a Arena, viewport: Rect) -> WidgetBox<'a, Command> {
         let FocusScopeThunk { inner, focused, .. } = self;
         WidgetBox::new(
@@ -257,6 +269,10 @@ where
 {
     fn size(&self) -> Size {
         self.inner.size()
+    }
+
+    fn first_baseline(&self) -> Option<f32> {
+        self.inner.first_baseline()
     }
 
     fn realize(self, arena: &'a Arena, viewport: Rect) -> WidgetBox<'a, Command> {
@@ -289,6 +305,10 @@ where
         self.inner.size()
     }
 
+    fn first_baseline(&self) -> Option<f32> {
+        self.inner.first_baseline()
+    }
+
     fn realize(self, arena: &'a Arena, viewport: Rect) -> WidgetBox<'a, Command> {
         let EventThunk { inner, event, .. } = self;
         WidgetBox::new(
@@ -316,6 +336,10 @@ where
 {
     fn size(&self) -> Size {
         self.inner.size()
+    }
+
+    fn first_baseline(&self) -> Option<f32> {
+        self.inner.first_baseline()
     }
 
     fn realize(self, arena: &'a Arena, viewport: Rect) -> WidgetBox<'a, Command> {
@@ -350,6 +374,10 @@ where
 {
     fn size(&self) -> Size {
         self.inner.size()
+    }
+
+    fn first_baseline(&self) -> Option<f32> {
+        self.inner.first_baseline()
     }
 
     fn realize(self, arena: &'a Arena, viewport: Rect) -> WidgetBox<'a, Command> {
@@ -637,6 +665,10 @@ where
 {
     fn size(&self) -> Size {
         self.inner.size()
+    }
+
+    fn first_baseline(&self) -> Option<f32> {
+        self.inner.first_baseline()
     }
 
     fn realize(self, arena: &'a Arena, viewport: Rect) -> WidgetBox<'a, Command> {

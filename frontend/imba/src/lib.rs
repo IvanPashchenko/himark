@@ -68,7 +68,7 @@ impl<Command> PresentableCommand<Command> {
 
 pub use layout::{
     fixed, laid, text, Align, Alignment, Column, CrossAlign, Fill, Fixed, Insets, Laid, Layout,
-    LayoutBox, LayoutExt, MapLayout, Pad, Row, SizedBox, Text,
+    LayoutBox, LayoutExt, MapLayout, Pad, Row, SizedBox, Text, WithBaseline,
 };
 
 pub trait View {
@@ -116,6 +116,14 @@ pub trait View {
 pub trait Thunk<'a, Command> {
     fn size(&self) -> Size;
 
+    /// Compose's `FirstBaseline` alignment line: distance from this
+    /// thunk's top to its first text baseline, when it has one.
+    /// Wrappers forward it; containers propagate the topmost placed
+    /// line; `Row` children can align by it.
+    fn first_baseline(&self) -> Option<f32> {
+        None
+    }
+
     fn realize(self, arena: &'a Arena, viewport: Rect) -> WidgetBox<'a, Command>
     where
         Self: Sized;
@@ -137,6 +145,10 @@ impl<'a, Command: 'a> Thunk<'a, Command> for ThunkBox<'a, Command> {
         self.0.size()
     }
 
+    fn first_baseline(&self) -> Option<f32> {
+        self.0.first_baseline()
+    }
+
     fn realize(mut self, arena: &'a Arena, viewport: Rect) -> WidgetBox<'a, Command> {
         self.0.realize_dyn(arena, viewport)
     }
@@ -144,6 +156,7 @@ impl<'a, Command: 'a> Thunk<'a, Command> for ThunkBox<'a, Command> {
 
 trait DynThunk<'a, Command> {
     fn size(&self) -> Size;
+    fn first_baseline(&self) -> Option<f32>;
     fn realize_dyn(&mut self, arena: &'a Arena, viewport: Rect) -> WidgetBox<'a, Command>;
 }
 
@@ -152,6 +165,10 @@ struct Slot<T>(Option<T>);
 impl<'a, Command: 'a, T: Thunk<'a, Command>> DynThunk<'a, Command> for Slot<T> {
     fn size(&self) -> Size {
         self.0.as_ref().expect("realized twice").size()
+    }
+
+    fn first_baseline(&self) -> Option<f32> {
+        self.0.as_ref().expect("realized twice").first_baseline()
     }
 
     fn realize_dyn(&mut self, arena: &'a Arena, viewport: Rect) -> WidgetBox<'a, Command> {
