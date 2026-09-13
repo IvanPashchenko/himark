@@ -33,6 +33,10 @@ pub struct ScrollView<Content> {
 
     glide: Option<Glide>,
 
+    /// A live knob drag: the pointer's offset within the knob at the
+    /// grab. While set, drags steer the scroll instead of the content.
+    drag: Option<f32>,
+
     surface: crate::event::ScrollSurfaceId,
 }
 
@@ -51,6 +55,14 @@ pub enum ScrollCommand<ContentCommand> {
     JumpTo(f32),
 
     GlideStep(f32, crate::anim::AnimationClock),
+
+    /// A press on the knob (or the track: the knob jumps under the
+    /// pointer first) arms dragging with the given grab offset.
+    BeginKnobDrag {
+        scroll_y: f32,
+        grab: f32,
+    },
+    EndKnobDrag,
 }
 
 pub struct ScrollWidget<ContentThunk, ContentCommand> {
@@ -58,6 +70,7 @@ pub struct ScrollWidget<ContentThunk, ContentCommand> {
     viewport: Size,
     scroll_y: f32,
     glide: Option<Glide>,
+    drag: Option<f32>,
     scrollbar: ScrollbarStyle,
     surface: crate::event::ScrollSurfaceId,
     _command: PhantomData<fn() -> ContentCommand>,
@@ -82,6 +95,7 @@ where
             viewport,
             scroll_y,
             glide,
+            drag,
             scrollbar,
             surface,
             ..
@@ -98,6 +112,7 @@ where
                 viewport,
                 scroll_y,
                 glide,
+                drag,
                 scrollbar,
                 surface,
             },
@@ -110,9 +125,35 @@ pub struct RealizedScroll<'a, ContentCommand> {
     viewport: Size,
     scroll_y: f32,
     glide: Option<Glide>,
+    drag: Option<f32>,
     scrollbar: ScrollbarStyle,
     surface: crate::event::ScrollSurfaceId,
 }
+
+/// The knob's geometry this frame — present only when there is
+/// something to scroll.
+struct KnobBand {
+    top: f32,
+    height: f32,
+    knob_height: f32,
+    knob_y: f32,
+    max_scroll: f32,
+}
+
+impl KnobBand {
+    /// The scroll position that puts the knob's top at `knob_y`.
+    fn scroll_at(&self, knob_y: f32) -> f32 {
+        let travel = self.height - self.knob_height;
+        if travel <= 0.0 {
+            return 0.0;
+        }
+        ((knob_y - self.top) / travel * self.max_scroll).clamp(0.0, self.max_scroll)
+    }
+}
+
+/// Extra reach LEFT of the knob so the 4px lane is grabbable; the
+/// stripe lane sits well further in (its own inset), untouched.
+const KNOB_GRAB_SLOP: f32 = 4.0;
 
 const GLIDE_TAU_MS: f32 = 25.0;
 
@@ -124,6 +165,7 @@ impl<Content> ScrollView<Content> {
             content,
             scroll_y: 0.0,
             glide: None,
+            drag: None,
             surface: crate::event::ScrollSurfaceId::mint(),
         }
     }
@@ -195,6 +237,14 @@ where
                     }
                 }
             }
+            ScrollCommand::BeginKnobDrag { scroll_y, grab } => {
+                self.scroll_y = scroll_y.max(0.0);
+                self.drag = Some(grab);
+                self.glide = None;
+            }
+            ScrollCommand::EndKnobDrag => {
+                self.drag = None;
+            }
         }
     }
 
@@ -225,6 +275,7 @@ where
                 target: glide.target.clamp(0.0, max_scroll),
                 last: glide.last,
             }),
+            drag: self.drag,
             scrollbar: ui.get::<ScrollbarStyle>().copied().unwrap_or_default(),
             surface: self.surface,
             _command: PhantomData,
@@ -269,6 +320,21 @@ impl<'a, ContentCommand: 'a> Widget<'a, ScrollCommand<ContentCommand>>
         match event {
             Event::Paint { .. } => self.paint(arena, event),
             Event::MouseDown { .. } => self.mouse_down(arena, event),
+
+            // A live knob drag steers the scroll; the content never
+            // sees the pointer until the release lands.
+            Event::MouseDrag { point, .. } if self.drag.is_some() => {
+                let grab = self.drag.expect("guarded above");
+                match self.knob() {
+                    Some(band) => EventResult::Command(ScrollCommand::SetScrollY(
+                        band.scroll_at(point.y - grab),
+                    )),
+                    None => EventResult::Handled,
+                }
+            }
+            Event::MouseUp { .. } if self.drag.is_some() => {
+                EventResult::Command(ScrollCommand::EndKnobDrag)
+            }
 
             Event::MouseDrag { .. }
             | Event::MouseUp { .. }
@@ -394,35 +460,68 @@ impl<'a, ContentCommand: 'a> RealizedScroll<'a, ContentCommand> {
         if !Rect::from_size(self.viewport).contains(*point) {
             return EventResult::Ignored;
         }
+        if let Some(command) = self.knob_grab(*point) {
+            return EventResult::Command(command);
+        }
         let event = event.translated(0.0, self.scroll_y);
         self.content
             .handle_event(arena, &event, self.content_viewport())
             .map(ScrollCommand::Content)
     }
 
-    fn paint_scrollbar(&self, canvas: &Canvas) {
+    fn knob(&self) -> Option<KnobBand> {
         let content_height = self.content.size().height;
         let max_scroll = (content_height - self.viewport.height).max(0.0);
         if max_scroll <= 0.0 {
-            return;
+            return None;
         }
-
         let style = self.scrollbar;
-        let track_top = style.track_inset;
-        let track_height = (self.viewport.height - track_top * 2.0).max(1.0);
-        let knob_height = (self.viewport.height / content_height * track_height)
-            .clamp(style.min_knob.min(track_height), track_height);
-        let knob_y = track_top + self.scroll_y / max_scroll * (track_height - knob_height);
+        let top = style.track_inset;
+        let height = (self.viewport.height - top * 2.0).max(1.0);
+        let knob_height = (self.viewport.height / content_height * height)
+            .clamp(style.min_knob.min(height), height);
+        let knob_y = top + self.scroll_y / max_scroll * (height - knob_height);
+        Some(KnobBand {
+            top,
+            height,
+            knob_height,
+            knob_y,
+            max_scroll,
+        })
+    }
 
+    fn knob_grab(&self, point: skia_safe::Point) -> Option<ScrollCommand<ContentCommand>> {
+        let band = self.knob()?;
+        if point.x < self.viewport.width - self.scrollbar.margin - KNOB_GRAB_SLOP {
+            return None;
+        }
+        let on_knob = point.y >= band.knob_y && point.y < band.knob_y + band.knob_height;
+        let (grab, scroll_y) = match on_knob {
+            true => (point.y - band.knob_y, self.scroll_y),
+            // A track press: the knob jumps under the pointer and the
+            // drag is armed in the same grip.
+            false => {
+                let grab = band.knob_height * 0.5;
+                (grab, band.scroll_at(point.y - grab))
+            }
+        };
+        Some(ScrollCommand::BeginKnobDrag { scroll_y, grab })
+    }
+
+    fn paint_scrollbar(&self, canvas: &Canvas) {
+        let Some(band) = self.knob() else {
+            return;
+        };
+        let style = self.scrollbar;
         let mut paint = Paint::default();
         paint.set_anti_alias(true);
         paint.set_color(style.color);
         canvas.draw_round_rect(
             Rect::from_xywh(
                 self.viewport.width - style.margin,
-                knob_y,
+                band.knob_y,
                 style.width,
-                knob_height,
+                band.knob_height,
             ),
             style.radius,
             style.radius,

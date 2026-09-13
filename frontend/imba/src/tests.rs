@@ -1862,3 +1862,167 @@ mod reveal {
         ));
     }
 }
+
+fn scrollbar_style() -> crate::scroll::ScrollbarStyle {
+    crate::scroll::ScrollbarStyle {
+        color: skia_safe::Color::WHITE,
+        width: 4.0,
+        margin: 7.0,
+        radius: 2.0,
+        min_knob: 28.0,
+        track_inset: 12.0,
+    }
+}
+
+// Content 500 tall in a 120 viewport with the style above: max scroll
+// 380, track 12..108 (height 96), knob 28 tall, knob travel 68.
+fn knob_event(
+    view: &ScrollView<FixedContent>,
+    event: Event<'_>,
+) -> EventResult<ScrollCommand<ContentCommand>> {
+    let arena = Arena::default();
+    let store = Store::new();
+    let ui = crate::ui::UiCtx::new();
+    ui.set(scrollbar_style());
+    let widget = view
+        .layout(
+            &arena,
+            &store,
+            &ui,
+            Constraints::tight(Size::new(100.0, 120.0)),
+        )
+        .realize(&arena, Rect::from_wh(100.0, 120.0));
+    widget.handle_event(&arena, &event, Rect::from_wh(100.0, 120.0))
+}
+
+fn knob_perform(view: &mut ScrollView<FixedContent>, command: ScrollCommand<ContentCommand>) {
+    let mut batch = crate::effect::Batch::new();
+    let ui = crate::ui::UiCtx::new();
+    view.perform(&mut Store::new(), &ui, command, &mut batch.effects());
+}
+
+#[test]
+fn the_knob_drags_the_scroll_and_releases_back_to_the_content() {
+    let mut view = ScrollView::new(FixedContent {
+        size: Size::new(100.0, 500.0),
+    });
+
+    // A press ON the knob (band x 93..97, knob y 12..40) arms the
+    // drag without moving the scroll.
+    let press = knob_event(
+        &view,
+        Event::MouseDown {
+            point: Point::new(96.0, 20.0),
+            button: MouseButton::Left,
+            mods: Default::default(),
+            count: 1,
+        },
+    );
+    let (scroll_y, grab) = match press {
+        EventResult::Command(ScrollCommand::BeginKnobDrag { scroll_y, grab }) => (scroll_y, grab),
+        _ => panic!("the knob press arms the drag"),
+    };
+    assert_eq!((scroll_y, grab), (0.0, 8.0));
+    knob_perform(&mut view, ScrollCommand::BeginKnobDrag { scroll_y, grab });
+
+    // Dragging tracks the pointer proportionally — X free to wander.
+    let drag = knob_event(
+        &view,
+        Event::MouseDrag {
+            point: Point::new(30.0, 54.0),
+            mods: Default::default(),
+        },
+    );
+    match drag {
+        EventResult::Command(ScrollCommand::SetScrollY(next)) => {
+            assert!((next - 190.0).abs() < 0.01, "half the travel: {next}");
+            knob_perform(&mut view, ScrollCommand::SetScrollY(next));
+        }
+        _ => panic!("a drag steers the scroll, not the content"),
+    }
+
+    // Past the track's end the drag clamps to the bottom.
+    let drag = knob_event(
+        &view,
+        Event::MouseDrag {
+            point: Point::new(96.0, 400.0),
+            mods: Default::default(),
+        },
+    );
+    match drag {
+        EventResult::Command(ScrollCommand::SetScrollY(next)) => assert_eq!(next, 380.0),
+        _ => panic!("the clamped drag still lands"),
+    }
+
+    // The release disarms; the next drag is the content's again.
+    let up = knob_event(
+        &view,
+        Event::MouseUp {
+            point: Point::new(96.0, 400.0),
+        },
+    );
+    match up {
+        EventResult::Command(ScrollCommand::EndKnobDrag) => {
+            knob_perform(&mut view, ScrollCommand::EndKnobDrag)
+        }
+        _ => panic!("the release ends the drag"),
+    }
+    let after = knob_event(
+        &view,
+        Event::MouseDrag {
+            point: Point::new(30.0, 54.0),
+            mods: Default::default(),
+        },
+    );
+    assert!(
+        matches!(after, EventResult::Ignored),
+        "with the drag over, pointer traffic forwards to the content"
+    );
+}
+
+#[test]
+fn a_track_press_jumps_the_knob_under_the_pointer() {
+    let view = ScrollView::new(FixedContent {
+        size: Size::new(100.0, 500.0),
+    });
+    // y = 80 is track below the knob: the knob centers there
+    // (top 80 - 14 = 66) and the drag arms in the same grip.
+    let press = knob_event(
+        &view,
+        Event::MouseDown {
+            point: Point::new(96.0, 80.0),
+            button: MouseButton::Left,
+            mods: Default::default(),
+            count: 1,
+        },
+    );
+    match press {
+        EventResult::Command(ScrollCommand::BeginKnobDrag { scroll_y, grab }) => {
+            assert_eq!(grab, 14.0);
+            let expected = (66.0 - 12.0) / 68.0 * 380.0;
+            assert!(
+                (scroll_y - expected).abs() < 0.01,
+                "{scroll_y} vs {expected}"
+            );
+        }
+        _ => panic!("a track press arms the drag"),
+    }
+
+    // A press LEFT of the bar is the content's.
+    let press = knob_event(
+        &view,
+        Event::MouseDown {
+            point: Point::new(50.0, 80.0),
+            button: MouseButton::Left,
+            mods: Default::default(),
+            count: 1,
+        },
+    );
+    assert!(
+        matches!(
+            press,
+            EventResult::Command(ScrollCommand::Content(ContentCommand::Click(_)))
+        ),
+        "content presses still route to the content"
+    );
+}

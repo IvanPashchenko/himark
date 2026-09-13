@@ -278,9 +278,9 @@
     },
     "scrollbar": {
       "color": "#8c4a5878",
-      "width": 4.0,
-      "margin": 7.0,
-      "radius": 2.0,
+      "width": 8.0,
+      "margin": 10.0,
+      "radius": 4.0,
       "min_knob": 28.0,
       "track_inset": 12.0
     },
