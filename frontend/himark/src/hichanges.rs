@@ -1309,7 +1309,13 @@ impl View for ChangesView {
         let search = crate::env::Themes::of(store).ui().search.clone();
         let chip_height = chrome.hint_size * 2.0;
 
-        let well_height = search.input_height;
+        // The well follows the message editor's TRUE height: a
+        // multi-line commit message grows the box (and pushes the
+        // rows down) instead of spilling over them. Capped so a wall
+        // of text never eats the whole panel.
+        let well_height = (self.message.content_height() + search.input_pad_y * 2.0)
+            .max(search.input_height)
+            .min(size.height * 0.4);
         let box_band = well_height + PANEL_PAD;
         let band = chrome.margin + chip_height + PANEL_PAD + box_band;
         let rows = self

@@ -266,7 +266,10 @@ where
 
         let searching = self.searching();
         let chrome = crate::env::Themes::of(store).ui().peeker.clone();
-        let pill_height = chrome.row_height * 0.75;
+        // The pill wraps the input editor's TRUE line height — the
+        // chrome never clips the text it hosts.
+        let input_height = self.input.content_height().max(1.0);
+        let pill_height = (input_height + 6.0).max(chrome.row_height * 0.75);
 
         let input = self
             .input
@@ -274,7 +277,7 @@ where
                 arena,
                 store,
                 ui,
-                Constraints::tight(Size::new(PILL_INPUT_WIDTH, pill_height)),
+                Constraints::tight(Size::new(PILL_INPUT_WIDTH, input_height)),
             )
             .map(SpeedSearchCommand::Input)
             .wrap(move |inner| ChainGate {
@@ -311,7 +314,7 @@ where
                     });
             pill.place(0.0, 0.0, backdrop);
         }
-        pill.place(8.0, 0.0, input);
+        pill.place(8.0, ((pill_height - input_height) * 0.5).max(0.0), input);
         root.place((size.width - pill_width - 8.0).max(0.0), 4.0, pill);
 
         let stale = searching
