@@ -612,16 +612,19 @@ impl View for Peeker {
                 });
             container.place(0.0, 0.0, backdrop);
 
-            // The chrome labels as `imba::text` at exact baseline
-            // parity (top = old hand-drawn baseline − ascent; the
-            // panel bottom edge recomputed as the painter did); the
-            // texts ignore presses, so the backdrop's close-on-click
-            // still answers underneath them.
+            // The chrome labels as `imba::text`, centered in the
+            // bottom row band (the design-system row rule); the texts
+            // ignore presses, so the backdrop's close-on-click still
+            // answers underneath them.
             let panel_bottom = inset + (size.height - inset * 2.0).max(1.0);
-            let hint_ascent = -hint_font.metrics().1.ascent;
+            let hint_metrics = hint_font.metrics().1;
+            let hint_height = (-hint_metrics.ascent + hint_metrics.descent)
+                .ceil()
+                .max(1.0);
             container.place_boxed(
                 inset + chrome.row_text_x,
-                panel_bottom - chrome.row_baseline - hint_ascent,
+                panel_bottom - chrome.row_height
+                    + ((chrome.row_height - hint_height) * 0.5).max(0.0),
                 imba::text(
                     format!(
                         "{} matched   enter open   esc dismiss",

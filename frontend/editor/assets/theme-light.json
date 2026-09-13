@@ -330,7 +330,6 @@
       "list_preview_gap": 28.0,
       "preview_margin": 24.0,
       "list_top_gap": 14.0,
-      "row_baseline": 14.0,
       "row_text_x": 16.0,
       "input_min_width": 120.0
     },
@@ -345,7 +344,6 @@
       "group_fill": "#00000000",
       "group_text": "#f0333a48",
       "group_text_x": 68.0,
-      "group_baseline": 31.0,
       "group_font_size": 22.0,
       "group_separator": "#6e6b7284",
       "group_separator_thickness": 2.0,

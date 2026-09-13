@@ -317,17 +317,20 @@ impl<'a> StickySeed<'a> {
         host_size: Size,
         anchor: Rect,
     ) -> Vec<(Point, imba::ThunkBox<'a, EditorCommand>)> {
-        let width = anchor.width().min((host_size.width - anchor.left).max(0.0));
+        // The band and its divider run EDGE TO EDGE of the hosting
+        // pane; the anchor only says where the editor's content
+        // starts inside it.
         let height = self.sticky.height;
         let arena = self.arena;
         let widget = StickyWidget {
             sticky: self.sticky,
             theme: self.theme,
             gutter_width: self.gutter_width,
-            size: Size::new(width, height),
+            content_left: anchor.left.max(0.0),
+            size: Size::new(host_size.width.max(1.0), height),
         };
         vec![(
-            Point::new(anchor.left, anchor.top),
+            Point::new(0.0, anchor.top),
             imba::ThunkBox::new(arena, imba::eager(widget)),
         )]
     }
@@ -338,6 +341,9 @@ struct StickyWidget {
     theme: crate::theme::Theme,
 
     gutter_width: f32,
+
+    /// Where the editor's content starts inside the pane-wide band.
+    content_left: f32,
     size: Size,
 }
 
@@ -362,9 +368,15 @@ impl<'a> imba::Widget<'a, EditorCommand> for StickyWidget {
                 paint.set_color(window.background.0);
                 canvas.draw_rect(bounds, &paint);
 
+                // Text and gutter numbers live in EDITOR coordinates;
+                // the band itself spans the whole pane.
+                canvas.save();
+                canvas.translate((self.content_left, 0.0));
+                let text_right = bounds.right - self.content_left;
+
                 canvas.save();
                 canvas.clip_rect(
-                    Rect::from_ltrb(self.gutter_width, 0.0, bounds.right, bounds.bottom),
+                    Rect::from_ltrb(self.gutter_width, 0.0, text_right, bounds.bottom),
                     None,
                     false,
                 );
@@ -372,7 +384,7 @@ impl<'a> imba::Widget<'a, EditorCommand> for StickyWidget {
                 for row in &self.sticky.rows {
                     canvas.save();
                     canvas.clip_rect(
-                        Rect::from_ltrb(self.gutter_width, top, bounds.right, top + row.height),
+                        Rect::from_ltrb(self.gutter_width, top, text_right, top + row.height),
                         None,
                         false,
                     );
@@ -404,6 +416,7 @@ impl<'a> imba::Widget<'a, EditorCommand> for StickyWidget {
                         top += row.height;
                     }
                 }
+                canvas.restore();
 
                 paint.set_color(window.divider.0);
                 canvas.draw_rect(

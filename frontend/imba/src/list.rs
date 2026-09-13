@@ -57,9 +57,20 @@ impl<T: Clone> Measure<ListElement<T>> for ListMeasure {
     }
 
     fn measure(element: &ListElement<T>) -> Self::Metrics {
-        Metrics([element.height.ceil() as u32])
+        // A row's height is a pixel count. An unbounded layout that
+        // leaks f32::MAX through here would saturate to u32::MAX and
+        // WRAP the sumtree's cumulative offsets (debug: add-overflow
+        // panic; release: every later row painted on top of the
+        // others). Clamp at the sink — the row is still absurd, but
+        // the list stays a list.
+        Metrics([element.height.ceil().clamp(0.0, MAX_ROW_PX) as u32])
     }
 }
+
+/// The tallest a single measured row may claim. Generous for real
+/// content (a million pixels), small enough that thousands of
+/// clamped rows still sum far below `u32::MAX`.
+const MAX_ROW_PX: f32 = 1_000_000.0;
 
 #[derive(Clone, Copy, Default)]
 pub struct SeparatorStyle {

@@ -634,39 +634,34 @@ fn header_band_layout<'a>(
     pending: bool,
     height: f32,
 ) -> impl imba::Layout<'a, CellCommand> + imba::LayoutValue + 'a {
-    use imba::LayoutExt as _;
     let title = if pending {
         format!("{} — fetching contents…", header.title)
     } else {
         header.title.clone()
     };
-    let added = header.added.filter(|n| *n > 0).map(|n| format!("+{n}"));
-    let removed = header.removed.filter(|n| *n > 0).map(|n| format!("-{n}"));
-    let font = crate::fonts::ui_text_font(ui, chrome.title_size * 0.85);
-    let pad = chrome.pad;
-    // The old painter's baseline sat at height * 0.65 from the
-    // band's top; every text pads down so its ascent lands there.
-    let drop = (height * 0.65 + font.metrics().1.ascent).max(0.0);
-    let top = |left: f32, right: f32| imba::Insets {
-        left,
-        top: drop,
-        right,
-        bottom: 0.0,
+    let text = crate::ui::TextStyle {
+        font: crate::fonts::ui_text_font(ui, chrome.title_size * 0.85),
+        color: chrome.text_color.0,
+        tracking: 0.0,
     };
-    let mut band = imba::Row::new(arena)
-        .child(imba::text(title, font.clone(), chrome.text_color.0).pad_insets(top(pad, 0.0)))
-        .weighted(1.0, imba::Fill::new());
-    let both = added.is_some() && removed.is_some();
-    if let Some(added) = added {
-        band = band
-            .child(imba::text(added, font.clone(), chrome.added_color.0).pad_insets(top(0.0, 0.0)));
+    let style = crate::ui::RowStyle {
+        height,
+        inset: chrome.pad,
+        trail_inset: chrome.pad,
+        label: text.clone(),
+        trail: text.clone(),
+    };
+    let mut band = crate::ui::ListRow::new(arena, style).label(title);
+    if let Some(added) = header.added.filter(|n| *n > 0) {
+        band = band.trail_styled(
+            &text.clone().colored(chrome.added_color.0),
+            format!("+{added}"),
+        );
     }
-    if both {
-        band = band.child(imba::spacer(pad * 0.5, 0.0));
-    }
-    if let Some(removed) = removed {
-        band = band.child(
-            imba::text(removed, font.clone(), chrome.removed_color.0).pad_insets(top(0.0, pad)),
+    if let Some(removed) = header.removed.filter(|n| *n > 0) {
+        band = band.trail_styled(
+            &text.clone().colored(chrome.removed_color.0),
+            format!("-{removed}"),
         );
     }
     band
@@ -744,24 +739,17 @@ impl<'a> imba::Layout<'a, CellCommand> for CardFrame<'a> {
                     },
                 )
                 .map(CellCommand::ToolRows);
-            let border = chrome.input_border.0;
-            let surface = cell_surface(CellKind::Tool, &chrome);
-            let radius = chrome.radius;
             return imba::fixed(rows)
                 .pad(chrome.pad)
                 .backdrop(
-                    move |_arena: &Arena, canvas: &skia_safe::Canvas, rect: Rect| {
-                        let mut paint = Paint::default();
-                        paint.set_anti_alias(true);
-                        if let Some(surface) = surface {
-                            paint.set_color(surface);
-                            canvas.draw_round_rect(rect, radius, radius, &paint);
-                        }
-                        paint.set_stroke(true);
-                        paint.set_stroke_width(1.0);
-                        paint.set_color(border);
-                        canvas.draw_round_rect(rect.with_inset((0.5, 0.5)), radius, radius, &paint);
-                    },
+                    crate::ui::Surface {
+                        // Fill only — a border per card stacks stray
+                        // hairlines through the transcript.
+                        fill: cell_surface(CellKind::Tool, &chrome),
+                        border: None,
+                        radius: chrome.radius,
+                    }
+                    .painter(),
                 )
                 .pad_insets(imba::Insets {
                     left: 0.0,
@@ -818,30 +806,26 @@ impl<'a> imba::Layout<'a, CellCommand> for CardFrame<'a> {
         let card_height = header_h + editor_height + chrome.pad * 2.0;
 
         let mut card = imba::ZBox::new(arena);
+        // Only the ERROR card keeps a border (it is the signal);
+        // bordering every tool/thought card stacked stray hairlines
+        // through the transcript.
         let border = match cell.kind {
-            CellKind::Tool | CellKind::Reasoning => Some(chrome.input_border.0),
             CellKind::Error => Some(chrome.stop_color.0),
             CellKind::User | CellKind::Agent | CellKind::Notice => None,
+            CellKind::Tool | CellKind::Reasoning => None,
         };
         let surface = cell_surface(cell.kind, &chrome);
         if surface.is_some() || border.is_some() {
-            let radius = chrome.radius;
-            card = card.child_match_parent(imba::Fill::new().backdrop(
-                move |_arena: &Arena, canvas: &skia_safe::Canvas, rect: Rect| {
-                    let mut paint = Paint::default();
-                    paint.set_anti_alias(true);
-                    if let Some(surface) = surface {
-                        paint.set_color(surface);
-                        canvas.draw_round_rect(rect, radius, radius, &paint);
+            card = card.child_match_parent(
+                imba::Fill::new().backdrop(
+                    crate::ui::Surface {
+                        fill: surface,
+                        border,
+                        radius: chrome.radius,
                     }
-                    if let Some(border) = border {
-                        paint.set_stroke(true);
-                        paint.set_stroke_width(1.0);
-                        paint.set_color(border);
-                        canvas.draw_round_rect(rect.with_inset((0.5, 0.5)), radius, radius, &paint);
-                    }
-                },
-            ));
+                    .painter(),
+                ),
+            );
         }
         card = card.child(imba::spacer(card_width, card_height));
         let content = editor
@@ -877,17 +861,14 @@ impl<'a> imba::Layout<'a, CellCommand> for CardFrame<'a> {
                     canvas.draw_rect(rect, &paint);
                 },
             ));
-            let label_font = crate::fonts::ui_text_font(ui, chrome.title_size * 0.8);
-            // The caps label's baseline sat at header_h * 0.65.
-            let drop = (header_h * 0.65 + label_font.metrics().1.ascent).max(0.0);
+            let caps = crate::ui::caps(store, ui).colored(chrome.notice_color.0);
             card = card.child(
-                imba::text("YOU", label_font, chrome.notice_color.0)
-                    .tracking(1.5)
+                imba::ZBox::new(arena)
+                    .child(imba::spacer(0.0, header_h))
+                    .child_aligned(imba::Alignment::CenterStart, crate::ui::text(&caps, "YOU"))
                     .pad_insets(imba::Insets {
                         left: chrome.pad,
-                        top: drop,
-                        right: 0.0,
-                        bottom: 0.0,
+                        ..Default::default()
                     }),
             );
         }

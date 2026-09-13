@@ -67,110 +67,29 @@ impl View for TreeLabel {
 
     fn display<'a>(
         &'a self,
-        _arena: &'a Arena,
+        arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
     ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
-        let theme = crate::env::Themes::of(store);
-        let tree = theme.ui().tree.clone();
-        let colors = theme.ui().peeker.clone();
-        TreeLabelChrome {
-            label: self.label.clone(),
-            trail: self.trail.clone(),
-            font: match self.strong {
-                true => crate::fonts::ui_font(ui, tree.font_size),
-                false => crate::fonts::ui_text_font(ui, tree.font_size),
-            },
-            trail_font: crate::fonts::ui_text_font(ui, tree.font_size),
-            color: match self.dim {
-                true => colors.dim_text.0,
-                false => colors.text.0,
-            },
-            row_height: tree.row_height,
-            font_size: tree.font_size,
-            text_x: tree.text_x,
-            pick: self.pick,
+        let style = crate::ui::RowStyle::drawer(store, ui);
+        let label_style = match (self.strong, self.dim) {
+            (true, _) => crate::ui::heading(store, ui).sized(style.label.font.size()),
+            (false, true) => style.trail.clone(),
+            (false, false) => style.label.clone(),
+        };
+        let mut row = crate::ui::ListRow::new(arena, style.clone())
+            .label_styled(&label_style, self.label.clone());
+        for (text, color) in &self.trail {
+            row = row.trail_styled(&style.trail.clone().colored(*color), text.clone());
         }
-    }
-}
-
-/// The tree row's text chrome, REIFIED (docs/UI.md stage 2): the
-/// label runs from the left edge, the trail pins to the right edge
-/// ON TOP of it — a `ZBox`, so an overlong label is overdrawn by the
-/// trail exactly as the hand-rolled painter stacked its `draw_str`
-/// calls. A layout STRUCT (the `DrawerPanel` recipe) because the row
-/// spans the incoming width and the trail's anchor is that width.
-struct TreeLabelChrome {
-    label: String,
-    trail: Vec<(String, skia_safe::Color)>,
-    font: skia_safe::Font,
-    trail_font: skia_safe::Font,
-    color: skia_safe::Color,
-    row_height: f32,
-    font_size: f32,
-    text_x: f32,
-    pick: bool,
-}
-
-impl imba::LayoutValue for TreeLabelChrome {}
-
-impl<'a> imba::Layout<'a, TreeLabelCommand> for TreeLabelChrome {
-    fn layout(
-        self,
-        arena: &'a Arena,
-        constraints: Constraints,
-    ) -> imba::ThunkBox<'a, TreeLabelCommand> {
-        let TreeLabelChrome {
-            label,
-            trail,
-            font,
-            trail_font,
-            color,
-            row_height,
-            font_size,
-            text_x,
-            pick,
-        } = self;
-        let width = constraints.max.width.max(1.0);
-        // The painter's line sat at mid-row plus 0.36em; each text
-        // pads down so its OWN ascent lands there (top = baseline −
-        // ascent — `Text` paints its baseline at top + ascent).
-        let baseline = row_height * 0.5 + font_size * 0.36;
-        let drop = |font: &skia_safe::Font| (baseline + font.metrics().1.ascent).max(0.0);
-        let label = imba::text(label, font.clone(), color).pad_insets(imba::Insets {
-            top: drop(&font),
-            ..Default::default()
-        });
-        let trail_drop = drop(&trail_font);
-        let mut trail_row = imba::Row::new(arena).gap(font_size * 0.4);
-        for (text, color) in trail {
-            trail_row = trail_row.child(imba::text(text, trail_font.clone(), color).pad_insets(
-                imba::Insets {
-                    top: trail_drop,
-                    ..Default::default()
-                },
-            ));
-        }
-        imba::ZBox::new(arena)
-            .child(label)
-            .child_aligned(
-                imba::Alignment::TopEnd,
-                trail_row.pad_insets(imba::Insets {
-                    right: text_x * 0.5,
-                    ..Default::default()
-                }),
-            )
-            .sized(width, row_height)
-            .on_event(
-                move |_arena: &Arena, event: &Event<'_>, _size| match event {
-                    Event::MouseDown { .. } if pick => {
-                        EventResult::Command(TreeLabelCommand::Activate)
-                    }
-                    Event::MouseDown { .. } => EventResult::Handled,
-                    _ => EventResult::Ignored,
-                },
-            )
-            .layout(arena, constraints)
+        let pick = self.pick;
+        row.on_event(
+            move |_arena: &Arena, event: &Event<'_>, _size| match event {
+                Event::MouseDown { .. } if pick => EventResult::Command(TreeLabelCommand::Activate),
+                Event::MouseDown { .. } => EventResult::Handled,
+                _ => EventResult::Ignored,
+            },
+        )
     }
 }
 

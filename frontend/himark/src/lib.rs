@@ -39,6 +39,7 @@ pub mod test_driver;
 pub mod test_support;
 mod toc;
 mod tree_item;
+pub mod ui;
 pub use forest::{Forest, ForestList, ForestNode, ForestSearcher, TreeRow};
 pub use speedsearch::{
     subsequence_match, ItemSource, Searcher, SpeedSearchCommand, SpeedSearchEffect,

@@ -3766,6 +3766,176 @@ fn the_floating_chat_rides_the_bottom_sheet() {
 }
 
 #[test]
+#[ignore = "writes /tmp/chat_pane_*.png for visual inspection of chat rendering"]
+fn dump_chat_pane_snapshot() {
+    std::env::set_var("HIMARK_AGENT_LATENCY_MS", "0");
+    std::env::set_var("HIMARK_AHP_URL", "ws://127.0.0.1:9/unreachable");
+    let dir = tempfile::tempdir().expect("tempdir");
+    let stub = agent_host::testing::fake_cli_command(dir.path());
+    let host = spawn_host(dir.path(), &stub);
+    let socket = host.socket.clone();
+
+    let floating = std::env::var("HIMARK_DUMP_FLOATING").is_ok();
+    let mut engine = HimarkEngine::with_fonts(AppFonts::embedded());
+    himark::FloatingChat::set(&mut engine.app.store_mut(), floating);
+    let window = engine.add_window();
+    let mut surface = skia_safe::surfaces::raster_n32_premul((1100, 800)).expect("surface");
+    let _ = engine.draw(window, surface.canvas(), 1100.0, 800.0, 1.0);
+
+    let seat: std::sync::Arc<dyn himark::higent::AhpServer> =
+        std::sync::Arc::new(crate::hiahp::wire::WireHost::at(
+            crate::hiahp::wire::test_runtime(),
+            crate::test_connector(),
+            format!("unix:{}", socket.display()),
+        ));
+    let _ours = engine.register_agent_server("himark Host", seat);
+    let workdir = dir.path().to_owned();
+    himark::higent::Agents::install_new_session(
+        &mut engine.app.store_mut(),
+        std::sync::Arc::new(move |server| {
+            std::sync::Arc::new(StubNewSession {
+                server,
+                directory: format!("file://{}", workdir.display()),
+            })
+        }),
+    );
+
+    let pump = |engine: &mut HimarkEngine, surface: &mut skia_safe::Surface| {
+        for _ in 0..6 {
+            let _ = engine.draw(window, surface.canvas(), 1100.0, 800.0, 1.0);
+            settle(engine);
+        }
+    };
+    let wait_for = |engine: &mut HimarkEngine,
+                    surface: &mut skia_safe::Surface,
+                    what: &str,
+                    done: &mut dyn FnMut(&HimarkEngine) -> bool| {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while !done(engine) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "never settled within 20s: {what}; transcript: {:?}",
+                chat_transcript(engine),
+            );
+            pump(engine, surface);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    };
+
+    assert!(engine.perform_command(window, "agent.toggle-agents"));
+    let plus_row = |engine: &HimarkEngine| -> Option<usize> {
+        let rows = drawer_rows(engine)?;
+        let settled = !rows.iter().any(|(label, _)| label.contains("connecting"));
+        rows.iter()
+            .position(|(label, depth)| *depth == 0 && label == "himark Host")
+            .and_then(|index| {
+                (rows.get(index + 1) == Some(&("+ New Session…".to_owned(), 1)))
+                    .then_some(index + 1)
+            })
+            .filter(|_| settled)
+    };
+    wait_for(&mut engine, &mut surface, "host row", &mut |engine| {
+        plus_row(engine).is_some()
+    });
+    let plus = plus_row(&engine).expect("the himark host row connected");
+    pick_drawer_row(&mut engine, plus);
+    wait_for(&mut engine, &mut surface, "chat ready", &mut |engine| {
+        shown_chat(engine).is_some_and(|chat| chat.ready())
+    });
+
+    let send = |engine: &mut HimarkEngine, text: &str| {
+        assert!(himark::test_driver::type_text(&mut engine.app, text));
+        let _ = himark::test_driver::key(
+            &mut engine.app,
+            imba::event::Key::Enter,
+            imba::event::Modifiers {
+                command: true,
+                ..Default::default()
+            },
+        );
+    };
+    let replies = |engine: &HimarkEngine| -> usize {
+        chat_transcript(engine)
+            .map(|rows| {
+                rows.iter()
+                    .flat_map(|(_, cells)| cells.clone())
+                    .filter(|(kind, text)| kind == "Agent" && text.contains("OK"))
+                    .count()
+            })
+            .unwrap_or(0)
+    };
+    for round in 0..3usize {
+        send(&mut engine, "hello");
+        wait_for(&mut engine, &mut surface, "reply", &mut |engine| {
+            replies(engine) > round
+        });
+    }
+
+    send(&mut engine, "ask permission first");
+    wait_for(&mut engine, &mut surface, "ask card", &mut |engine| {
+        shown_chat(engine).is_some_and(|chat| chat.permission_oracle().is_some())
+    });
+    assert!(himark::test_driver::type_text(&mut engine.app, "1"));
+    wait_for(&mut engine, &mut surface, "tool ran", &mut |engine| {
+        chat_transcript(engine).is_some_and(|rows| {
+            rows.iter().any(|(_, cells)| {
+                cells
+                    .iter()
+                    .any(|(kind, text)| kind == "Agent" && text.contains("ran it"))
+            })
+        })
+    });
+    pump(&mut engine, &mut surface);
+    if floating {
+        // A send expands the sheet; slow the reply down so the sheet
+        // is still up when the snapshot lands.
+        std::env::set_var("HIMARK_AGENT_LATENCY_MS", "3000");
+        send(&mut engine, "hello again");
+        pump(&mut engine, &mut surface);
+        assert_eq!(
+            himark::Windows::window_ref(engine.app.store(), engine.app.sole_window())
+                .and_then(|entity| entity.bottom_expanded()),
+            Some(true),
+            "the send expanded the sheet"
+        );
+        // The expand ride is a wall-clock animation; give it real time.
+        for _ in 0..20 {
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            let _ = engine.draw(window, surface.canvas(), 1100.0, 800.0, 1.0);
+            settle(&mut engine);
+        }
+        let mut shot = skia_safe::surfaces::raster_n32_premul((1100, 800)).expect("surface");
+        shot.canvas().clear(skia_safe::Color::BLACK);
+        let _ = engine.draw(window, shot.canvas(), 1100.0, 800.0, 1.0);
+        let image = shot.image_snapshot();
+        let data = image
+            .encode(None, skia_safe::EncodedImageFormat::PNG, None)
+            .expect("png");
+        std::fs::write("/tmp/chat_sheet_midexpand.png", data.as_bytes()).expect("snapshot");
+        wait_for(&mut engine, &mut surface, "last reply", &mut |engine| {
+            replies(engine) > 3
+        });
+        pump(&mut engine, &mut surface);
+    }
+
+    for (scale, path) in [
+        (1.0f32, "/tmp/chat_pane_1x.png"),
+        (2.0, "/tmp/chat_pane_2x.png"),
+    ] {
+        let px = (1100.0 * scale) as i32;
+        let py = (800.0 * scale) as i32;
+        let mut shot = skia_safe::surfaces::raster_n32_premul((px, py)).expect("surface");
+        shot.canvas().clear(skia_safe::Color::BLACK);
+        let _ = engine.draw(window, shot.canvas(), 1100.0, 800.0, scale);
+        let image = shot.image_snapshot();
+        let data = image
+            .encode(None, skia_safe::EncodedImageFormat::PNG, None)
+            .expect("png");
+        std::fs::write(path, data.as_bytes()).expect("snapshot");
+    }
+}
+
+#[test]
 fn the_chat_runs_through_the_himark_host() {
     std::env::set_var("HIMARK_AGENT_LATENCY_MS", "0");
 

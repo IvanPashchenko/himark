@@ -23,9 +23,9 @@ use imba::{
     leaf::leaf,
     store::Store,
     thunk_ext::ThunkExt,
-    Layout as _, LayoutExt as _, UiCtx, View, Widget,
+    Layout as _, LayoutExt as _, Thunk as _, UiCtx, View, Widget,
 };
-use skia_safe::{Paint, Rect, Size};
+use skia_safe::{Rect, Size};
 
 const NOTE_KIND: &str = "changes-note";
 
@@ -1307,7 +1307,23 @@ impl View for ChangesView {
 
             let chrome = crate::env::Themes::of(store).ui().peeker.clone();
             let search = crate::env::Themes::of(store).ui().search.clone();
-            let chip_height = chrome.hint_size * 2.0;
+            let chip = crate::ui::button(
+                arena,
+                store,
+                ui,
+                crate::ui::ButtonRole::Ghost,
+                "REFRESH",
+                || ChangesCommand::Refetch,
+            )
+            .layout(
+                arena,
+                Constraints {
+                    min: Size::default(),
+                    max: size,
+                },
+            );
+            let chip_size = chip.size();
+            let chip_height = chip_size.height;
 
             // The well follows the message editor's TRUE height: a
             // multi-line commit message grows the box (and pushes the
@@ -1362,12 +1378,9 @@ impl View for ChangesView {
             }
             let well = well
                 .backdrop(
-                    move |_arena: &Arena, canvas: &skia_safe::Canvas, rect: Rect| {
-                        let mut paint = Paint::default();
-                        paint.set_anti_alias(true);
-                        paint.set_color(input_fill.0);
-                        canvas.draw_round_rect(rect, 6.0, 6.0, &paint);
-                    },
+                    crate::ui::Surface::fill(input_fill.0)
+                        .radius(crate::ui::RADIUS_S)
+                        .painter(),
                 )
                 .on_click(|| ChangesCommand::FocusMessage(true))
                 .layout(
@@ -1397,30 +1410,6 @@ impl View for ChangesView {
                     )
                     .map(ChangesCommand::Message)
                     .focus_scope(self.message_focused),
-            );
-
-            let chip_font = crate::fonts::ui_font(ui, chrome.hint_size);
-            let advance = chip_font.measure_str("REFRESH", None).0;
-            let chip_width = advance + chrome.hint_size * 2.0;
-            let (_, metrics) = chip_font.metrics();
-            let label_height = (-metrics.ascent + metrics.descent).ceil().max(1.0);
-            let chip = imba::Button::new(
-                arena,
-                imba::text("REFRESH", chip_font, chrome.dim_text.0),
-                || ChangesCommand::Refetch,
-            )
-            .stroke(chrome.rule.0)
-            .radius(chrome.well_radius)
-            .pad_content(imba::Insets::xy(
-                chrome.hint_size,
-                ((chip_height - label_height) * 0.5).max(0.0),
-            ))
-            .layout(
-                arena,
-                Constraints {
-                    min: Size::default(),
-                    max: Size::new(chip_width, chip_height),
-                },
             );
 
             let searching = self.list.searching();
@@ -1472,8 +1461,8 @@ impl View for ChangesView {
                 },
             );
             overlay.place(0.0, 0.0, keymap);
-            overlay.place(
-                (size.width - chrome.margin - chip_width).max(0.0),
+            overlay.place_boxed(
+                (size.width - chrome.margin - chip_size.width).max(0.0),
                 chrome.margin,
                 chip,
             );

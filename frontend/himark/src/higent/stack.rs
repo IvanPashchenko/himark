@@ -221,69 +221,57 @@ impl WidgetStack {
 
         if let Some(ask) = &self.ask {
             let card_h = ask_h - pad * 0.5;
-            let surface = chrome.ask_surface.0;
-            let card_border = chrome.ask_border.0;
-            let title = ask.title.clone();
-            let invocation = ask.invocation.clone();
-            let input_preview = ask.input.clone();
-            let title_font = ui_text_font(ui, chrome.title_size * 0.8);
-            let body_font = ui_text_font(ui, chrome.title_size * 0.85);
-            let code_font = ui_text_font(ui, chrome.title_size * 0.8);
-            let accent_color = chrome.accent.0;
-            let text_color = chrome.text_color.0;
-            let input_fill = chrome.input_fill.0;
-            let has_preview = input_preview.is_some();
-            let card = leaf::<StackCommand>(box_w, card_h)
-                .paint_instead(move |_arena, canvas, rect| {
-                    let mut paint = Paint::default();
-                    paint.set_anti_alias(true);
-                    paint.set_color(surface);
-                    canvas.draw_round_rect(rect, radius, radius, &paint);
-                    paint.set_stroke(true);
-                    paint.set_stroke_width(1.0);
-                    paint.set_color(card_border);
-                    canvas.draw_round_rect(rect, radius, radius, &paint);
-                    paint.set_stroke(false);
-                    let mut y = rect.top + box_pad + title_font.size();
-                    paint.set_color(accent_color);
-                    canvas.draw_str(
-                        title.as_str(),
-                        (rect.left + box_pad, y),
-                        &title_font,
-                        &paint,
-                    );
-                    y += line * 0.9;
-                    paint.set_color(text_color);
-                    canvas.draw_str(
-                        invocation.as_str(),
-                        (rect.left + box_pad, y),
-                        &body_font,
-                        &paint,
-                    );
-                    if let Some(preview) = &input_preview {
-                        y += line * 0.5;
-                        let well = Rect::from_xywh(
-                            rect.left + box_pad,
-                            y,
-                            rect.width() - box_pad * 2.0,
-                            line,
-                        );
-                        paint.set_color(input_fill);
-                        canvas.draw_round_rect(well, 6.0, 6.0, &paint);
-                        paint.set_color(text_color);
-                        canvas.draw_str(
-                            preview.as_str(),
-                            (well.left + box_pad * 0.75, well.top + line * 0.68),
-                            &code_font,
-                            &paint,
-                        );
-                    }
-                })
-                .event(|_arena, event, _size| match event {
-                    Event::MouseDown { .. } => EventResult::Handled,
-                    _ => EventResult::Ignored,
-                });
-            stack.place(box_x, 0.0, card);
+            let title_style = crate::ui::TextStyle {
+                font: ui_text_font(ui, chrome.title_size * 0.8),
+                color: chrome.accent.0,
+                tracking: 0.0,
+            };
+            let body_style = crate::ui::TextStyle {
+                font: ui_text_font(ui, chrome.title_size * 0.85),
+                color: chrome.text_color.0,
+                tracking: 0.0,
+            };
+            let code_style = crate::ui::TextStyle {
+                font: ui_text_font(ui, chrome.title_size * 0.8),
+                color: chrome.text_color.0,
+                tracking: 0.0,
+            };
+            let has_preview = ask.input.is_some();
+            let mut body = imba::Column::new(arena)
+                .gap(crate::ui::space::M)
+                .child(crate::ui::text(&title_style, ask.title.clone()))
+                .child(crate::ui::text(&body_style, ask.invocation.clone()));
+            if let Some(preview) = &ask.input {
+                body = body.child(
+                    imba::ZBox::new(arena)
+                        .child(imba::spacer(box_w - box_pad * 2.0, line))
+                        .child_aligned(
+                            imba::Alignment::CenterStart,
+                            crate::ui::text(&code_style, preview.clone()).pad_insets(
+                                imba::Insets {
+                                    left: crate::ui::space::M,
+                                    ..Default::default()
+                                },
+                            ),
+                        )
+                        .backdrop(
+                            crate::ui::Surface::fill(chrome.input_fill.0)
+                                .radius(crate::ui::RADIUS_S)
+                                .painter(),
+                        ),
+                );
+            }
+            let card = imba::ZBox::new(arena)
+                .child(imba::spacer(box_w, card_h))
+                .child(body.pad(box_pad))
+                .backdrop(
+                    crate::ui::Surface::bordered(chrome.ask_surface.0, chrome.ask_border.0)
+                        .radius(radius)
+                        .painter(),
+                )
+                .shield()
+                .layout(arena, Constraints::tight(Size::new(box_w, card_h)));
+            stack.place_boxed(box_x, 0.0, card);
 
             let mut option_y =
                 box_pad + line + line * 0.9 + if has_preview { line * 1.3 } else { 0.0 };

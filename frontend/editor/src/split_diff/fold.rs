@@ -363,7 +363,7 @@ impl<'a> imba::Layout<'a, FoldCommand> for FoldStripLayout {
         let ascent = -font.metrics().1.ascent;
         let baseline = (height + chrome.fold_text_size * 0.7) * 0.5;
         let label = imba::text(
-            format!("⋯ {} unchanged lines", self.lines),
+            format!("… {} unchanged lines", self.lines),
             font,
             chrome.fold_text.0,
         )

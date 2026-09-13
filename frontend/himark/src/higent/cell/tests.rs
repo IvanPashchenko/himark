@@ -28,6 +28,201 @@ fn resolved(before: &str, after: &str) -> Cell {
     cell
 }
 
+fn paint_cell(
+    cell: &Cell,
+    store: &Store,
+    ui: &UiCtx,
+    width: f32,
+    path: &str,
+) -> (f32, Vec<CellCommand>) {
+    let arena = Arena::default();
+    let thunk = imba::View::layout(
+        cell,
+        &arena,
+        store,
+        ui,
+        Constraints {
+            min: Size::default(),
+            max: Size::new(width, f32::MAX),
+        },
+    );
+    let height = imba::Thunk::size(&thunk).height;
+    let viewport = Rect::from_wh(width, height);
+    let widget = imba::Thunk::realize(thunk, &arena, viewport);
+    let mut surface =
+        skia_safe::surfaces::raster_n32_premul((width as i32, height.ceil() as i32 + 4))
+            .expect("raster surface");
+    let canvas = surface.canvas();
+    canvas.clear(skia_safe::Color::from_argb(0xff, 0x10, 0x12, 0x18));
+    let result = imba::Widget::handle_event(
+        &widget,
+        &arena,
+        &Event::Paint {
+            canvas,
+            focused: false,
+        },
+        viewport,
+    );
+    let commands = match result {
+        EventResult::Command(command) => vec![command],
+        EventResult::Commands(commands) => commands,
+        _ => Vec::new(),
+    };
+    if let Ok(dir) = std::env::var("HIMARK_SHOT") {
+        let image = surface.image_snapshot();
+        let data = image
+            .encode(None, skia_safe::EncodedImageFormat::PNG, None)
+            .expect("png");
+        std::fs::write(format!("{dir}/{path}"), data.as_bytes()).expect("write png");
+    }
+    (height, commands)
+}
+
+fn edited_sources() -> (String, String) {
+    let mut before = String::new();
+    let mut after = String::new();
+    for line in 0..12 {
+        let text = format!("line {line:02} of the quiet unchanged context\n");
+        before.push_str(&text);
+        if line == 5 {
+            after.push_str("line 05 was rewritten in place\n");
+        } else {
+            after.push_str(&text);
+        }
+    }
+    before.push_str("old tail one\nold tail two\nold tail three\n");
+    after.push_str("new tail\n");
+    (before, after)
+}
+
+#[test]
+fn a_diff_cell_lays_out_sane_heights_and_settles_its_rewrap() {
+    let mut store = Store::new();
+    let ui = UiCtx::new();
+    let (before, after) = edited_sources();
+    let mut cell = resolved(&before, &after);
+
+    let sane = |height: f32| height.is_finite() && (40.0..100_000.0).contains(&height);
+    let (h1, _) = paint_cell(&cell, &store, &ui, 640.0, "cell_at_build_width.png");
+    assert!(sane(h1), "the built cell's laid height is sane: {h1}");
+    // The app path: the panel is wider than the build width, so the
+    // first paint asks for a rewrap; apply it and paint again — the
+    // rewrap must SETTLE (no rewrap storm frame over frame).
+    let (_, commands) = paint_cell(&cell, &store, &ui, 900.0, "cell_before_rewrap.png");
+    let mut batch = imba::effect::Batch::new();
+    for command in commands {
+        cell.perform(&mut store, &ui, command, &mut batch.effects());
+    }
+    let (h2, again) = paint_cell(&cell, &store, &ui, 900.0, "cell_after_rewrap.png");
+    assert!(sane(h2), "the rewrapped cell's laid height is sane: {h2}");
+    assert!(
+        !again
+            .iter()
+            .any(|command| matches!(command, CellCommand::Rewrap(_))),
+        "the rewrap settled after one round"
+    );
+}
+
+#[test]
+fn a_scrolled_turn_of_cells_paints_and_keeps_its_extent() {
+    // The app shape: cells in a turn's list, the turn in a scroll,
+    // painted mid-scroll — the embedded editors must translate with
+    // the viewport.
+    use imba::scroll::ScrollView;
+
+    let store = Store::new();
+    let ui = UiCtx::new();
+    let (before, after) = edited_sources();
+    let mut cells: Vec<(Cell, f32)> = Vec::new();
+    let mut batch = imba::effect::Batch::new();
+    let (text_cell, text_height) = Cell::build(
+        &store,
+        &ui,
+        CellKind::Agent,
+        "A short agent message above the edit.",
+        640.0,
+        &mut batch.effects(),
+    );
+    cells.push((text_cell, text_height));
+    for _ in 0..2 {
+        let cell = resolved(&before, &after);
+        let arena = Arena::default();
+        let height = imba::Thunk::size(&imba::View::layout(
+            &cell,
+            &arena,
+            &store,
+            &ui,
+            Constraints {
+                min: Size::default(),
+                max: Size::new(640.0, f32::MAX),
+            },
+        ))
+        .height;
+        cells.push((cell, height));
+    }
+    let declared: f32 = cells.iter().map(|(_, height)| height).sum();
+    let turn = crate::higent::TurnView::new("turn", 640.0, cells);
+    let mut scroll = ScrollView::new(turn);
+    let width = 640.0f32;
+    let view_h = 700.0f32;
+
+    for (scroll_y, path) in [
+        (0.0, "turn_scroll_0.png"),
+        (137.5, "turn_scroll_137.png"),
+        (400.0, "turn_scroll_400.png"),
+    ] {
+        scroll.set_scroll_y(scroll_y);
+        let arena = Arena::default();
+        let thunk = imba::View::layout(
+            &scroll,
+            &arena,
+            &store,
+            &ui,
+            Constraints::tight(Size::new(width, view_h)),
+        );
+        let viewport = Rect::from_wh(width, view_h);
+        let widget = imba::Thunk::realize(thunk, &arena, viewport);
+        let mut surface =
+            skia_safe::surfaces::raster_n32_premul((width as i32, view_h as i32)).expect("surface");
+        let canvas = surface.canvas();
+        canvas.clear(skia_safe::Color::from_argb(0xff, 0x10, 0x12, 0x18));
+        imba::Widget::handle_event(
+            &widget,
+            &arena,
+            &Event::Paint {
+                canvas,
+                focused: false,
+            },
+            viewport,
+        );
+        if let Ok(dir) = std::env::var("HIMARK_SHOT") {
+            let image = surface.image_snapshot();
+            let data = image
+                .encode(None, skia_safe::EncodedImageFormat::PNG, None)
+                .expect("png");
+            std::fs::write(format!("{dir}/{path}"), data.as_bytes()).expect("write png");
+        }
+    }
+    // The turn's laid extent is exactly the sum of its cells'
+    // declared heights — the list contract the scroll rides on.
+    let arena = Arena::default();
+    let turn_height = imba::Thunk::size(&imba::View::layout(
+        scroll.content(),
+        &arena,
+        &store,
+        &ui,
+        Constraints {
+            min: Size::default(),
+            max: Size::new(width, f32::MAX),
+        },
+    ))
+    .height;
+    assert!(
+        (turn_height - declared).abs() < 1.5,
+        "the turn spans its declared cells: laid {turn_height} vs declared {declared}"
+    );
+}
+
 #[test]
 fn a_resolved_edit_lands_as_an_inline_diff_with_folds() {
     let mut before = String::new();

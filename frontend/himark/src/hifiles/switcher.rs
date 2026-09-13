@@ -12,7 +12,7 @@ use imba::{
     leaf::leaf,
     store::Store,
     thunk_ext::ThunkExt,
-    UiCtx, View,
+    Layout as _, LayoutExt as _, UiCtx, View,
 };
 use skia_safe::{Paint, Rect, Size};
 
@@ -176,10 +176,8 @@ impl View for SessionSwitcherView {
 
             let theme = crate::env::Themes::of(store);
             let chrome = theme.ui().peeker.clone();
-            let row_height = chrome.row_height;
             let selected = self.selected;
             let labels = &self.labels;
-            let row_font = crate::fonts::ui_font(ui, chrome.row_size);
             let panel = {
                 let mut panel = container(arena, Size::new(PANEL_WIDTH, size.height));
                 let chrome_bg = chrome.clone();
@@ -201,65 +199,72 @@ impl View for SessionSwitcherView {
                     });
                 panel.place(0.0, 0.0, backdrop);
 
-                let list_height = size.height - PANEL_PAD * 2.0;
-                let list = leaf::<SwitcherCommand>(PANEL_WIDTH - 1.0, list_height)
-                    .paint_instead(move |_arena, canvas, rect| {
-                        let mut highlight = Paint::default();
-                        highlight.set_anti_alias(true);
-                        highlight.set_color(chrome.highlight.0);
-                        let mut accent = Paint::default();
-                        accent.set_color(chrome.accent.0);
-                        let mut text = Paint::default();
-                        text.set_anti_alias(true);
-                        text.set_color(chrome.text.0);
-                        let mut dim = Paint::default();
-                        dim.set_anti_alias(true);
-                        dim.set_color(chrome.dim_text.0);
-                        for (line, label) in labels.iter().enumerate() {
-                            let top = rect.top + line as f32 * row_height;
-                            if line == selected {
-                                canvas.draw_round_rect(
-                                    Rect::from_xywh(
-                                        rect.left + 4.0,
-                                        top,
-                                        rect.width() - 8.0,
-                                        row_height,
-                                    ),
-                                    chrome.highlight_radius,
-                                    chrome.highlight_radius,
-                                    &highlight,
-                                );
-                                canvas.draw_rect(
-                                    Rect::from_xywh(
-                                        rect.left,
-                                        top + chrome.accent_inset,
-                                        chrome.accent_width,
-                                        row_height - chrome.accent_inset * 2.0,
-                                    ),
-                                    &accent,
-                                );
-                            }
-                            let baseline = top + row_height - chrome.row_baseline;
-                            let paint = match line == labels.len() - 1 {
-                                true => &dim,
-                                false => &text,
-                            };
-                            canvas.draw_str(
-                                label,
-                                (rect.left + chrome.row_text_x, baseline),
-                                &row_font,
-                                paint,
-                            );
+                let style = crate::ui::RowStyle::standard(store, ui);
+                let mut list = imba::Column::new(arena);
+                for (line, label) in labels.iter().enumerate() {
+                    let dim = line == labels.len() - 1;
+                    let row = crate::ui::ListRow::new(arena, style.clone())
+                        .label_styled(
+                            match dim {
+                                true => &style.trail,
+                                false => &style.label,
+                            },
+                            label.clone(),
+                        )
+                        .on_event(
+                            move |_arena: &Arena, event: &Event<'_>, _size| match event {
+                                Event::MouseDown { .. } => {
+                                    EventResult::Command(SwitcherCommand::Pick(line))
+                                }
+                                _ => EventResult::Ignored,
+                            },
+                        );
+                    list = match line == selected {
+                        true => {
+                            let chrome = chrome.clone();
+                            list.child(row.backdrop(
+                                move |_arena: &Arena, canvas: &skia_safe::Canvas, rect: Rect| {
+                                    let mut paint = Paint::default();
+                                    paint.set_anti_alias(true);
+                                    paint.set_color(chrome.highlight.0);
+                                    canvas.draw_round_rect(
+                                        Rect::from_xywh(
+                                            rect.left + 4.0,
+                                            rect.top,
+                                            rect.width() - 8.0,
+                                            rect.height(),
+                                        ),
+                                        chrome.highlight_radius,
+                                        chrome.highlight_radius,
+                                        &paint,
+                                    );
+                                    paint.set_color(chrome.accent.0);
+                                    canvas.draw_rect(
+                                        Rect::from_xywh(
+                                            rect.left,
+                                            rect.top + chrome.accent_inset,
+                                            chrome.accent_width,
+                                            rect.height() - chrome.accent_inset * 2.0,
+                                        ),
+                                        &paint,
+                                    );
+                                },
+                            ))
                         }
-                    })
-                    .event(move |_arena, event, _size| match event {
-                        Event::MouseDown { point, .. } => {
-                            let row = (point.y / row_height).max(0.0) as usize;
-                            EventResult::Command(SwitcherCommand::Pick(row))
-                        }
-                        _ => EventResult::Ignored,
-                    });
-                panel.place(0.0, PANEL_PAD, list);
+                        false => list.child(row),
+                    };
+                }
+                panel.place_boxed(
+                    0.0,
+                    PANEL_PAD,
+                    list.layout(
+                        arena,
+                        Constraints {
+                            min: Size::default(),
+                            max: Size::new(PANEL_WIDTH - 1.0, size.height - PANEL_PAD * 2.0),
+                        },
+                    ),
+                );
                 panel
             };
             overlay.place(0.0, 0.0, panel);

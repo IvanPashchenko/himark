@@ -1072,7 +1072,6 @@ pub struct PeekerChrome {
 
     pub list_top_gap: f32,
 
-    pub row_baseline: f32,
     pub row_text_x: f32,
     pub input_min_width: f32,
 }
@@ -1091,7 +1090,6 @@ pub struct SearchChrome {
     pub group_fill: Rgba,
     pub group_text: Rgba,
     pub group_text_x: f32,
-    pub group_baseline: f32,
     pub group_font_size: f32,
 
     pub group_separator: Rgba,

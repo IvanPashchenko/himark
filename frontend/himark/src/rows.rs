@@ -43,49 +43,25 @@ impl View for LabelRow {
         store: &'a Store,
         ui: &'a UiCtx,
     ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
-        let chrome = crate::env::Themes::of(store).ui().peeker.clone();
-        let font = crate::fonts::ui_font(ui, chrome.row_size);
-        let trail_font = crate::fonts::ui_text_font(ui, chrome.row_size);
-        let color = match self.dim {
-            true => chrome.dim_text.0,
-            false => chrome.text.0,
-        };
-        // The chrome's baseline sits `row_baseline` above the row's
-        // bottom; each text pads down so its OWN ascent lands there —
-        // the exact position the hand-rolled painter used.
-        let baseline_y = chrome.row_height - chrome.row_baseline;
-        let drop = |font: &skia_safe::Font| (baseline_y + font.metrics().1.ascent).max(0.0);
+        let style = crate::ui::RowStyle::standard(store, ui);
         let dim = self.dim;
-        let mut row = imba::Row::new(arena)
-            .child(
-                imba::text(self.label.clone(), font.clone(), color).pad_insets(imba::Insets {
-                    left: chrome.row_text_x,
-                    top: drop(&font),
-                    right: 0.0,
-                    bottom: 0.0,
-                }),
-            )
-            .weighted(1.0, imba::Fill::new());
+        let mut row = crate::ui::ListRow::new(arena, style.clone()).label_styled(
+            match dim {
+                true => &style.trail,
+                false => &style.label,
+            },
+            self.label.clone(),
+        );
         if let Some(trail) = &self.trail {
-            row = row.child(
-                imba::text(trail.clone(), trail_font.clone(), chrome.dim_text.0).pad_insets(
-                    imba::Insets {
-                        left: 0.0,
-                        top: drop(&trail_font),
-                        right: chrome.row_text_x,
-                        bottom: 0.0,
-                    },
-                ),
-            );
+            row = row.trail(trail.clone());
         }
-        row.height(chrome.row_height)
-            .on_event(
-                move |_arena: &Arena, event: &Event<'_>, _size| match event {
-                    Event::MouseDown { .. } if !dim => EventResult::Command(RowCommand::Picked),
-                    Event::MouseDown { .. } => EventResult::Handled,
-                    _ => EventResult::Ignored,
-                },
-            )
+        row.on_event(
+            move |_arena: &Arena, event: &Event<'_>, _size| match event {
+                Event::MouseDown { .. } if !dim => EventResult::Command(RowCommand::Picked),
+                Event::MouseDown { .. } => EventResult::Handled,
+                _ => EventResult::Ignored,
+            },
+        )
     }
 }
 

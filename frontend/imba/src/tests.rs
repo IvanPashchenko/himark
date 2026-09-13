@@ -1046,6 +1046,26 @@ fn row_list() -> ListView<Row> {
 }
 
 #[test]
+fn an_absurd_row_height_cannot_wrap_the_lists_offsets() {
+    // The Fill-under-unbounded class: a row measuring f32::MAX
+    // saturates the u32 row metric, and summing two such rows WRAPS
+    // the cumulative offsets in release (debug: add-overflow panic)
+    // — every later row painting on top of the others. The list's
+    // measure clamps instead.
+    let list: ListView<Row> = ListView::from_rope(crate::list::measured([
+        (Row { height: 10.0 }, 10.0),
+        (Row { height: 20.0 }, f32::MAX),
+        (Row { height: 30.0 }, 30.0),
+        (Row { height: 40.0 }, f32::INFINITY),
+    ]));
+    let total = list.total_height();
+    assert!(
+        total.is_finite() && (2_000_040.0..=2_000_100.0).contains(&total),
+        "both absurd rows clamp, the real rows still count: {total}"
+    );
+}
+
+#[test]
 fn list_stacks_rows_and_a_click_focuses_the_hit_row() {
     let mut store = Store::new();
     let ui = crate::ui::UiCtx::new();

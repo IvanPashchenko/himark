@@ -192,15 +192,16 @@ impl View for PaletteView {
                 });
             container.place(0.0, 0.0, backdrop);
 
-            // The chrome labels as `imba::text` at exact baseline
-            // parity (top = old hand-drawn baseline − ascent); the
-            // texts ignore presses, so the backdrop's close-on-click
-            // still answers underneath them.
+            // The chrome labels as `imba::text`, centered in their
+            // row band (the design-system row rule); the texts ignore
+            // presses, so the backdrop's close-on-click still answers
+            // underneath them.
             if match_count == 0 {
-                let row_ascent = -row_font.metrics().1.ascent;
+                let metrics = row_font.metrics().1;
+                let text_height = (-metrics.ascent + metrics.descent).ceil().max(1.0);
                 container.place_boxed(
                     list_x + chrome.row_text_x,
-                    list_top + row_height - chrome.row_baseline - row_ascent,
+                    list_top + ((row_height - text_height) * 0.5).max(0.0),
                     imba::text("no matching commands", row_font.clone(), chrome.dim_text.0)
                         .layout(arena, Constraints::tight(size).loosen()),
                 );

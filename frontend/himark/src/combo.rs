@@ -85,55 +85,16 @@ impl View for ComboOption {
 
     fn display<'a>(
         &'a self,
-        _arena: &'a imba::arena::Arena,
+        arena: &'a imba::arena::Arena,
         store: &'a Store,
         ui: &'a UiCtx,
     ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
-        imba::laid(
-            move |_arena: &'a imba::arena::Arena, constraints: Constraints| {
-                let chrome = crate::env::Themes::of(store).ui().combo.clone();
-                let row_font = crate::fonts::ui_text_font(ui, chrome.menu_row_size);
-                let trail_font = crate::fonts::ui_font(ui, chrome.label_size);
-                let label = self.label.clone();
-                let trail = self.trail.clone();
-
-                let natural = self
-                    .trail
-                    .as_ref()
-                    .map(|trail| trail_font.measure_str(trail.as_str(), None).0 + chrome.gap)
-                    .unwrap_or(0.0)
-                    + measured_plain(&row_font, &self.label)
-                    + chrome.menu_pad * 2.0;
-                let width = if constraints.max.width.is_finite() {
-                    constraints.max.width
-                } else {
-                    natural.max(constraints.min.width)
-                };
-                let height = chrome.menu_row_height;
-                leaf::<Self::Command>(width, height).paint_instead(move |_arena, canvas, rect| {
-                    let mut paint = Paint::default();
-                    paint.set_anti_alias(true);
-                    paint.set_color(chrome.menu_text.0);
-                    let baseline = rect.top + (rect.height() + chrome.menu_row_size * 0.7) * 0.5;
-                    canvas.draw_str(
-                        label.as_str(),
-                        (rect.left + chrome.menu_pad, baseline),
-                        &row_font,
-                        &paint,
-                    );
-                    if let Some(trail) = &trail {
-                        paint.set_color(chrome.menu_trail.0);
-                        let advance = trail_font.measure_str(trail.as_str(), None).0;
-                        canvas.draw_str(
-                            trail.as_str(),
-                            (rect.right - chrome.menu_pad - advance, baseline),
-                            &trail_font,
-                            &paint,
-                        );
-                    }
-                })
-            },
-        )
+        let mut row = crate::ui::ListRow::new(arena, crate::ui::RowStyle::standard(store, ui))
+            .label(self.label.clone());
+        if let Some(trail) = &self.trail {
+            row = row.trail(trail.clone());
+        }
+        row
     }
 }
 

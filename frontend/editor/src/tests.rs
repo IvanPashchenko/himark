@@ -4397,6 +4397,23 @@ fn sticky_lines_pin_the_enclosing_scopes() {
         }
         _ => panic!("a press must command the jump"),
     }
+
+    // The band and its divider run EDGE TO EDGE of the hosting pane,
+    // even when the editor sits inset inside a wider host.
+    let minted = drain(skia_safe::Rect::from_xywh(0.0, top, 400.0, 300.0));
+    let overlay = minted.into_iter().next().unwrap();
+    let anchor =
+        skia_safe::Rect::from_xywh(120.0, 0.0, overlay.anchor.width(), overlay.anchor.height());
+    let placed = overlay
+        .content
+        .layout(&arena, skia_safe::Size::new(1000.0, 300.0), anchor);
+    let (at, thunk) = placed.into_iter().next().unwrap();
+    assert_eq!(at.x, 0.0, "the band starts at the pane's left edge");
+    assert!(
+        (imba::Thunk::size(&thunk).width - 1000.0).abs() < 0.5,
+        "the band spans the pane: {}",
+        imba::Thunk::size(&thunk).width
+    );
 }
 
 #[test]
