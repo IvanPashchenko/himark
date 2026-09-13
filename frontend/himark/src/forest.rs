@@ -288,7 +288,7 @@ impl<K: Clone + Eq + Hash + Send + Sync + 'static> ForestList<K> {
         Self {
             forest: Forest::new(store),
             list: ScrollView::new(
-                ListView::from_measured([]).with_selection(crate::rows::selection_style(store)),
+                ListView::empty().with_selection(crate::rows::selection_style(store)),
             ),
         }
     }

@@ -108,9 +108,7 @@ impl AgentsPanel {
         let theme = crate::env::Themes::of(store);
         let tree = theme.ui().tree.clone();
         let mut panel = Self {
-            list: ScrollView::new(
-                ListView::from_measured([]).with_selection(crate::selection_style(store)),
-            ),
+            list: ScrollView::new(ListView::empty().with_selection(crate::selection_style(store))),
             row_height: tree.row_height.max(1.0),
             window,
             booted: false,

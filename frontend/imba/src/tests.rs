@@ -1038,11 +1038,11 @@ impl Widget<'_, RowCommand> for RowWidget {
 }
 
 fn row_list() -> ListView<Row> {
-    ListView::from_measured([
+    ListView::from_rope(crate::list::measured([
         (Row { height: 10.0 }, 10.0),
         (Row { height: 20.0 }, 20.0),
         (Row { height: 30.0 }, 30.0),
-    ])
+    ]))
 }
 
 #[test]
@@ -1232,8 +1232,10 @@ fn list_paint_reconciles_stale_row_heights() {
     let ui = crate::ui::UiCtx::new();
     let arena = Arena::default();
 
-    let mut list: ListView<Row> =
-        ListView::from_measured([(Row { height: 30.0 }, 10.0), (Row { height: 20.0 }, 20.0)]);
+    let mut list: ListView<Row> = ListView::from_rope(crate::list::measured([
+        (Row { height: 30.0 }, 10.0),
+        (Row { height: 20.0 }, 20.0),
+    ]));
 
     let commands = {
         let widget = list
@@ -1299,9 +1301,9 @@ fn list_scroll_benchmark() {
     let mut store = Store::new();
     let ui = crate::ui::UiCtx::new();
     let built_started = std::time::Instant::now();
-    let mut view = ScrollView::new(ListView::from_measured(
+    let mut view = ScrollView::new(ListView::from_rope(crate::list::measured(
         (0..ROWS).map(|_| (Row { height: ROW_HEIGHT }, ROW_HEIGHT)),
-    ));
+    )));
     let built = built_started.elapsed();
 
     let mut surface = skia_safe::surfaces::raster_n32_premul((400, 900)).expect("surface");
@@ -1683,7 +1685,7 @@ mod animated_splice {
     #[test]
     fn spliced_rows_grow_into_place() {
         let mut store = Store::new();
-        let mut list = ListView::from_measured([(Row { height: 20.0 }, 20.0)]);
+        let mut list = ListView::from_rope(crate::list::measured([(Row { height: 20.0 }, 20.0)]));
 
         list.splice_animated(0..1, (0..4).map(|_| (Row { height: 20.0 }, 20.0)));
         assert_eq!(list.len(), 4);
@@ -1709,7 +1711,9 @@ mod animated_splice {
     #[test]
     fn a_fold_shrinks_into_place() {
         let mut store = Store::new();
-        let mut list = ListView::from_measured((0..5).map(|_| (Row { height: 20.0 }, 20.0)));
+        let mut list = ListView::from_rope(crate::list::measured(
+            (0..5).map(|_| (Row { height: 20.0 }, 20.0)),
+        ));
         list.splice_animated(1..4, [(Row { height: 20.0 }, 20.0)]);
         assert_eq!(list.len(), 3);
         let entering = cached_total(&list);
@@ -1726,7 +1730,7 @@ mod animated_splice {
     fn paint_does_not_snap_animating_rows() {
         let mut store = Store::new();
         let ui = crate::ui::UiCtx::new();
-        let mut list = ListView::from_measured([(Row { height: 20.0 }, 20.0)]);
+        let mut list = ListView::from_rope(crate::list::measured([(Row { height: 20.0 }, 20.0)]));
         list.splice_animated(0..1, (0..4).map(|_| (Row { height: 20.0 }, 20.0)));
         let entering = cached_total(&list);
 
@@ -1771,7 +1775,7 @@ mod animated_splice {
     #[test]
     fn a_new_splice_settles_the_animation_it_lands_on() {
         let mut store = Store::new();
-        let mut list = ListView::from_measured([(Row { height: 20.0 }, 20.0)]);
+        let mut list = ListView::from_rope(crate::list::measured([(Row { height: 20.0 }, 20.0)]));
         list.splice_animated(0..1, (0..4).map(|_| (Row { height: 20.0 }, 20.0)));
         tick(&mut list, &mut store, 0.0);
         tick(&mut list, &mut store, 40.0);
@@ -1779,7 +1783,7 @@ mod animated_splice {
         list.splice(3..4, [(Row { height: 30.0 }, 30.0)]);
         assert_eq!(heights(&list), vec![20.0, 20.0, 20.0, 30.0]);
 
-        let mut list = ListView::from_measured([(Row { height: 20.0 }, 20.0)]);
+        let mut list = ListView::from_rope(crate::list::measured([(Row { height: 20.0 }, 20.0)]));
         list.splice_animated(0..0, (0..2).map(|_| (Row { height: 20.0 }, 20.0)));
         tick(&mut list, &mut store, 0.0);
         list.splice(2..2, [(Row { height: 40.0 }, 40.0)]);

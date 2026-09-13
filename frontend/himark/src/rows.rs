@@ -184,7 +184,7 @@ pub struct RowList {
 impl RowList {
     pub fn new() -> Self {
         Self {
-            scroll: ScrollView::new(ListView::from_measured([])),
+            scroll: ScrollView::new(ListView::empty()),
             len: 0,
         }
     }

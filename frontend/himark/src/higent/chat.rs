@@ -413,7 +413,7 @@ impl ChatPanel {
             chat: chat.into(),
             state: Link::Idle,
             title: "Agent Chat".to_owned(),
-            rows: ScrollView::new(ListView::from_measured([])),
+            rows: ScrollView::new(ListView::empty()),
             composer: Composer::new(),
             stack: WidgetStack::new(),
             completion: crate::completion::Completion::new(),

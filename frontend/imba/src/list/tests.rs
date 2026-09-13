@@ -34,7 +34,9 @@ impl crate::View for Stub {
 }
 
 fn list(heights: &[f32]) -> ListView<Stub> {
-    ListView::from_measured(heights.iter().map(|height| (Stub, *height)))
+    ListView::from_rope(crate::list::measured(
+        heights.iter().map(|height| (Stub, *height)),
+    ))
 }
 
 #[test]
@@ -128,7 +130,8 @@ fn drags_reach_the_focused_row_in_row_coordinates() {
         }
     }
 
-    let mut rows: ListView<Echo> = ListView::from_measured((0..3).map(|_| (Echo, 30.0)));
+    let mut rows: ListView<Echo> =
+        ListView::from_rope(crate::list::measured((0..3).map(|_| (Echo, 30.0))));
     // The press focused the THIRD row (rows at y 0..30, 30..60, 60..90).
     rows.focused = Some(2);
 

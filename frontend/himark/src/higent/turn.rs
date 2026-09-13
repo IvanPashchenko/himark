@@ -63,7 +63,7 @@ impl TurnView {
     pub(crate) fn new(id: impl Into<String>, laid_width: f32, cells: Vec<(Cell, f32)>) -> Self {
         Self {
             id: id.into(),
-            cells: ListView::from_measured_at(laid_width, cells),
+            cells: ListView::from_rope_at(laid_width, imba::list::measured(cells)),
         }
     }
 

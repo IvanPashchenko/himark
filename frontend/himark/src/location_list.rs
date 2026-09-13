@@ -479,7 +479,7 @@ impl LocationList {
     pub fn new() -> Self {
         Self {
             row_width: std::sync::atomic::AtomicU32::new(600.0f32.to_bits()),
-            results: ListView::from_measured([]).with_separators(SeparatorStyle::default()),
+            results: ListView::empty().with_separators(SeparatorStyle::default()),
             installed: Vec::new(),
             set_locations: rpds::HashTrieSetSync::new_sync(),
             set_generation: 0,
@@ -772,7 +772,7 @@ impl LocationList {
             name: (self.note)(self.shown),
             document: None,
             first_match: None,
-            rows: ListView::from_measured([]),
+            rows: ListView::empty(),
         };
         let index = self.results.len();
         self.results
@@ -841,8 +841,8 @@ impl LocationList {
         let installed_matches_first = installed.matches.first().map(|range| range.start);
         let theme = crate::env::Themes::of(store);
         let chrome = &theme.ui().search;
-        let list =
-            ListView::from_measured_at(width, rows).with_separators(occurrence_separator(chrome));
+        let list = ListView::from_rope_at(width, imba::list::measured(rows))
+            .with_separators(occurrence_separator(chrome));
         let height = chrome.group_header + list.total_height();
         Some((
             installed,

@@ -79,9 +79,7 @@ impl LocationTree {
         let tree = theme.ui().tree.clone();
         Self {
             list: SpeedSearchView::new(
-                ScrollView::new(
-                    ListView::from_measured([]).with_selection(crate::selection_style(store)),
-                ),
+                ScrollView::new(ListView::empty().with_selection(crate::selection_style(store))),
                 LocationSearcher,
                 crate::env::Fonts::of(store),
             ),

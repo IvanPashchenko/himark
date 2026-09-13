@@ -237,8 +237,7 @@ where
             open: false,
             menu: SpeedSearchView::new(
                 ScrollView::new(
-                    ListView::from_measured([])
-                        .with_selection(imba::list::SelectionStyle::default()),
+                    ListView::empty().with_selection(imba::list::SelectionStyle::default()),
                 ),
                 OptionSearcher::default(),
                 crate::embedded_fonts::source(),

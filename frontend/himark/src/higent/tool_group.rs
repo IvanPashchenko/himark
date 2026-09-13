@@ -181,7 +181,7 @@ impl ToolGroup {
             calls,
             expanded,
             touched: false,
-            rows: ListView::from_measured_at(width, []),
+            rows: ListView::empty_at(width),
             width,
         };
         group.rebuild(store, ui);

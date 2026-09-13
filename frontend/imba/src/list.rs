@@ -21,7 +21,7 @@ use crate::{
 
 const ROW_PX: MetricId = MetricId(0);
 
-struct ListElement<T> {
+pub struct ListElement<T> {
     view: T,
     height: f32,
 }
@@ -35,7 +35,7 @@ impl<T: Clone> Clone for ListElement<T> {
     }
 }
 
-struct ListMeasure;
+pub struct ListMeasure;
 
 impl<T: Clone> Measure<ListElement<T>> for ListMeasure {
     type Metrics = Metrics<1>;
@@ -277,18 +277,38 @@ pub enum ListCommand<C> {
     Revealed,
 }
 
+/// The list's row rope — the PREBUILT form a `ListView` mounts O(1).
+/// `measured` is the one linear builder: workers build bulk ropes
+/// and hand them over; a UI-thread call site composing
+/// `from_rope(measured(..))` states the linear cost exactly where it
+/// is paid, instead of hiding it inside a constructor.
+pub type ListRope<T> = Rope<ListElement<T>, ListMeasure>;
+
+pub fn measured<T: Clone>(items: impl IntoIterator<Item = (T, f32)>) -> ListRope<T> {
+    Rope::from_iter(
+        items
+            .into_iter()
+            .map(|(view, height)| ListElement { view, height }),
+    )
+}
+
 impl<T: Clone, K: Clone + Eq + Hash> ListView<T, K> {
-    pub fn from_measured(items: impl IntoIterator<Item = (T, f32)>) -> Self {
-        Self::from_measured_at(f32::NAN, items)
+    /// The mount state — rows arrive later (splices, landings).
+    pub fn empty() -> Self {
+        Self::from_rope(Rope::from_iter([]))
     }
 
-    pub fn from_measured_at(width: f32, items: impl IntoIterator<Item = (T, f32)>) -> Self {
+    pub fn empty_at(width: f32) -> Self {
+        Self::from_rope_at(width, Rope::from_iter([]))
+    }
+
+    pub fn from_rope(items: ListRope<T>) -> Self {
+        Self::from_rope_at(f32::NAN, items)
+    }
+
+    pub fn from_rope_at(width: f32, items: ListRope<T>) -> Self {
         Self {
-            items: Rope::from_iter(
-                items
-                    .into_iter()
-                    .map(|(view, height)| ListElement { view, height }),
-            ),
+            items,
             structure: Intervals::new(),
             selection: None,
             matches: Intervals::new(),
@@ -308,7 +328,7 @@ impl<T: Clone, K: Clone + Eq + Hash> ListView<T, K> {
 
     pub fn from_slice(slice: ListSlice<T, K>) -> Self {
         let slice = slice.sealed();
-        let mut list = Self::from_measured([]);
+        let mut list = Self::empty();
         list.items = slice.items;
 
         list.structure.insert(slice.spans);
