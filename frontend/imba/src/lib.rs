@@ -66,7 +66,10 @@ impl<Command> PresentableCommand<Command> {
     }
 }
 
-pub use layout::{laid, Laid, Layout, LayoutBox};
+pub use layout::{
+    fixed, laid, text, Align, Alignment, Column, CrossAlign, Fill, Fixed, Insets, Laid, Layout,
+    LayoutBox, LayoutExt, MapLayout, Pad, Row, SizedBox, Text,
+};
 
 pub trait View {
     type Command;

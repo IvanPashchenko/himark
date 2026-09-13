@@ -176,11 +176,7 @@ impl imba::View for ClosedPanel {
         _store: &'a Store,
         _ui: &'a imba::UiCtx,
     ) -> impl imba::Layout<'a, Self::Command> + 'a {
-        imba::laid(
-            move |_arena: &'a imba::arena::Arena, constraints: imba::constraints::Constraints| {
-                imba::leaf::leaf(constraints.max.width, constraints.max.height)
-            },
-        )
+        imba::Fill::new()
     }
 }
 

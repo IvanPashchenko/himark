@@ -1912,9 +1912,7 @@ impl View for Window {
         store: &'a Store,
         ui: &'a UiCtx,
     ) -> impl imba::Layout<'a, WindowCommand> + 'a {
-        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
-            self.content.layout(arena, store, ui, constraints)
-        })
+        self.content.display(arena, store, ui)
     }
 }
 

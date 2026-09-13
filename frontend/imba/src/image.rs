@@ -110,11 +110,25 @@ impl View for ImageView {
         _store: &'a Store,
         _ui: &'a UiCtx,
     ) -> impl crate::Layout<'a, Self::Command> + 'a {
-        crate::laid(move |_arena: &'a Arena, constraints: Constraints| {
-            let size = self.scaled(constraints.max.width);
+        Scaled(self)
+    }
+}
+
+/// The view's one layout, reified: width-scaled box, self-painting.
+struct Scaled<'a>(&'a ImageView);
+
+impl<'a> crate::Layout<'a, ImageCommand> for Scaled<'a> {
+    fn layout(
+        self,
+        arena: &'a Arena,
+        constraints: Constraints,
+    ) -> crate::ThunkBox<'a, ImageCommand> {
+        let size = self.0.scaled(constraints.max.width);
+        crate::ThunkBox::new(
+            arena,
             crate::leaf::leaf(size.width, size.height)
-                .paint_instead(move |_, canvas, rect| self.paint(canvas, rect))
-        })
+                .paint_instead(move |_, canvas, rect| self.0.paint(canvas, rect)),
+        )
     }
 }
 

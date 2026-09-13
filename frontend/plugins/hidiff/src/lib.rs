@@ -334,9 +334,7 @@ impl View for DiffPanelView {
         store: &'a Store,
         ui: &'a UiCtx,
     ) -> impl imba::Layout<'a, Self::Command> + 'a {
-        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
-            self.pane.layout(arena, store, ui, constraints)
-        })
+        self.pane.display(arena, store, ui)
     }
 }
 

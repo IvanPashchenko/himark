@@ -9,7 +9,7 @@ use himark::{
     FetchResourceBytesEffect, Inlay, InlayMode, Markup,
 };
 use hisitter::TsTree;
-use imba::{arena::Arena, constraints::Constraints, image::ImageView, store::Store, UiCtx, View};
+use imba::{arena::Arena, image::ImageView, store::Store, UiCtx, View};
 
 #[derive(Clone, Debug, PartialEq)]
 struct ImageRef {
@@ -52,9 +52,7 @@ impl View for ImageInlay {
         store: &'a Store,
         ui: &'a UiCtx,
     ) -> impl imba::Layout<'a, Self::Command> + 'a {
-        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
-            self.view.layout(arena, store, ui, constraints)
-        })
+        self.view.display(arena, store, ui)
     }
 }
 

@@ -180,11 +180,21 @@ impl View for SvgView {
         _store: &'a Store,
         _ui: &'a UiCtx,
     ) -> impl crate::Layout<'a, Self::Command> + 'a {
-        crate::laid(move |_arena: &'a Arena, constraints: Constraints| {
-            let size = self.scaled(constraints.max.width);
+        Scaled(self)
+    }
+}
+
+/// The view's one layout, reified: width-scaled box, self-painting.
+struct Scaled<'a>(&'a SvgView);
+
+impl<'a> crate::Layout<'a, SvgCommand> for Scaled<'a> {
+    fn layout(self, arena: &'a Arena, constraints: Constraints) -> crate::ThunkBox<'a, SvgCommand> {
+        let size = self.0.scaled(constraints.max.width);
+        crate::ThunkBox::new(
+            arena,
             crate::leaf::leaf(size.width, size.height)
-                .paint_instead(move |_, canvas, rect| self.paint(canvas, rect))
-        })
+                .paint_instead(move |_, canvas, rect| self.0.paint(canvas, rect)),
+        )
     }
 }
 

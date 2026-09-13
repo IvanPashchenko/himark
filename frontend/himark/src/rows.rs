@@ -305,9 +305,7 @@ impl View for RowList {
         store: &'a Store,
         ui: &'a UiCtx,
     ) -> impl imba::Layout<'a, Self::Command> + 'a {
-        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
-            self.scroll.layout(arena, store, ui, constraints)
-        })
+        self.scroll.display(arena, store, ui)
     }
 }
 

@@ -5,7 +5,6 @@ use std::hash::Hash;
 
 use imba::{
     arena::Arena,
-    constraints::Constraints,
     list::{ListSlice, ListView, SearchableList},
     scroll::ScrollView,
     store::Store,
@@ -379,9 +378,7 @@ impl<K: Clone + Eq + Hash + Send + Sync + 'static> View for ForestList<K> {
         store: &'a Store,
         ui: &'a UiCtx,
     ) -> impl imba::Layout<'a, Self::Command> + 'a {
-        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
-            self.list.layout(arena, store, ui, constraints)
-        })
+        self.list.display(arena, store, ui)
     }
 }
 

@@ -11502,3 +11502,8 @@ timestamp,commit,profile,bench,metric,value_ms
 1789312261,7970d7c88,debug,list-scroll,frame_p95_ms,0.0703
 1789312262,7970d7c88,debug,tree-ops,toggle_ms,0.0735
 1789312262,7970d7c88,debug,tree-ops,build_ms,278.2870
+1789314174,46cdcdd08,debug,list-scroll,build_ms,6.1042
+1789314174,46cdcdd08,debug,list-scroll,frame_p50_ms,0.0585
+1789314174,46cdcdd08,debug,list-scroll,frame_p95_ms,0.0774
+1789314174,46cdcdd08,debug,tree-ops,toggle_ms,0.0731
+1789314174,46cdcdd08,debug,tree-ops,build_ms,280.4405
