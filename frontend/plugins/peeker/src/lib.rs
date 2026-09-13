@@ -13,7 +13,7 @@ use imba::{
     scroll::ScrollView,
     store::Store,
     thunk_ext::ThunkExt,
-    UiCtx, View,
+    Layout as _, UiCtx, View,
 };
 use skia_safe::{Paint, Rect, Size};
 
@@ -605,36 +605,42 @@ impl View for Peeker {
                         ),
                         &rule,
                     );
-
-                    let mut dim_text = Paint::default();
-                    dim_text.set_anti_alias(true);
-                    dim_text.set_color(chrome.dim_text.0);
-                    canvas.draw_str(
-                        format!(
-                            "{} matched   enter open   esc dismiss",
-                            match_count + hidden
-                        ),
-                        (
-                            panel.left + chrome.row_text_x,
-                            panel.bottom - chrome.row_baseline,
-                        ),
-                        &hint_font,
-                        &dim_text,
-                    );
-                    if !has_preview {
-                        canvas.draw_str(
-                            "no preview",
-                            (preview_x, list_top + chrome.no_preview_offset),
-                            &row_font,
-                            &dim_text,
-                        );
-                    }
                 })
                 .event(|_arena, event, _size| match event {
                     Event::MouseDown { .. } => EventResult::Command(PeekerCommand::Close),
                     _ => EventResult::Ignored,
                 });
             container.place(0.0, 0.0, backdrop);
+
+            // The chrome labels as `imba::text` at exact baseline
+            // parity (top = old hand-drawn baseline − ascent; the
+            // panel bottom edge recomputed as the painter did); the
+            // texts ignore presses, so the backdrop's close-on-click
+            // still answers underneath them.
+            let panel_bottom = inset + (size.height - inset * 2.0).max(1.0);
+            let hint_ascent = -hint_font.metrics().1.ascent;
+            container.place_boxed(
+                inset + chrome.row_text_x,
+                panel_bottom - chrome.row_baseline - hint_ascent,
+                imba::text(
+                    format!(
+                        "{} matched   enter open   esc dismiss",
+                        match_count + hidden
+                    ),
+                    hint_font.clone(),
+                    chrome.dim_text.0,
+                )
+                .layout(arena, Constraints::tight(size).loosen()),
+            );
+            if !has_preview {
+                let row_ascent = -row_font.metrics().1.ascent;
+                container.place_boxed(
+                    preview_x,
+                    list_top + chrome.no_preview_offset - row_ascent,
+                    imba::text("no preview", row_font.clone(), chrome.dim_text.0)
+                        .layout(arena, Constraints::tight(size).loosen()),
+                );
+            }
 
             if let Some(slot) = &self.preview {
                 let preview_height = (size.height - list_top - margin).max(1.0);

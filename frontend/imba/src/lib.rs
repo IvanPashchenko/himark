@@ -67,9 +67,9 @@ impl<Command> PresentableCommand<Command> {
 }
 
 pub use layout::{
-    fixed, laid, text, Align, Alignment, Backdrop, Button, Column, CrossAlign, EventHandler, Fill,
-    Fixed, Insets, Laid, Layout, LayoutBox, LayoutExt, LayoutValue, MapLayout, OnClick, OnEvent,
-    Pad, Row, Shield, SizedBox, Text, WithBaseline, ZBox,
+    fixed, laid, spacer, text, Align, Alignment, Backdrop, Button, Column, CrossAlign,
+    EventHandler, Fill, Fixed, Insets, Laid, Layout, LayoutBox, LayoutExt, LayoutValue, MapLayout,
+    OnClick, OnEvent, Pad, Row, Shield, SizedBox, Text, WithBaseline, ZBox,
 };
 
 pub trait View {

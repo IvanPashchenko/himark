@@ -27,7 +27,7 @@ use imba::{
     scroll::{ScrollCommand, ScrollView},
     store::Store,
     thunk_ext::ThunkExt,
-    UiCtx, View, Widget,
+    Layout as _, LayoutExt as _, UiCtx, View, Widget,
 };
 use skia_safe::{Paint, Rect, Size};
 
@@ -1845,12 +1845,50 @@ impl View for ChatPanel {
                 let on_accent = chrome.on_accent.0;
                 let accent_soft = ui_theme.peeker.dim_text.0;
                 let gap = ui_theme.combo.gap;
-                let cell = imba::leaf::leaf::<ChatPanelCommand>(cell_width, toolbar_h - 1.0)
-                    .paint_instead({
-                        let caps_font = caps_font.clone();
-                        let key_font = key_font.clone();
-                        let label = label.to_owned();
-                        move |_arena, canvas, rect| {
+                // The cell's two texts as a Row of `Text`s at exact
+                // baseline parity: the old per-char loop advanced by
+                // glyph width + 1.5 (= `.tracking(1.5)`) from x =
+                // left + pad, and drew the key hint a `gap` after the
+                // label's last advance (= the Row's `.gap`). Each text
+                // pads down so its baseline lands on the old
+                // mid + font.size() * 0.35 line. The accent fill and
+                // left rule stay a backdrop painter; the press is
+                // `.on_click`, minting Stop or Submit like the old
+                // event closure.
+                let cell_h = toolbar_h - 1.0;
+                let mid = cell_h * 0.5;
+                let caps_ascent = -caps_font.metrics().1.ascent;
+                let key_ascent = -key_font.metrics().1.ascent;
+                let mut row = imba::Row::new(arena).gap(gap).child(
+                    imba::text(label, caps_font.clone(), on_accent)
+                        .tracking(1.5)
+                        .pad_insets(imba::Insets {
+                            left: 0.0,
+                            top: (mid + caps_font.size() * 0.35 - caps_ascent).max(0.0),
+                            right: 0.0,
+                            bottom: 0.0,
+                        }),
+                );
+                if !stop {
+                    row = row.child(imba::text("⌘⏎", key_font.clone(), accent_soft).pad_insets(
+                        imba::Insets {
+                            left: 0.0,
+                            top: (mid + key_font.size() * 0.35 - key_ascent).max(0.0),
+                            right: 0.0,
+                            bottom: 0.0,
+                        },
+                    ));
+                }
+                let cell = row
+                    .pad_insets(imba::Insets {
+                        left: pad,
+                        top: 0.0,
+                        right: 0.0,
+                        bottom: 0.0,
+                    })
+                    .sized(cell_width, cell_h)
+                    .backdrop(
+                        move |_arena: &Arena, canvas: &skia_safe::Canvas, rect: Rect| {
                             let mut paint = skia_safe::Paint::default();
                             let mut fill = accent;
                             if !sendable && !busy {
@@ -1864,41 +1902,19 @@ impl View for ChatPanel {
                                 skia_safe::Rect::from_xywh(rect.left, rect.top, 1.0, rect.height()),
                                 &paint,
                             );
-                            paint.set_anti_alias(true);
-                            paint.set_color(on_accent);
-                            let mid = rect.top + rect.height() * 0.5;
-                            let mut cx = rect.left + pad;
-                            for ch in label.chars() {
-                                let glyph = ch.to_string();
-                                canvas.draw_str(
-                                    &glyph,
-                                    (cx, mid + caps_font.size() * 0.35),
-                                    &caps_font,
-                                    &paint,
-                                );
-                                cx += caps_font.measure_str(&glyph, None).0 + 1.5;
-                            }
-                            if !stop {
-                                paint.set_color(accent_soft);
-                                canvas.draw_str(
-                                    "⌘⏎",
-                                    (cx + gap, mid + key_font.size() * 0.35),
-                                    &key_font,
-                                    &paint,
-                                );
-                            }
-                        }
-                    })
-                    .event(move |_arena, event, _size| match event {
-                        imba::event::Event::MouseDown { .. } => imba::event::EventResult::Command(
-                            ChatPanelCommand::Composer(match stop {
-                                true => ComposerCommand::Stop,
-                                false => ComposerCommand::Submit,
-                            }),
-                        ),
-                        _ => imba::event::EventResult::Ignored,
+                        },
+                    )
+                    .on_click(move || {
+                        ChatPanelCommand::Composer(match stop {
+                            true => ComposerCommand::Stop,
+                            false => ComposerCommand::Submit,
+                        })
                     });
-                panel.place(size.width - cell_width, size.height - toolbar_h + 1.0, cell);
+                panel.place_boxed(
+                    size.width - cell_width,
+                    size.height - toolbar_h + 1.0,
+                    cell.layout(arena, Constraints::tight(Size::new(cell_width, cell_h))),
+                );
             }
             let strip_origin = std::sync::Arc::clone(&self.toolbar.strip_origin);
             let toolbar_stale =

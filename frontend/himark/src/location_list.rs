@@ -10,7 +10,7 @@ use imba::{
     list::{ListCommand, ListView, SeparatorStyle},
     store::Store,
     thunk_ext::ThunkExt,
-    Thunk, UiCtx, View,
+    UiCtx, View,
 };
 use skia_safe::{Paint, Size};
 
@@ -108,104 +108,15 @@ impl View for ResultGroup {
 
     fn display<'a>(
         &'a self,
-        arena: &'a Arena,
+        _arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
     ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
-        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
-            use imba::thunk_ext::ThunkExt;
-            let width = constraints.max.width;
-            let chrome = crate::env::Themes::of(store).ui().search.clone();
-            let rows = self.rows.layout(
-                arena,
-                store,
-                ui,
-                Constraints {
-                    min: Size::default(),
-                    max: Size::new((width - chrome.group_text_x).max(120.0), f32::MAX),
-                },
-            );
-            let size = Size::new(width, chrome.group_header + rows.size().height);
-            let mut group = imba::container::container(arena, size);
-            let name = self.name.clone();
-            let group_font = crate::fonts::ui_font(ui, chrome.group_font_size);
-            let group_header = chrome.group_header;
-            group.place(
-                0.0,
-                0.0,
-                imba::leaf::leaf::<Self::Command>(width, group_header).paint_below({
-                    let chrome = chrome.clone();
-                    move |_arena, canvas, rect| {
-                        let mut paint = Paint::default();
-                        paint.set_anti_alias(true);
-                        paint.set_color(chrome.group_fill.0);
-                        canvas.draw_rect(rect, &paint);
-
-                        paint.set_color(chrome.group_separator.0);
-                        for y in [rect.top, rect.bottom - 1.0] {
-                            canvas.draw_rect(
-                                skia_safe::Rect::from_xywh(rect.left, y, rect.width(), 1.0),
-                                &paint,
-                            );
-                        }
-                        paint.set_color(chrome.group_text.0);
-                        canvas.draw_str(
-                            &name,
-                            (
-                                rect.left + chrome.group_text_x,
-                                rect.top + chrome.group_baseline,
-                            ),
-                            &group_font,
-                            &paint,
-                        );
-                    }
-                }),
-            );
-
-            if self.document.is_some() {
-                let button_width = OPEN_BUTTON_WIDTH;
-                let dim = crate::env::Themes::of(store).ui().peeker.dim_text.0;
-                let open_font = crate::fonts::ui_font(ui, chrome.group_font_size);
-                let button = imba::leaf::leaf::<Self::Command>(button_width, group_header)
-                    .paint_below(move |_arena, canvas, rect| {
-                        let mut paint = Paint::default();
-                        paint.set_anti_alias(true);
-                        paint.set_color(dim);
-                        canvas.draw_str(
-                            "OPEN",
-                            (rect.left, rect.top + chrome.group_baseline),
-                            &open_font,
-                            &paint,
-                        );
-                    })
-                    .event(|_arena, event, _size| match event {
-                        imba::event::Event::MouseDown { .. } => {
-                            imba::event::EventResult::Command(GroupCommand::Open)
-                        }
-                        _ => imba::event::EventResult::Ignored,
-                    });
-                group.place(
-                    (width - button_width - chrome.group_text_x).max(0.0),
-                    0.0,
-                    button,
-                );
-            }
-            group.place(
-                chrome.group_text_x,
-                group_header,
-                rows.map(GroupCommand::Rows),
-            );
-
-            let openable = self.document.is_some();
-            group.commands(move || match openable {
-                true => vec![imba::PresentableCommand::new(
-                    "workbench.open-in-full",
-                    "Open File in Full",
-                    GroupCommand::Open,
-                )],
-                false => Vec::new(),
-            })
-        })
+        GroupFrame {
+            group: self,
+            store,
+            ui,
+        }
     }
 }
 
@@ -1348,5 +1259,120 @@ impl crate::PanelView for ListPanel {
         let locations = entry.list.content().result_locations();
         crate::TocView::for_locations(store, window, &locations)
             .map(|view| Box::new(view) as Box<dyn crate::ModalView>)
+    }
+}
+
+/// One search-result GROUP, reified (docs/UI.md stage 2): the header
+/// band — fill, hairlines, name, and the OPEN action — over the
+/// occurrence rows, stacked in a `Column`.
+struct GroupFrame<'a> {
+    group: &'a ResultGroup,
+    store: &'a Store,
+    ui: &'a UiCtx,
+}
+
+impl imba::LayoutValue for GroupFrame<'_> {}
+
+impl<'a> imba::Layout<'a, GroupCommand> for GroupFrame<'a> {
+    fn layout(
+        self,
+        arena: &'a Arena,
+        constraints: Constraints,
+    ) -> imba::ThunkBox<'a, GroupCommand> {
+        use imba::thunk_ext::ThunkExt;
+        use imba::LayoutExt as _;
+        let GroupFrame { group, store, ui } = self;
+        let width = constraints.max.width;
+        let chrome = crate::env::Themes::of(store).ui().search.clone();
+        let rows = group.rows.layout(
+            arena,
+            store,
+            ui,
+            Constraints {
+                min: Size::default(),
+                max: Size::new((width - chrome.group_text_x).max(120.0), f32::MAX),
+            },
+        );
+
+        let group_font = crate::fonts::ui_font(ui, chrome.group_font_size);
+        // The old painter put every glyph on `group_baseline` from the
+        // band's top; the texts pad down so their ascents land there.
+        let drop = (chrome.group_baseline + group_font.metrics().1.ascent).max(0.0);
+        let mut band = imba::Row::new(arena)
+            .child(
+                imba::text(group.name.clone(), group_font.clone(), chrome.group_text.0).pad_insets(
+                    imba::Insets {
+                        left: chrome.group_text_x,
+                        top: drop,
+                        right: 0.0,
+                        bottom: 0.0,
+                    },
+                ),
+            )
+            .weighted(1.0, imba::Fill::new());
+        if group.document.is_some() {
+            let dim = crate::env::Themes::of(store).ui().peeker.dim_text.0;
+            band = band.child(
+                imba::ZBox::new(arena)
+                    .child(imba::spacer(OPEN_BUTTON_WIDTH, chrome.group_header))
+                    .child(
+                        imba::text("OPEN", group_font, dim).pad_insets(imba::Insets {
+                            left: 0.0,
+                            top: drop,
+                            right: 0.0,
+                            bottom: 0.0,
+                        }),
+                    )
+                    .on_click(|| GroupCommand::Open)
+                    .pad_insets(imba::Insets {
+                        left: 0.0,
+                        top: 0.0,
+                        right: chrome.group_text_x,
+                        bottom: 0.0,
+                    }),
+            );
+        }
+        let fill = chrome.group_fill.0;
+        let separator = chrome.group_separator.0;
+        let header = imba::ZBox::new(arena)
+            .child(imba::spacer(width, chrome.group_header))
+            .child(band)
+            .backdrop(
+                move |_arena: &Arena, canvas: &skia_safe::Canvas, rect: skia_safe::Rect| {
+                    let mut paint = Paint::default();
+                    paint.set_anti_alias(true);
+                    paint.set_color(fill);
+                    canvas.draw_rect(rect, &paint);
+                    paint.set_color(separator);
+                    for y in [rect.top, rect.bottom - 1.0] {
+                        canvas.draw_rect(
+                            skia_safe::Rect::from_xywh(rect.left, y, rect.width(), 1.0),
+                            &paint,
+                        );
+                    }
+                },
+            );
+
+        let openable = group.document.is_some();
+        let column = imba::Column::new(arena).child(header).child(
+            imba::fixed(rows.map(GroupCommand::Rows)).pad_insets(imba::Insets {
+                left: chrome.group_text_x,
+                top: 0.0,
+                right: 0.0,
+                bottom: 0.0,
+            }),
+        );
+        let laid = column.layout(arena, constraints);
+        imba::ThunkBox::new(
+            arena,
+            laid.commands(move || match openable {
+                true => vec![imba::PresentableCommand::new(
+                    "workbench.open-in-full",
+                    "Open File in Full",
+                    GroupCommand::Open,
+                )],
+                false => Vec::new(),
+            }),
+        )
     }
 }

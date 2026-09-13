@@ -55,7 +55,7 @@ impl View for EmbedPending {
         _store: &'a Store,
         _ui: &'a UiCtx,
     ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
-        imba::laid(move |_arena: &'a Arena, _constraints: Constraints| imba::leaf::leaf(0.0, 0.0))
+        imba::fixed(imba::leaf::leaf(0.0, 0.0))
     }
 }
 
@@ -108,21 +108,15 @@ impl View for EmbedView {
 
     fn display<'a>(
         &'a self,
-        arena: &'a Arena,
+        _arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
     ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
-        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
-            let height = self.live_height(store).unwrap_or(self.height).max(1.0);
-            let width = match constraints.max.width.is_finite() {
-                true => constraints.max.width,
-                false => constraints.min.width,
-            }
-            .max(60.0);
-            let mut pane = imba::container::container(arena, skia_safe::Size::new(width, height));
-            pane.place(0.0, 0.0, self.view.layout(arena, store, ui, constraints));
-            pane
-        })
+        EmbedFrame {
+            embed: self,
+            store,
+            ui,
+        }
     }
 }
 
@@ -507,3 +501,33 @@ fn build_document(
 
 #[cfg(test)]
 mod tests;
+
+
+/// The fenced-code embed pane, reified: the live document height,
+/// the pane clamped to the incoming width.
+struct EmbedFrame<'a> {
+    embed: &'a EmbedView,
+    store: &'a Store,
+    ui: &'a UiCtx,
+}
+
+impl imba::LayoutValue for EmbedFrame<'_> {}
+
+impl<'a> imba::Layout<'a, himark::EditorCommand> for EmbedFrame<'a> {
+    fn layout(
+        self,
+        arena: &'a Arena,
+        constraints: Constraints,
+    ) -> imba::ThunkBox<'a, himark::EditorCommand> {
+        let EmbedFrame { embed, store, ui } = self;
+        let height = embed.live_height(store).unwrap_or(embed.height).max(1.0);
+        let width = match constraints.max.width.is_finite() {
+            true => constraints.max.width,
+            false => constraints.min.width,
+        }
+        .max(60.0);
+        let mut pane = imba::container::container(arena, skia_safe::Size::new(width, height));
+        pane.place(0.0, 0.0, embed.view.layout(arena, store, ui, constraints));
+        imba::ThunkBox::new(arena, pane)
+    }
+}

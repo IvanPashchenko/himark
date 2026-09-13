@@ -1,9 +1,7 @@
 // Copyright © 2026 JetBrains s.r.o.
 // SPDX-License-Identifier: Apache-2.0
 
-use imba::{
-    arena::Arena, constraints::Constraints, store::Store, thunk_ext::ThunkExt, UiCtx, View,
-};
+use imba::{arena::Arena, constraints::Constraints, store::Store, UiCtx, View};
 use skia_safe::Size;
 
 use crate::workbench_node::{NodeCommand, WorkbenchNode};
@@ -144,36 +142,63 @@ impl View for Workbench {
 
     fn display<'a>(
         &'a self,
-        arena: &'a Arena,
+        _arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
     ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
-        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
-            let size = constraints.max;
-            let theme = ::editor::env::Themes::of(store);
+        WorkbenchFrame {
+            workbench: self,
+            store,
+            ui,
+        }
+    }
+}
 
-            let geometry = match self.root.full_bleed() {
-                true => WorkbenchGeometry {
-                    x: 0.0,
-                    top: 0.0,
-                    split_width: size.width,
-                },
-                false => workbench_geometry(size.width, size.height, &theme.ui().window),
-            };
-            let split_height = (size.height - geometry.top).max(1.0);
-            let root = self.root.layout(
-                arena,
-                store,
-                ui,
-                Constraints::tight(Size::new(geometry.split_width, split_height)),
-            );
+/// The workbench frame, reified: the root split placed by the
+/// window's geometry rule over the cleared background.
+struct WorkbenchFrame<'a> {
+    workbench: &'a Workbench,
+    store: &'a Store,
+    ui: &'a UiCtx,
+}
 
-            let mut container = imba::container::container(arena, size);
-            container.place(geometry.x, geometry.top, root);
+impl imba::LayoutValue for WorkbenchFrame<'_> {}
 
+impl<'a> imba::Layout<'a, NodeCommand> for WorkbenchFrame<'a> {
+    fn layout(self, arena: &'a Arena, constraints: Constraints) -> imba::ThunkBox<'a, NodeCommand> {
+        use imba::thunk_ext::ThunkExt;
+        let WorkbenchFrame {
+            workbench,
+            store,
+            ui,
+        } = self;
+        let size = constraints.max;
+        let theme = ::editor::env::Themes::of(store);
+
+        let geometry = match workbench.root.full_bleed() {
+            true => WorkbenchGeometry {
+                x: 0.0,
+                top: 0.0,
+                split_width: size.width,
+            },
+            false => workbench_geometry(size.width, size.height, &theme.ui().window),
+        };
+        let split_height = (size.height - geometry.top).max(1.0);
+        let root = workbench.root.layout(
+            arena,
+            store,
+            ui,
+            Constraints::tight(Size::new(geometry.split_width, split_height)),
+        );
+
+        let mut container = imba::container::container(arena, size);
+        container.place(geometry.x, geometry.top, root);
+
+        imba::ThunkBox::new(
+            arena,
             container.paint_below(move |_arena, canvas, _| {
                 canvas.clear(theme.ui().window.background.0);
-            })
-        })
+            }),
+        )
     }
 }

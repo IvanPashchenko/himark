@@ -9,13 +9,12 @@ use imba::{
     container::container,
     effect::Effects,
     event::{Event, EventResult},
-    leaf::leaf,
     scroll::{ScrollCommand, ScrollView},
     store::Store,
     thunk_ext::ThunkExt,
-    UiCtx, View, Widget,
+    Layout as _, LayoutExt as _, UiCtx, View, Widget,
 };
-use skia_safe::{Paint, Rect, Size};
+use skia_safe::{Rect, Size};
 
 use crate::higent::cell::document_text;
 
@@ -230,37 +229,36 @@ impl Composer {
         let editor_w = (width - pad * 2.0 - hint_reserve).max(120.0);
         let mut band = container(arena, Size::new(width, band_h));
 
-        let status = props.status.clone();
+        let status = props.status;
         let hint_font = ui_text_font(ui, chrome.title_size * 0.65);
         let status_color = chrome.notice_color.0;
         let focused = props.focused;
-        let band_leaf = leaf::<ComposerCommand>(width, band_h)
-            .paint_instead(move |_arena, canvas, rect| {
-                let mut paint = Paint::default();
-                paint.set_anti_alias(true);
-                paint.set_color(status_color);
-
-                let line = if status.is_empty() {
-                    "⌘⏎ send   ⎋ chat".to_owned()
-                } else {
-                    status.clone()
-                };
-                let line_w = hint_font.measure_str(&line, None).0;
-                canvas.draw_str(
-                    &line,
-                    (
-                        rect.left + rect.width() - line_w - pad,
-                        rect.top + box_pad + hint_font.size(),
-                    ),
-                    &hint_font,
-                    &paint,
-                );
+        let line = if status.is_empty() {
+            "⌘⏎ send   ⎋ chat".to_owned()
+        } else {
+            status
+        };
+        // The status/hint label as a `Text` at exact baseline parity:
+        // the old painter drew its baseline at top + box_pad +
+        // font.size(), right-aligned `pad` from the edge; `Text`
+        // paints its baseline at top + ascent, so it pads down by the
+        // difference. The shield keeps the band eating presses, like
+        // the old leaf's event closure did.
+        let hint_ascent = -hint_font.metrics().1.ascent;
+        let hint = imba::text(line, hint_font.clone(), status_color)
+            .pad_insets(imba::Insets {
+                left: 0.0,
+                top: (box_pad + hint_font.size() - hint_ascent).max(0.0),
+                right: pad,
+                bottom: 0.0,
             })
-            .event(|_arena, event, _size| match event {
-                Event::MouseDown { .. } => EventResult::Handled,
-                _ => EventResult::Ignored,
-            });
-        band.place(0.0, 0.0, band_leaf);
+            .align(imba::Alignment::TopEnd)
+            .shield();
+        band.place_boxed(
+            0.0,
+            0.0,
+            hint.layout(arena, Constraints::tight(Size::new(width, band_h))),
+        );
 
         band.place(
             pad,

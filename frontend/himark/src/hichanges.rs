@@ -23,7 +23,7 @@ use imba::{
     leaf::leaf,
     store::Store,
     thunk_ext::ThunkExt,
-    Layout as _, UiCtx, View, Widget,
+    Layout as _, LayoutExt as _, UiCtx, View, Widget,
 };
 use skia_safe::{Paint, Rect, Size};
 
@@ -1337,32 +1337,47 @@ impl View for ChangesView {
             let message_empty = self.message.document.text().byte_count() == 0;
             let placeholder_font = crate::fonts::ui_text_font(ui, chrome.hint_size);
             let placeholder_dim = chrome.dim_text.0;
-            let well = leaf::<ChangesCommand>(well_width, well_height)
-                .paint_instead(move |_arena, canvas, rect| {
-                    let mut paint = Paint::default();
-                    paint.set_anti_alias(true);
-                    paint.set_color(input_fill.0);
-                    canvas.draw_round_rect(rect, 6.0, 6.0, &paint);
-                    if message_empty && !message_focused {
-                        paint.set_color(placeholder_dim);
-                        canvas.draw_str(
-                            "Message (⌘⏎ to commit)",
-                            (
-                                rect.left + 10.0,
-                                rect.top + rect.height() * 0.5 + chrome.hint_size * 0.35,
-                            ),
-                            &placeholder_font,
-                            &paint,
-                        );
-                    }
-                })
-                .event(|_arena, event, _size| match event {
-                    Event::MouseDown { .. } => {
-                        EventResult::Command(ChangesCommand::FocusMessage(true))
-                    }
-                    _ => EventResult::Ignored,
-                });
-            overlay.place(well_pad, well_y, well);
+            // The message well: rounded fill backdrop, a placeholder
+            // `Text` while empty (on the old painter's baseline:
+            // height * 0.5 + hint_size * 0.35), a press focusing it.
+            let mut well = imba::ZBox::new(arena).child(imba::spacer(well_width, well_height));
+            if message_empty && !message_focused {
+                let drop = (well_height * 0.5
+                    + chrome.hint_size * 0.35
+                    + placeholder_font.metrics().1.ascent)
+                    .max(0.0);
+                well = well.child(
+                    imba::text(
+                        "Message (⌘⏎ to commit)",
+                        placeholder_font.clone(),
+                        placeholder_dim,
+                    )
+                    .pad_insets(imba::Insets {
+                        left: 10.0,
+                        top: drop,
+                        right: 0.0,
+                        bottom: 0.0,
+                    }),
+                );
+            }
+            let well = well
+                .backdrop(
+                    move |_arena: &Arena, canvas: &skia_safe::Canvas, rect: Rect| {
+                        let mut paint = Paint::default();
+                        paint.set_anti_alias(true);
+                        paint.set_color(input_fill.0);
+                        canvas.draw_round_rect(rect, 6.0, 6.0, &paint);
+                    },
+                )
+                .on_click(|| ChangesCommand::FocusMessage(true))
+                .layout(
+                    arena,
+                    Constraints {
+                        min: Size::default(),
+                        max: Size::new(well_width, well_height),
+                    },
+                );
+            overlay.place_boxed(well_pad, well_y, well);
             let inner_height = (well_height - search.input_pad_y * 2.0).max(1.0);
             overlay.place(
                 well_pad + search.input_pad_x,

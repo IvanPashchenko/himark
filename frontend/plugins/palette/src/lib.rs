@@ -9,7 +9,7 @@ use imba::{
     leaf::leaf,
     store::Store,
     thunk_ext::ThunkExt,
-    PresentableCommand, UiCtx, View,
+    Layout as _, PresentableCommand, UiCtx, View,
 };
 use skia_safe::{Paint, Size};
 
@@ -179,36 +179,11 @@ impl View for PaletteView {
 
             let backdrop = leaf::<PaletteCommand>(size.width, size.height)
                 .paint_instead({
-                    let chrome = chrome.clone();
-                    let hint_font = hint_font.clone();
-                    let row_font = row_font.clone();
+                    let background = chrome.background.0;
                     move |_arena, canvas, rect| {
                         let mut surface = Paint::default();
-                        surface.set_color(chrome.background.0);
+                        surface.set_color(background);
                         canvas.draw_rect(rect, &surface);
-
-                        let mut dim_text = Paint::default();
-                        dim_text.set_anti_alias(true);
-                        dim_text.set_color(chrome.dim_text.0);
-                        if match_count == 0 {
-                            canvas.draw_str(
-                                "no matching commands",
-                                (
-                                    list_x + chrome.row_text_x,
-                                    list_top + row_height - chrome.row_baseline,
-                                ),
-                                &row_font,
-                                &dim_text,
-                            );
-                        }
-                        canvas.draw_str(
-                            format!(
-                                "{match_count} of {total} commands   ↑↓ select   ⏎ run   esc dismiss"
-                            ),
-                            (list_x, rect.top + size.height - chrome.hint_bottom),
-                            &hint_font,
-                            &dim_text,
-                        );
                     }
                 })
                 .event(|_arena, event, _size| match event {
@@ -216,6 +191,31 @@ impl View for PaletteView {
                     _ => EventResult::Ignored,
                 });
             container.place(0.0, 0.0, backdrop);
+
+            // The chrome labels as `imba::text` at exact baseline
+            // parity (top = old hand-drawn baseline − ascent); the
+            // texts ignore presses, so the backdrop's close-on-click
+            // still answers underneath them.
+            if match_count == 0 {
+                let row_ascent = -row_font.metrics().1.ascent;
+                container.place_boxed(
+                    list_x + chrome.row_text_x,
+                    list_top + row_height - chrome.row_baseline - row_ascent,
+                    imba::text("no matching commands", row_font.clone(), chrome.dim_text.0)
+                        .layout(arena, Constraints::tight(size).loosen()),
+                );
+            }
+            let hint_ascent = -hint_font.metrics().1.ascent;
+            container.place_boxed(
+                list_x,
+                size.height - chrome.hint_bottom - hint_ascent,
+                imba::text(
+                    format!("{match_count} of {total} commands   ↑↓ select   ⏎ run   esc dismiss"),
+                    hint_font.clone(),
+                    chrome.dim_text.0,
+                )
+                .layout(arena, Constraints::tight(size).loosen()),
+            );
 
             container.place(
                 list_x,

@@ -10,7 +10,7 @@ use imba::{
     event::{Event, EventResult, MouseButton},
     store::Store,
     thunk_ext::ThunkExt,
-    View,
+    Layout as _, View,
 };
 use skia_safe::{Canvas, Color, Font, FontMgr, FontStyle, Paint, Rect, Size, Typeface};
 
@@ -344,16 +344,19 @@ impl DemoInlay {
             canvas.draw_circle((size.width - 27.0, size.height - 13.0), 4.0, &paint);
             canvas.draw_circle((size.width - 40.0, size.height - 13.0), 2.5, &paint);
         }
+    }
 
+    fn title_font(&self) -> Font {
         let font_size = match self.mode {
             InlayMode::Instead(_) => 18.0,
             InlayMode::Above | InlayMode::Under | InlayMode::Popup(_) => 18.0,
             InlayMode::Left | InlayMode::Right => 16.0,
         };
-        let font = demo_font(font_size);
+        demo_font(font_size)
+    }
 
-        paint.set_color(palette.text);
-        let title = match self.expanded {
+    fn title(&self) -> String {
+        match self.expanded {
             true => format!(
                 "{} {}  click {}",
                 mode_label(self.mode),
@@ -366,13 +369,7 @@ impl DemoInlay {
                 self.tag,
                 self.ordinal + 1
             ),
-        };
-        canvas.draw_str(
-            title,
-            (18.0, baseline(size.height, self.mode)),
-            &font,
-            &paint,
-        );
+        }
     }
 }
 
@@ -402,9 +399,9 @@ impl View for DemoInlay {
         _store: &'a Store,
         _ui: &'a imba::UiCtx,
     ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
-        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+        imba::laid(move |arena: &'a Arena, constraints: Constraints| {
             let size = self.size_for(constraints);
-            imba::leaf::leaf(size.width, size.height)
+            let card = imba::leaf::leaf(size.width, size.height)
                 .paint_instead(|_arena, canvas, rect| self.paint(canvas, rect))
                 .event({
                     let animating = self.size.running();
@@ -429,7 +426,23 @@ impl View for DemoInlay {
                         },
                         DemoInlayCommand::Toggle,
                     )]
-                })
+                });
+            // The card's TITLE is an `imba::text` over the painted
+            // chrome at exact baseline parity (top = the old rounded
+            // `baseline(height, mode)` line − ascent, x = the old
+            // 18.0); presses fall through the text to the card leaf
+            // underneath, which keeps the old toggle/clock handling.
+            let font = self.title_font();
+            let ascent = -font.metrics().1.ascent;
+            let mut frame = imba::container::container(arena, size);
+            frame.place(0.0, 0.0, card);
+            frame.place_boxed(
+                18.0,
+                baseline(size.height, self.mode) - ascent,
+                imba::text(self.title(), font, palette(self.tone, self.expanded).text)
+                    .layout(arena, Constraints::tight(size).loosen()),
+            );
+            frame
         })
     }
 }

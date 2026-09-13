@@ -6,10 +6,8 @@ use imba::{
     constraints::Constraints,
     effect::Effects,
     event::{Event, EventResult},
-    leaf::leaf,
     store::Store,
-    thunk_ext::ThunkExt,
-    Thunk, UiCtx, View, Widget,
+    LayoutExt as _, Thunk, UiCtx, View, Widget,
 };
 use skia_safe::{Paint, Size};
 
@@ -73,48 +71,106 @@ impl View for TreeLabel {
         store: &'a Store,
         ui: &'a UiCtx,
     ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
-        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
-            let theme = crate::env::Themes::of(store);
-            let tree = theme.ui().tree.clone();
-            let colors = theme.ui().peeker.clone();
-            let width = constraints.max.width.max(1.0);
-            let font = match self.strong {
+        let theme = crate::env::Themes::of(store);
+        let tree = theme.ui().tree.clone();
+        let colors = theme.ui().peeker.clone();
+        TreeLabelChrome {
+            label: self.label.clone(),
+            trail: self.trail.clone(),
+            font: match self.strong {
                 true => crate::fonts::ui_font(ui, tree.font_size),
                 false => crate::fonts::ui_text_font(ui, tree.font_size),
-            };
-            let trail_font = crate::fonts::ui_text_font(ui, tree.font_size);
-            let pick = self.pick;
-            let dim = self.dim;
-            let label = self.label.clone();
-            let trail = self.trail.clone();
-            leaf::<TreeLabelCommand>(width, tree.row_height)
-                .paint_instead(move |_arena, canvas, rect| {
-                    let baseline = rect.top + rect.height() * 0.5 + tree.font_size * 0.36;
-                    let mut paint = Paint::default();
-                    paint.set_anti_alias(true);
-                    paint.set_color(if dim {
-                        colors.dim_text.0
-                    } else {
-                        colors.text.0
-                    });
-                    canvas.draw_str(&label, (rect.left, baseline), &font, &paint);
-                    let mut trail_x = rect.right - tree.text_x * 0.5;
-                    for (text, color) in trail.iter().rev() {
-                        let advance = trail_font.measure_str(text, None).0;
-                        trail_x -= advance;
-                        paint.set_color(*color);
-                        canvas.draw_str(text, (trail_x, baseline), &trail_font, &paint);
-                        trail_x -= tree.font_size * 0.4;
-                    }
-                })
-                .event(move |_arena, event, _size| match event {
+            },
+            trail_font: crate::fonts::ui_text_font(ui, tree.font_size),
+            color: match self.dim {
+                true => colors.dim_text.0,
+                false => colors.text.0,
+            },
+            row_height: tree.row_height,
+            font_size: tree.font_size,
+            text_x: tree.text_x,
+            pick: self.pick,
+        }
+    }
+}
+
+/// The tree row's text chrome, REIFIED (docs/UI.md stage 2): the
+/// label runs from the left edge, the trail pins to the right edge
+/// ON TOP of it — a `ZBox`, so an overlong label is overdrawn by the
+/// trail exactly as the hand-rolled painter stacked its `draw_str`
+/// calls. A layout STRUCT (the `DrawerPanel` recipe) because the row
+/// spans the incoming width and the trail's anchor is that width.
+struct TreeLabelChrome {
+    label: String,
+    trail: Vec<(String, skia_safe::Color)>,
+    font: skia_safe::Font,
+    trail_font: skia_safe::Font,
+    color: skia_safe::Color,
+    row_height: f32,
+    font_size: f32,
+    text_x: f32,
+    pick: bool,
+}
+
+impl imba::LayoutValue for TreeLabelChrome {}
+
+impl<'a> imba::Layout<'a, TreeLabelCommand> for TreeLabelChrome {
+    fn layout(
+        self,
+        arena: &'a Arena,
+        constraints: Constraints,
+    ) -> imba::ThunkBox<'a, TreeLabelCommand> {
+        let TreeLabelChrome {
+            label,
+            trail,
+            font,
+            trail_font,
+            color,
+            row_height,
+            font_size,
+            text_x,
+            pick,
+        } = self;
+        let width = constraints.max.width.max(1.0);
+        // The painter's line sat at mid-row plus 0.36em; each text
+        // pads down so its OWN ascent lands there (top = baseline −
+        // ascent — `Text` paints its baseline at top + ascent).
+        let baseline = row_height * 0.5 + font_size * 0.36;
+        let drop = |font: &skia_safe::Font| (baseline + font.metrics().1.ascent).max(0.0);
+        let label = imba::text(label, font.clone(), color).pad_insets(imba::Insets {
+            top: drop(&font),
+            ..Default::default()
+        });
+        let trail_drop = drop(&trail_font);
+        let mut trail_row = imba::Row::new(arena).gap(font_size * 0.4);
+        for (text, color) in trail {
+            trail_row = trail_row.child(imba::text(text, trail_font.clone(), color).pad_insets(
+                imba::Insets {
+                    top: trail_drop,
+                    ..Default::default()
+                },
+            ));
+        }
+        imba::ZBox::new(arena)
+            .child(label)
+            .child_aligned(
+                imba::Alignment::TopEnd,
+                trail_row.pad_insets(imba::Insets {
+                    right: text_x * 0.5,
+                    ..Default::default()
+                }),
+            )
+            .sized(width, row_height)
+            .on_event(
+                move |_arena: &Arena, event: &Event<'_>, _size| match event {
                     Event::MouseDown { .. } if pick => {
                         EventResult::Command(TreeLabelCommand::Activate)
                     }
                     Event::MouseDown { .. } => EventResult::Handled,
                     _ => EventResult::Ignored,
-                })
-        })
+                },
+            )
+            .layout(arena, constraints)
     }
 }
 
@@ -188,34 +244,71 @@ where
 
     fn display<'a>(
         &'a self,
-        arena: &'a Arena,
+        _arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
     ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
-        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
-            let tree = crate::env::Themes::of(store).ui().tree.clone();
-            let colors = crate::env::Themes::of(store).ui().peeker.clone();
-            let inset = f32::from(self.depth) * tree.indent;
-            let width = constraints.max.width.max(1.0);
-            let offset = inset + tree.text_x;
-            let inner = self.inner.layout(
-                arena,
-                store,
-                ui,
-                Constraints {
-                    min: Size::default(),
-                    max: Size::new((width - offset).max(1.0), constraints.max.height),
-                },
-            );
-            let height = inner.size().height.max(tree.row_height);
+        TreeItemChrome {
+            view: self,
+            store,
+            ui,
+        }
+    }
+}
+
+/// The tree item's indent-and-disclosure frame, REIFIED (docs/UI.md
+/// stage 2, the `WindowFrame` shape): a layout STRUCT because the
+/// indent offset, the toggle zone and the inner's width are all cut
+/// from the incoming constraints. The compositor WIDGET underneath
+/// stays bespoke — its toggle zone is PRIORITY-ordered over the inner
+/// content (`toggle_on_body` claims presses the inner would otherwise
+/// answer first) and it forwards drags/scrolls to the inner with no
+/// containment test, neither of which the fallback-ordered
+/// `.on_event` primitives can express.
+struct TreeItemChrome<'a, V: Clone> {
+    view: &'a TreeItemView<V>,
+    store: &'a Store,
+    ui: &'a UiCtx,
+}
+
+impl<V: Clone> imba::LayoutValue for TreeItemChrome<'_, V> {}
+
+impl<'a, V> imba::Layout<'a, TreeItemCommand<V::Command>> for TreeItemChrome<'a, V>
+where
+    V: View + Clone,
+    V::Command: Send + 'static,
+{
+    fn layout(
+        self,
+        arena: &'a Arena,
+        constraints: Constraints,
+    ) -> imba::ThunkBox<'a, TreeItemCommand<V::Command>> {
+        let TreeItemChrome { view, store, ui } = self;
+        let tree = crate::env::Themes::of(store).ui().tree.clone();
+        let colors = crate::env::Themes::of(store).ui().peeker.clone();
+        let inset = f32::from(view.depth) * tree.indent;
+        let width = constraints.max.width.max(1.0);
+        let offset = inset + tree.text_x;
+        let inner = view.inner.layout(
+            arena,
+            store,
+            ui,
+            Constraints {
+                min: Size::default(),
+                max: Size::new((width - offset).max(1.0), constraints.max.height),
+            },
+        );
+        let height = inner.size().height.max(tree.row_height);
+        imba::ThunkBox::new(
+            arena,
             TreeItemWidget {
                 inner,
                 offset,
                 triangle_x: inset + tree.text_x * 0.28,
                 triangle_half: (tree.font_size * 0.28).max(4.0),
-                expanded: self.expanded,
+                expanded: view.expanded,
 
-                zone: match (self.expanded.is_some(), self.toggle_on_body) {
+                zone: match (view.expanded.is_some(), view.toggle_on_body) {
                     (true, true) => width,
                     (true, false) => offset,
                     (false, _) => 0.0,
@@ -223,8 +316,8 @@ where
                 color: colors.dim_text.0,
                 size: Size::new(width, height),
                 _command: std::marker::PhantomData,
-            }
-        })
+            },
+        )
     }
 }
 

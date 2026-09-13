@@ -4,7 +4,7 @@
 use std::ops::Range;
 
 use imba::checkbox::{checkbox, CheckboxCommand, CheckboxStyle};
-use imba::{arena::Arena, constraints::Constraints, store::Store, UiCtx};
+use imba::{arena::Arena, store::Store, UiCtx};
 use operation::{Op, Operation};
 
 use himark::Theme;
@@ -86,9 +86,9 @@ impl imba::View for CheckboxView {
         _store: &'a Store,
         _ui: &'a UiCtx,
     ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
-        imba::laid(move |_arena: &'a Arena, _constraints: Constraints| {
-            use imba::thunk_ext::ThunkExt;
-            let chrome = &self.chrome;
+        use imba::thunk_ext::ThunkExt;
+        let chrome = &self.chrome;
+        imba::fixed(
             checkbox(
                 self.checked,
                 CheckboxStyle {
@@ -106,8 +106,8 @@ impl imba::View for CheckboxView {
                     "Toggle Checkbox",
                     CheckboxCommand::Toggle,
                 )]
-            })
-        })
+            }),
+        )
     }
 }
 

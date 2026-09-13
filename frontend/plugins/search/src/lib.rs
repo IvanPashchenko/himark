@@ -12,7 +12,7 @@ use imba::{
     scroll::{ScrollCommand, ScrollView},
     store::Store,
     thunk_ext::ThunkExt,
-    UiCtx, View, Widget,
+    Layout as _, LayoutExt as _, UiCtx, View, Widget,
 };
 use skia_safe::{Paint, Rect, Size};
 use text::Text;
@@ -659,37 +659,44 @@ impl SearchView {
             });
         panel.place(0.0, 0.0, backdrop);
 
+        // The PIN chip's label is an `imba::text` at exact parity:
+        // the text self-measures the same advance the old painter
+        // centered by (top alignment centers x, pads down so the
+        // baseline lands on the old height * 0.5 + 6.0 line); the
+        // round-rect stroke stays a backdrop painter, and the press
+        // is `.on_click`, minting Pin like the old event closure.
         let pin_font = himark::fonts::ui_font(ui, surface.hint_size);
         let pin_surface = surface.clone();
-        let pin = leaf::<SearchCommand>(pin_width, pin_height)
-            .paint_instead(move |_arena, canvas, rect| {
-                let mut paint = Paint::default();
-                paint.set_anti_alias(true);
-                paint.set_stroke(true);
-                paint.set_stroke_width(1.0);
-                paint.set_color(pin_surface.rule.0);
-                canvas.draw_round_rect(rect.with_inset((0.5, 0.5)), pin_radius, pin_radius, &paint);
-                paint.set_stroke(false);
-                paint.set_color(pin_surface.dim_text.0);
-                let advance = pin_font.measure_str("PIN", None).0;
-                canvas.draw_str(
-                    "PIN",
-                    (
-                        rect.left + (rect.width() - advance) * 0.5,
-                        rect.top + rect.height() * 0.5 + 6.0,
-                    ),
-                    &pin_font,
-                    &paint,
-                );
+        let pin_ascent = -pin_font.metrics().1.ascent;
+        let pin = imba::text("PIN", pin_font, pin_surface.dim_text.0)
+            .pad_insets(imba::Insets {
+                left: 0.0,
+                top: (pin_height * 0.5 + 6.0 - pin_ascent).max(0.0),
+                right: 0.0,
+                bottom: 0.0,
             })
-            .event(|_arena, event, _size| match event {
-                Event::MouseDown { .. } => EventResult::Command(SearchCommand::Pin),
-                _ => EventResult::Ignored,
-            });
-        panel.place(
+            .align(imba::Alignment::TopCenter)
+            .sized(pin_width, pin_height)
+            .backdrop(
+                move |_arena: &Arena, canvas: &skia_safe::Canvas, rect: Rect| {
+                    let mut paint = Paint::default();
+                    paint.set_anti_alias(true);
+                    paint.set_stroke(true);
+                    paint.set_stroke_width(1.0);
+                    paint.set_color(pin_surface.rule.0);
+                    canvas.draw_round_rect(
+                        rect.with_inset((0.5, 0.5)),
+                        pin_radius,
+                        pin_radius,
+                        &paint,
+                    );
+                },
+            )
+            .on_click(|| SearchCommand::Pin);
+        panel.place_boxed(
             (size.width - surface.margin - pin_width).max(0.0),
             surface.margin,
-            pin,
+            pin.layout(arena, Constraints::tight(Size::new(pin_width, pin_height))),
         );
 
         if let Some(contents) = &self.contents {

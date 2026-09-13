@@ -451,10 +451,13 @@ impl<Command> Fill<Command> {
 
 impl<'a, Command: 'a> Layout<'a, Command> for Fill<Command> {
     fn layout(self, arena: &'a Arena, constraints: Constraints) -> ThunkBox<'a, Command> {
-        ThunkBox::new(
-            arena,
-            crate::leaf::leaf::<Command>(constraints.max.width, constraints.max.height),
-        )
+        // Compose's `fillMaxSize`: an UNBOUNDED axis is not filled —
+        // it falls back to the minimum. Filling to f32::MAX would
+        // poison any measured parent (a list row's height metric
+        // saturates and overflows the sumtree sums).
+        let width = bounded(constraints.max.width).unwrap_or(constraints.min.width);
+        let height = bounded(constraints.max.height).unwrap_or(constraints.min.height);
+        ThunkBox::new(arena, crate::leaf::leaf::<Command>(width, height))
     }
 }
 
@@ -916,6 +919,39 @@ mod tests {
             (size.width, size.height),
             (50.0, 10.0 + 4.0 + 20.0 + 4.0 + 5.0)
         );
+    }
+
+    #[test]
+    fn fill_leaves_an_unbounded_axis_at_the_minimum() {
+        let arena = arena();
+        let thunk = Fill::<()>::new().layout(
+            &arena,
+            Constraints {
+                min: Size::default(),
+                max: Size::new(100.0, f32::MAX),
+            },
+        );
+        let size = thunk.size();
+        assert_eq!((size.width, size.height), (100.0, 0.0));
+    }
+
+    #[test]
+    fn a_weighted_fill_row_stays_finite_under_a_list_measure() {
+        // A list measures rows under unbounded height; a header Row
+        // with a weighted Fill must not balloon the row's extent.
+        let arena = arena();
+        let thunk = Row::new(&arena)
+            .child(sized(30.0, 20.0))
+            .weighted(1.0, Fill::new())
+            .layout(
+                &arena,
+                Constraints {
+                    min: Size::default(),
+                    max: Size::new(200.0, f32::MAX),
+                },
+            );
+        let size = thunk.size();
+        assert_eq!((size.width, size.height), (200.0, 20.0));
     }
 
     #[test]
@@ -1394,9 +1430,17 @@ mod button_tests {
 /// its largest child, clamped into the incoming constraints. Purely
 /// VISUAL stacking; the base+modal VIEW with routing semantics
 /// remains `imba::stack::Stack`.
+enum ZChild {
+    Aligned(Alignment),
+    /// Compose's `Modifier.matchParentSize`: measured AFTER the
+    /// aligned children decide the box, with the box's size tight —
+    /// the backdrop bar, the full-card shield.
+    MatchParent,
+}
+
 pub struct ZBox<'a, Command> {
     arena: &'a Arena,
-    children: Vec<(Alignment, LayoutBox<'a, Command>)>,
+    children: Vec<(ZChild, LayoutBox<'a, Command>)>,
     alignment: Alignment,
 }
 
@@ -1417,8 +1461,10 @@ impl<'a, Command: 'a> ZBox<'a, Command> {
 
     pub fn child(mut self, child: impl Layout<'a, Command> + 'a) -> Self {
         let alignment = self.alignment;
-        self.children
-            .push((alignment, LayoutBox::new(self.arena, child)));
+        self.children.push((
+            ZChild::Aligned(alignment),
+            LayoutBox::new(self.arena, child),
+        ));
         self
     }
 
@@ -1428,8 +1474,18 @@ impl<'a, Command: 'a> ZBox<'a, Command> {
         alignment: Alignment,
         child: impl Layout<'a, Command> + 'a,
     ) -> Self {
+        self.children.push((
+            ZChild::Aligned(alignment),
+            LayoutBox::new(self.arena, child),
+        ));
+        self
+    }
+
+    /// Compose's `Modifier.matchParentSize`: laid with the box's
+    /// decided size, tight; does not influence the box's extent.
+    pub fn child_match_parent(mut self, child: impl Layout<'a, Command> + 'a) -> Self {
         self.children
-            .push((alignment, LayoutBox::new(self.arena, child)));
+            .push((ZChild::MatchParent, LayoutBox::new(self.arena, child)));
         self
     }
 }
@@ -1439,24 +1495,48 @@ impl<'a, Command> LayoutValue for ZBox<'a, Command> {}
 impl<'a, Command: 'a> Layout<'a, Command> for ZBox<'a, Command> {
     fn layout(self, arena: &'a Arena, constraints: Constraints) -> ThunkBox<'a, Command> {
         let loose = constraints.loosen();
-        let mut thunks: Vec<(Alignment, ThunkBox<'a, Command>)> = Vec::new();
+        let mut slots: Vec<Option<(Alignment, ThunkBox<'a, Command>)>> =
+            self.children.iter().map(|_| None).collect();
+        let mut matchers: Vec<(usize, LayoutBox<'a, Command>)> = Vec::new();
         let mut extent = Size::new(constraints.min.width, constraints.min.height);
-        for (alignment, child) in self.children {
-            let thunk = child.layout(arena, loose);
-            let size = thunk.size();
-            extent.width = extent.width.max(size.width);
-            extent.height = extent.height.max(size.height);
-            thunks.push((alignment, thunk));
+        for (index, (kind, child)) in self.children.into_iter().enumerate() {
+            match kind {
+                ZChild::Aligned(alignment) => {
+                    let thunk = child.layout(arena, loose);
+                    let size = thunk.size();
+                    extent.width = extent.width.max(size.width);
+                    extent.height = extent.height.max(size.height);
+                    slots[index] = Some((alignment, thunk));
+                }
+                ZChild::MatchParent => matchers.push((index, child)),
+            }
         }
         extent.width = extent.width.min(constraints.max.width);
         extent.height = extent.height.min(constraints.max.height);
+        for (index, child) in matchers {
+            slots[index] = Some((
+                Alignment::TopStart,
+                child.layout(arena, Constraints::tight(extent)),
+            ));
+        }
         let mut frame = container(self.arena, extent);
-        for (alignment, thunk) in thunks {
+        for slot in slots {
+            let Some((alignment, thunk)) = slot else {
+                continue;
+            };
             let (x, y) = alignment.place(extent, thunk.size());
             frame.place_boxed(x, y, thunk);
         }
         ThunkBox::new(arena, frame)
     }
+}
+
+/// A fixed-size empty box — Compose's `Spacer(Modifier.size(…))`.
+pub fn spacer<'a, Command: 'a>(
+    width: f32,
+    height: f32,
+) -> Fixed<crate::Eager<crate::leaf::Leaf<'a, Command>>> {
+    fixed(crate::leaf::leaf(width, height))
 }
 
 /// A painter running UNDER the layout's own pixels — Compose's

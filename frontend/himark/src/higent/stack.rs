@@ -5,11 +5,12 @@ use crate::fonts::ui_text_font;
 use ahp_types::state::{ConfirmationOption, ConfirmationOptionKind, Message, PendingMessage};
 use imba::{
     arena::Arena,
+    constraints::Constraints,
     container::{container, Container},
     event::{Event, EventResult},
     leaf::leaf,
     thunk_ext::ThunkExt,
-    UiCtx,
+    Layout as _, LayoutExt as _, UiCtx,
 };
 use skia_safe::{Paint, Rect, Size};
 
@@ -293,8 +294,13 @@ impl WidgetStack {
                 let chip_font = ui_text_font(ui, chrome.title_size * 0.7);
                 let text_color = chrome.text_color.0;
                 let chip_color = chrome.accent.0;
-                let row = leaf::<StackCommand>(box_w - box_pad * 2.0, line)
-                    .paint_instead(move |_arena, canvas, rect| {
+                // The numbered chip stays a bespoke glyph painter (a
+                // stroked round rect with a centered digit); the label
+                // is a `Text` at exact baseline parity — the old
+                // painter drew it at x = left + line * 0.9 (the chip
+                // leaf's width) with its baseline at top + line * 0.66.
+                let chip = leaf::<StackCommand>(line * 0.9, line).paint_instead(
+                    move |_arena, canvas, rect| {
                         let mut paint = Paint::default();
                         paint.set_anti_alias(true);
                         let chip = Rect::from_xywh(
@@ -318,21 +324,31 @@ impl WidgetStack {
                             &chip_font,
                             &paint,
                         );
-                        paint.set_color(text_color);
-                        canvas.draw_str(
-                            label.as_str(),
-                            (rect.left + line * 0.9, rect.top + line * 0.66),
-                            &option_font,
-                            &paint,
-                        );
-                    })
-                    .event(move |_arena, event, _size| match event {
-                        Event::MouseDown { .. } => {
-                            EventResult::Command(StackCommand::Answer(index))
-                        }
-                        _ => EventResult::Ignored,
-                    });
-                stack.place(box_x + box_pad, option_y, row);
+                    },
+                );
+                let label_ascent = -option_font.metrics().1.ascent;
+                let row = imba::Row::new(arena)
+                    .child(imba::fixed(chip))
+                    .child(
+                        imba::text(label, option_font.clone(), text_color).pad_insets(
+                            imba::Insets {
+                                left: 0.0,
+                                top: (line * 0.66 - label_ascent).max(0.0),
+                                right: 0.0,
+                                bottom: 0.0,
+                            },
+                        ),
+                    )
+                    .sized(box_w - box_pad * 2.0, line)
+                    .on_click(move || StackCommand::Answer(index));
+                stack.place_boxed(
+                    box_x + box_pad,
+                    option_y,
+                    row.layout(
+                        arena,
+                        Constraints::tight(Size::new(box_w - box_pad * 2.0, line)),
+                    ),
+                );
                 option_y += line;
             }
         }

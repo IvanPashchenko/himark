@@ -12,7 +12,7 @@ use imba::{
     scroll::{ScrollCommand, ScrollView},
     store::Store,
     thunk_ext::ThunkExt,
-    UiCtx, View, Widget,
+    Layout as _, LayoutExt as _, UiCtx, View, Widget,
 };
 use skia_safe::{Paint, Rect, Size};
 
@@ -81,48 +81,11 @@ impl View for ModelOption {
         store: &'a Store,
         ui: &'a UiCtx,
     ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
-        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
-            let chrome = crate::env::Themes::of(store).ui().combo.clone();
-            let heading = self.model.is_none();
-            let label = if heading {
-                self.label.to_uppercase()
-            } else {
-                self.label.clone()
-            };
-            let font = if heading {
-                crate::fonts::ui_font(ui, chrome.label_size)
-            } else {
-                crate::fonts::ui_text_font(ui, chrome.menu_row_size)
-            };
-            let text_width = if heading {
-                crate::combo::tracked_width(&font, &label)
-            } else {
-                font.measure_str(&label, None).0
-            };
-            let natural = text_width + chrome.menu_pad * if heading { 2.0 } else { 2.75 };
-            let width = if constraints.max.width.is_finite() {
-                constraints.max.width
-            } else {
-                natural.max(constraints.min.width)
-            };
-            let height = chrome.menu_row_height;
-            leaf::<Self::Command>(width, height).paint_instead(move |_arena, canvas, rect| {
-                let mut paint = Paint::default();
-                paint.set_anti_alias(true);
-                paint.set_color(if heading {
-                    chrome.menu_trail.0
-                } else {
-                    chrome.menu_text.0
-                });
-                let baseline = rect.top + (rect.height() + font.size() * 0.7) * 0.5;
-                let x = rect.left + chrome.menu_pad * if heading { 1.0 } else { 1.75 };
-                if heading {
-                    crate::combo::draw_tracked(canvas, &font, &paint, &label, x, baseline);
-                } else {
-                    canvas.draw_str(&label, (x, baseline), &font, &paint);
-                }
-            })
-        })
+        ModelOptionRow {
+            option: self,
+            store,
+            ui,
+        }
     }
 }
 
@@ -907,54 +870,68 @@ impl View for NewSessionView {
             let accent = theme.chat.accent.0;
             let on_accent = theme.chat.on_accent.0;
             let accent_soft = theme.peeker.dim_text.0;
-            root.place(
+            // The START cell as a Row of `Text`s at exact baseline
+            // parity (the chat SEND cell pattern): the old per-char
+            // loop advanced by glyph width + 1.5 (= `.tracking(1.5)`)
+            // from x = left + pad, and drew the key hint `theme_gap()`
+            // after the label's last advance (= the Row's `.gap`).
+            // Each text pads down so its baseline lands on the old
+            // mid + font.size() * 0.35 line. The accent fill and left
+            // rule stay a backdrop painter; the press is `.on_click`,
+            // minting Start like the old event closure (readiness
+            // gates inside `start()`, as before).
+            let mid = row_h * 0.5;
+            let caps_ascent = -caps_font.metrics().1.ascent;
+            let key_ascent = -key_font.metrics().1.ascent;
+            let start_cell = imba::Row::new(arena)
+                .gap(theme_gap())
+                .child(
+                    imba::text(start_label, caps_font.clone(), on_accent)
+                        .tracking(1.5)
+                        .pad_insets(imba::Insets {
+                            left: 0.0,
+                            top: (mid + caps_font.size() * 0.35 - caps_ascent).max(0.0),
+                            right: 0.0,
+                            bottom: 0.0,
+                        }),
+                )
+                .child(
+                    imba::text("⌘⏎", key_font.clone(), accent_soft).pad_insets(imba::Insets {
+                        left: 0.0,
+                        top: (mid + key_font.size() * 0.35 - key_ascent).max(0.0),
+                        right: 0.0,
+                        bottom: 0.0,
+                    }),
+                )
+                .pad_insets(imba::Insets {
+                    left: pad,
+                    top: 0.0,
+                    right: 0.0,
+                    bottom: 0.0,
+                })
+                .sized(start_width, row_h)
+                .backdrop(
+                    move |_arena: &Arena, canvas: &skia_safe::Canvas, rect: Rect| {
+                        let mut paint = Paint::default();
+                        let mut fill = accent;
+                        if !ready {
+                            fill = fill.with_a(0x50);
+                        }
+                        paint.set_color(fill.with_a(fill.a() / 3));
+                        canvas.draw_rect(rect, &paint);
+                        paint.set_anti_alias(false);
+                        paint.set_color(fill);
+                        canvas.draw_rect(
+                            Rect::from_xywh(rect.left, rect.top, 1.0, rect.height()),
+                            &paint,
+                        );
+                    },
+                )
+                .on_click(|| NewSessionCommand::Start);
+            root.place_boxed(
                 start_x,
                 row_top,
-                leaf::<NewSessionCommand>(start_width, row_h)
-                    .paint_instead({
-                        let caps_font = caps_font.clone();
-                        let key_font = key_font.clone();
-                        move |_arena, canvas, rect| {
-                            let mut paint = Paint::default();
-                            let mut fill = accent;
-                            if !ready {
-                                fill = fill.with_a(0x50);
-                            }
-                            paint.set_color(fill.with_a(fill.a() / 3));
-                            canvas.draw_rect(rect, &paint);
-                            paint.set_anti_alias(false);
-                            paint.set_color(fill);
-                            canvas.draw_rect(
-                                Rect::from_xywh(rect.left, rect.top, 1.0, rect.height()),
-                                &paint,
-                            );
-                            paint.set_anti_alias(true);
-                            paint.set_color(on_accent);
-                            let mid = rect.top + rect.height() * 0.5;
-                            let mut cx = rect.left + pad;
-                            for ch in start_label.chars() {
-                                let glyph = ch.to_string();
-                                canvas.draw_str(
-                                    &glyph,
-                                    (cx, mid + caps_font.size() * 0.35),
-                                    &caps_font,
-                                    &paint,
-                                );
-                                cx += caps_font.measure_str(&glyph, None).0 + 1.5;
-                            }
-                            paint.set_color(accent_soft);
-                            canvas.draw_str(
-                                "⌘⏎",
-                                (cx + theme_gap(), mid + key_font.size() * 0.35),
-                                &key_font,
-                                &paint,
-                            );
-                        }
-                    })
-                    .event(|_arena, event, _size| match event {
-                        Event::MouseDown { .. } => EventResult::Command(NewSessionCommand::Start),
-                        _ => EventResult::Ignored,
-                    }),
+                start_cell.layout(arena, Constraints::tight(Size::new(start_width, row_h))),
             );
 
             let hints = [("⌘⏎", "send"), ("⏎", "newline")];
@@ -970,13 +947,53 @@ impl View for NewSessionView {
             let hints_x = start_x - hints_width;
             let key_color = theme.peeker.dim_text.0;
             let label_color = theme.combo.label_color.0;
-            root.place(
-                hints_x,
-                row_top,
-                leaf::<NewSessionCommand>(hints_width, row_h).paint_instead({
-                    let key_font = key_font.clone();
-                    let hint_font = hint_font.clone();
-                    move |_arena, canvas, rect| {
+            // The hint pairs as a Row of `Text`s at exact baseline
+            // parity: the old x bookkeeping advanced by the key's
+            // measured width + 5.0 before its label and by the
+            // label's width + the combo gap before the next key —
+            // reproduced as trailing pads (none after the last
+            // label, so nothing clips against the cell width). Keys
+            // and labels pad down so their baselines land on the old
+            // mid + font.size() * 0.35 lines; the left rule stays a
+            // backdrop painter, and the cell keeps ignoring presses
+            // like the old leaf.
+            let hint_ascent = -hint_font.metrics().1.ascent;
+            let mut hint_row = imba::Row::new(arena);
+            let pairs = hints.len();
+            for (index, (key, label)) in hints.into_iter().enumerate() {
+                hint_row = hint_row
+                    .child(
+                        imba::text(key, key_font.clone(), key_color).pad_insets(imba::Insets {
+                            left: 0.0,
+                            top: (mid + key_font.size() * 0.35 - key_ascent).max(0.0),
+                            right: 5.0,
+                            bottom: 0.0,
+                        }),
+                    )
+                    .child(
+                        imba::text(label, hint_font.clone(), label_color).pad_insets(
+                            imba::Insets {
+                                left: 0.0,
+                                top: (mid + hint_font.size() * 0.35 - hint_ascent).max(0.0),
+                                right: match index + 1 == pairs {
+                                    true => 0.0,
+                                    false => hint_gap,
+                                },
+                                bottom: 0.0,
+                            },
+                        ),
+                    );
+            }
+            let hint_cell = hint_row
+                .pad_insets(imba::Insets {
+                    left: pad,
+                    top: 0.0,
+                    right: 0.0,
+                    bottom: 0.0,
+                })
+                .sized(hints_width, row_h)
+                .backdrop(
+                    move |_arena: &Arena, canvas: &skia_safe::Canvas, rect: Rect| {
                         let mut paint = Paint::default();
                         paint.set_anti_alias(false);
                         paint.set_color(rule);
@@ -984,29 +1001,12 @@ impl View for NewSessionView {
                             Rect::from_xywh(rect.left, rect.top, 1.0, rect.height()),
                             &paint,
                         );
-                        paint.set_anti_alias(true);
-                        let mid = rect.top + rect.height() * 0.5;
-                        let mut x = rect.left + pad;
-                        for (key, label) in hints {
-                            paint.set_color(key_color);
-                            canvas.draw_str(
-                                key,
-                                (x, mid + key_font.size() * 0.35),
-                                &key_font,
-                                &paint,
-                            );
-                            x += key_font.measure_str(key, None).0 + 5.0;
-                            paint.set_color(label_color);
-                            canvas.draw_str(
-                                label,
-                                (x, mid + hint_font.size() * 0.35),
-                                &hint_font,
-                                &paint,
-                            );
-                            x += hint_font.measure_str(label, None).0 + hint_gap;
-                        }
-                    }
-                }),
+                    },
+                );
+            root.place_boxed(
+                hints_x,
+                row_top,
+                hint_cell.layout(arena, Constraints::tight(Size::new(hints_width, row_h))),
             );
 
             let worktree_label = "New worktree";
@@ -1017,51 +1017,48 @@ impl View for NewSessionView {
             let checked = self.worktree;
             let box_color = theme.combo.label_color.0;
             let text_dim = theme.peeker.dim_text.0;
-            root.place(
+            // The worktree cell's LABEL is a `Text` at exact baseline
+            // parity (top pad = old mid + font.size() * 0.35 baseline
+            // − ascent, left pad = the old pad + check + 10.0 x); the
+            // left rule and the checkbox GLYPH stay a backdrop
+            // painter (form geometry), and the press is `.on_click`,
+            // minting ToggleWorktree like the old event closure.
+            let worktree_cell = imba::text(worktree_label, hint_font.clone(), text_dim)
+                .pad_insets(imba::Insets {
+                    left: pad + check + 10.0,
+                    top: (mid + hint_font.size() * 0.35 - hint_ascent).max(0.0),
+                    right: 0.0,
+                    bottom: 0.0,
+                })
+                .sized(worktree_width, row_h)
+                .backdrop(
+                    move |_arena: &Arena, canvas: &skia_safe::Canvas, rect: Rect| {
+                        let mut paint = Paint::default();
+                        paint.set_anti_alias(false);
+                        paint.set_color(rule);
+                        canvas.draw_rect(
+                            Rect::from_xywh(rect.left, rect.top, 1.0, rect.height()),
+                            &paint,
+                        );
+                        paint.set_anti_alias(true);
+                        let mid = rect.top + rect.height() * 0.5;
+                        let box_rect =
+                            Rect::from_xywh(rect.left + pad, mid - check * 0.5, check, check);
+                        paint.set_stroke(true);
+                        paint.set_stroke_width(1.0);
+                        paint.set_color(box_color);
+                        canvas.draw_rect(box_rect, &paint);
+                        if checked {
+                            paint.set_stroke(false);
+                            canvas.draw_rect(box_rect.with_inset((3.0, 3.0)), &paint);
+                        }
+                    },
+                )
+                .on_click(|| NewSessionCommand::ToggleWorktree);
+            root.place_boxed(
                 worktree_x,
                 row_top,
-                leaf::<NewSessionCommand>(worktree_width, row_h)
-                    .paint_instead({
-                        let hint_font = hint_font.clone();
-                        move |_arena, canvas, rect| {
-                            let mut paint = Paint::default();
-                            paint.set_anti_alias(false);
-                            paint.set_color(rule);
-                            canvas.draw_rect(
-                                Rect::from_xywh(rect.left, rect.top, 1.0, rect.height()),
-                                &paint,
-                            );
-                            paint.set_anti_alias(true);
-                            let mid = rect.top + rect.height() * 0.5;
-                            let box_rect =
-                                Rect::from_xywh(rect.left + pad, mid - check * 0.5, check, check);
-                            paint.set_stroke(true);
-                            paint.set_stroke_width(1.0);
-                            paint.set_color(box_color);
-                            canvas.draw_rect(box_rect, &paint);
-                            if checked {
-                                paint.set_stroke(false);
-                                canvas.draw_rect(box_rect.with_inset((3.0, 3.0)), &paint);
-                            }
-                            paint.set_stroke(false);
-                            paint.set_color(text_dim);
-                            canvas.draw_str(
-                                worktree_label,
-                                (
-                                    rect.left + pad + check + 10.0,
-                                    mid + hint_font.size() * 0.35,
-                                ),
-                                &hint_font,
-                                &paint,
-                            );
-                        }
-                    })
-                    .event(|_arena, event, _size| match event {
-                        Event::MouseDown { .. } => {
-                            EventResult::Command(NewSessionCommand::ToggleWorktree)
-                        }
-                        _ => EventResult::Ignored,
-                    }),
+                worktree_cell.layout(arena, Constraints::tight(Size::new(worktree_width, row_h))),
             );
 
             let stale = self.synced != store_fingerprint(store);
@@ -2065,5 +2062,73 @@ impl crate::DynamicCommand for MountComposer {
         };
         let _ = entity.open_panel(store, Box::new(ComposerPane::new(window)), fx);
         crate::Windows::put(store, window, entity);
+    }
+}
+
+/// A model-combo menu row, reified: heading rows are TRACKED caps in
+/// the trail color, plain rows are the menu text — one `Text` on the
+/// row's baseline, width decided by the incoming constraints.
+struct ModelOptionRow<'a> {
+    option: &'a ModelOption,
+    store: &'a Store,
+    ui: &'a UiCtx,
+}
+
+impl imba::LayoutValue for ModelOptionRow<'_> {}
+
+impl<'a> imba::Layout<'a, std::convert::Infallible> for ModelOptionRow<'a> {
+    fn layout(
+        self,
+        arena: &'a Arena,
+        constraints: Constraints,
+    ) -> imba::ThunkBox<'a, std::convert::Infallible> {
+        use imba::LayoutExt as _;
+        let ModelOptionRow { option, store, ui } = self;
+        let chrome = crate::env::Themes::of(store).ui().combo.clone();
+        let heading = option.model.is_none();
+        let label = if heading {
+            option.label.to_uppercase()
+        } else {
+            option.label.clone()
+        };
+        let font = if heading {
+            crate::fonts::ui_font(ui, chrome.label_size)
+        } else {
+            crate::fonts::ui_text_font(ui, chrome.menu_row_size)
+        };
+        let text_width = if heading {
+            crate::combo::tracked_width(&font, &label)
+        } else {
+            font.measure_str(&label, None).0
+        };
+        let natural = text_width + chrome.menu_pad * if heading { 2.0 } else { 2.75 };
+        let width = if constraints.max.width.is_finite() {
+            constraints.max.width
+        } else {
+            natural.max(constraints.min.width)
+        };
+        let height = chrome.menu_row_height;
+        // The painter's baseline: (height + size * 0.7) * 0.5.
+        let baseline = (height + font.size() * 0.7) * 0.5;
+        let drop = (baseline + font.metrics().1.ascent).max(0.0);
+        let x = chrome.menu_pad * if heading { 1.0 } else { 1.75 };
+        let color = if heading {
+            chrome.menu_trail.0
+        } else {
+            chrome.menu_text.0
+        };
+        let mut label = imba::text(label, font, color);
+        if heading {
+            label = label.tracking(1.5);
+        }
+        imba::ZBox::new(arena)
+            .child(imba::spacer(width, height))
+            .child(label.pad_insets(imba::Insets {
+                left: x,
+                top: drop,
+                right: 0.0,
+                bottom: 0.0,
+            }))
+            .layout(arena, constraints)
     }
 }
