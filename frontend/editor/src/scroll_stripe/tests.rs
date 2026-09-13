@@ -229,6 +229,54 @@ fn the_diff_markup_is_derived_from_the_operation_and_classifies_hunks() {
 }
 
 #[test]
+fn removing_the_last_diff_owes_one_clearing_relaunch() {
+    // The commit road: the diff is untracked, the gutter clears at
+    // once — and the TRACK must not keep the stale marks. The leaving
+    // markup bumps the generation while the diff still vouches for
+    // it, and the painted track keeps the document in the sweep until
+    // the clearing landing empties it.
+    let source = hundred_lines();
+    let base = text::Text::from_string_exact(&source.replace("line 050", "line ~50"));
+    let mut document = plain_document(&source);
+    let editor = pane(&mut document);
+    let operation = crate::diff::diff(&base, document.text());
+    let id = document.add_diff(operation, 0);
+    document.mark_scroll_stripes(editor, document.diff(id).expect("tracked").markup());
+
+    let outcome = derive_once(&mut document, editor);
+    assert!(!outcome.stripes.segments.is_empty(), "the hunk projects");
+    document.apply_scroll_stripes(outcome);
+
+    let generation = document.scroll_stripe_generation();
+    document.remove_diff(
+        id,
+        &[],
+        &fonts(),
+        &theme(),
+        &mut imba::effect::Batch::new().effects(),
+    );
+    assert!(
+        document.scroll_stripe_generation() > generation,
+        "the leaving diff markup moves the fingerprint"
+    );
+    assert!(
+        document.wants_scroll_stripes(),
+        "the painted track still owes its clearing pass"
+    );
+
+    let outcome = derive_once(&mut document, editor);
+    assert!(
+        outcome.stripes.segments.is_empty(),
+        "nothing left to project"
+    );
+    document.apply_scroll_stripes(outcome);
+    assert!(
+        !document.wants_scroll_stripes(),
+        "cleared and contributor-less, the sweep forgets the document"
+    );
+}
+
+#[test]
 fn a_diff_carries_its_change_map_from_birth() {
     // The base is the target with line 50 spelled differently and one
     // EXTRA line after line 5 — so the operation carries one modified
@@ -248,6 +296,10 @@ fn a_diff_carries_its_change_map_from_birth() {
         document.feature_markup(map).is_some(),
         "THE diff markup rides the document"
     );
+    // The stripes role is a REGISTRATION (the documents layer's
+    // track_diff/enable doors do this in the app): a diff off the
+    // register — a split panel's — never reaches a pane's track.
+    document.mark_scroll_stripes(editor, map);
 
     let outcome = derive_once(&mut document, editor);
     let styles: Vec<StyleId> = outcome

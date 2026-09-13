@@ -225,7 +225,7 @@ pub(crate) fn fresh_workbench_root(store: &mut Store, fx: &mut AppFx<'_>) -> Wor
     let editor_id = entity_scope(scratch_id, fx, |fx| {
         mount_editor(store, &mut scratch, width, None, fx)
     });
-    scratch.enable_scroll_stripes(editor_id);
+    documents::scroll_stripes::enable_scroll_stripes(store, scratch_id, &mut scratch, editor_id);
     OpenDocuments::put_document(store, scratch_id, scratch);
     WorkbenchNode::editor_leaf(ScrollView::new(
         EditorIdView::new(scratch_id, editor_id).with_gutter(),

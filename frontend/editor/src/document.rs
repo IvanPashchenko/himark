@@ -2509,8 +2509,11 @@ impl Document {
             return;
         };
         let markup = diff.markup;
-        self.diffs.remove_mut(&id);
+        // The markup leaves FIRST: `remove_markup`'s stripe-membership
+        // check still sees the diff, so the generation bumps and the
+        // track owes a clearing relaunch.
         self.remove_markup(markup, changed, fonts, theme, fx);
+        self.diffs.remove_mut(&id);
     }
 
     pub fn diff(&self, id: crate::diff::DiffId) -> Option<&crate::diff::Diff> {
@@ -2646,10 +2649,12 @@ impl Document {
         self.scroll_stripe_generation
     }
 
-    /// Registers a feature entry as a scroll-stripe contributor for
-    /// ONE editor's track (docs/scroll-stripe.md) — the find-bar
-    /// shape: beside the feature's own `show_markup` pick. Diff
-    /// markups never register; the diffs map enumerates them.
+    /// Registers an entry as a scroll-stripe contributor for ONE
+    /// editor's track (docs/scroll-stripe.md) — the find-bar shape:
+    /// beside the feature's own `show_markup` pick. THE stripes
+    /// diff's markup registers the same way (the documents layer does
+    /// it at track/enable time); a diff some other view holds — a
+    /// split-diff panel's — never leaks onto a pane's track.
     pub fn mark_scroll_stripes(&mut self, editor: EditorId, id: MarkupId) {
         if !self.markups.contains_key(&id) {
             return;
@@ -2663,15 +2668,46 @@ impl Document {
         }
     }
 
-    /// Whether an entry projects onto any scroll track — a diff's
-    /// hunk markup, or a feature entry some editor registered. Bounded
-    /// by the handful of diffs and editors, never by the document.
+    /// Registers an entry on EVERY stripe-enabled editor's track —
+    /// the documents layer's door for THE stripes diff arriving while
+    /// panes already show tracks.
+    pub fn mark_scroll_stripes_on_enabled(&mut self, id: MarkupId) {
+        let enabled: Vec<EditorId> = self
+            .editors
+            .iter()
+            .filter(|(_, state)| state.scroll_stripes.enabled)
+            .map(|(editor, _)| *editor)
+            .collect();
+        for editor in enabled {
+            self.mark_scroll_stripes(editor, id);
+        }
+    }
+
+    /// Unregisters an entry from every track — the stripes diff
+    /// stepping down (untracked, or its record losing the stripes
+    /// role while a panel still holds the diff itself).
+    pub fn unmark_scroll_stripes(&mut self, id: MarkupId) {
+        let mut left = false;
+        for editor in self.editors.keys().copied().collect::<Vec<_>>() {
+            let Some(state) = self.editors.get_mut(&editor) else {
+                continue;
+            };
+            let before = state.scroll_stripes.markups.len();
+            state.scroll_stripes.markups.retain(|markup| *markup != id);
+            left |= state.scroll_stripes.markups.len() != before;
+        }
+        if left {
+            self.scroll_stripe_generation += 1;
+        }
+    }
+
+    /// Whether an entry projects onto any scroll track — registered
+    /// on some editor's slot. Bounded by the handful of editors,
+    /// never by the document.
     fn stripes_markup(&self, id: MarkupId) -> bool {
-        self.diffs.values().any(|diff| diff.markup == id)
-            || self
-                .editors
-                .values()
-                .any(|state| state.scroll_stripes.markups.contains(&id))
+        self.editors
+            .values()
+            .any(|state| state.scroll_stripes.markups.contains(&id))
     }
 
     /// Opts an editor into the stripe track — pane editors only; value
@@ -2682,14 +2718,22 @@ impl Document {
         }
     }
 
-    /// The sweep's early-out: something to project, and someone
-    /// showing a track.
+    /// The sweep's early-out: something to project — or something
+    /// STALE still painted (the last contributor left; the track owes
+    /// one clearing relaunch) — and someone showing a track.
     pub fn wants_scroll_stripes(&self) -> bool {
-        (!self.diffs.is_empty()
-            || self
-                .editors
-                .values()
-                .any(|state| !state.scroll_stripes.markups.is_empty()))
+        let contributors = self
+            .editors
+            .values()
+            .any(|state| !state.scroll_stripes.markups.is_empty());
+        let painted = self.editors.values().any(|state| {
+            state
+                .scroll_stripes
+                .landed
+                .as_ref()
+                .is_some_and(|stripes| !stripes.segments.is_empty())
+        });
+        (contributors || painted)
             && self
                 .editors
                 .values()
@@ -2719,9 +2763,6 @@ impl Document {
             .filter(|(_, state)| state.scroll_stripes.enabled)
             .map(|(id, _)| *id)
             .collect();
-        // Every diff's hunk markup marks every track of its document;
-        // feature entries mark the tracks that registered them.
-        let diff_markups: Vec<MarkupId> = self.diffs.values().map(|diff| diff.markup).collect();
         let mut launches = Vec::new();
         for editor in editors {
             let Some(state) = self.editors.get(&editor) else {
@@ -2736,9 +2777,12 @@ impl Document {
             if state.scroll_stripes.stamp.as_ref() == Some(&stamp) {
                 continue;
             }
-            let markups: Vec<Markup> = diff_markups
+            // Only REGISTERED entries project: the editor's slot set,
+            // holding its feature entries and THE stripes diff.
+            let markups: Vec<Markup> = state
+                .scroll_stripes
+                .markups
                 .iter()
-                .chain(state.scroll_stripes.markups.iter())
                 .filter_map(|id| self.markups.get(id).cloned())
                 .collect();
             let layout = state.layout.clone();

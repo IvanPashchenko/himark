@@ -191,7 +191,7 @@ impl Navigator for EditorNavigator {
             }
             editor
         });
-        document.enable_scroll_stripes(editor);
+        documents::scroll_stripes::enable_scroll_stripes(store, id, &mut document, editor);
         crate::OpenDocuments::put_document(store, id, document);
         crate::OpenDocuments::touch(store, id);
         let mut pane =

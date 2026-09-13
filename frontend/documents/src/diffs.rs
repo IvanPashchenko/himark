@@ -211,6 +211,23 @@ impl OpenDocuments {
             if let Some(existing) = docs.diffs.by_pair(base, target) {
                 let mut record = docs.diffs.record(existing).expect("indexed").clone();
                 record.refs += 1;
+                // The pair takes the stripes role it didn't have:
+                // its markup steps onto the enabled tracks.
+                if stripes && !record.stripes {
+                    if let Some(target_entity) = docs.entries.get(&target) {
+                        if let Some(markup) = target_entity
+                            .document
+                            .diff(existing)
+                            .map(|entry| entry.markup())
+                        {
+                            let mut target_document = target_entity.document.clone();
+                            target_document.mark_scroll_stripes_on_enabled(markup);
+                            let mut entity = target_entity.clone();
+                            entity.document = target_document;
+                            docs.entries.insert_mut(target, entity);
+                        }
+                    }
+                }
                 record.stripes |= stripes;
                 docs.diffs.put(existing, record);
                 result = Some(existing);
@@ -237,6 +254,13 @@ impl OpenDocuments {
             let id = target_document.add_diff(operation.clone(), base_revision);
             if normalized_at_birth {
                 target_document.install_normalized_diff(id, operation, base_revision);
+            }
+            // THE stripes diff registers on the enabled tracks; a
+            // panel's diff (stripes=false) stays off them.
+            if stripes {
+                if let Some(markup) = target_document.diff(id).map(|entry| entry.markup()) {
+                    target_document.mark_scroll_stripes_on_enabled(markup);
+                }
             }
             let mut entity = target_entity.clone();
             entity.document = target_document;
@@ -352,6 +376,17 @@ impl OpenDocuments {
             if let Some(mut record) = docs.diffs.record(id).cloned() {
                 record.stripes = false;
                 docs.diffs.put(id, record);
+            }
+            // The role ends NOW, even if a panel's ref keeps the diff
+            // itself alive: the markup leaves every track.
+            if let Some(target_entity) = docs.entries.get(&document) {
+                if let Some(markup) = target_entity.document.diff(id).map(|entry| entry.markup()) {
+                    let mut target_document = target_entity.document.clone();
+                    target_document.unmark_scroll_stripes(markup);
+                    let mut entity = target_entity.clone();
+                    entity.document = target_document;
+                    docs.entries.insert_mut(document, entity);
+                }
             }
         });
         Self::untrack_diff(store, id, fx);

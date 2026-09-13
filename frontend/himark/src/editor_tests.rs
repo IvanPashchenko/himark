@@ -5686,3 +5686,238 @@ fn ime_hit_test_rejects_chrome_over_a_scrolled_pane() {
         );
     }
 }
+
+#[test]
+fn scroll_stripes_follow_the_diff_through_the_app() {
+    use crate::{AppFonts, Application};
+    use std::sync::{mpsc, Arc};
+    let fonts = AppFonts::embedded();
+    let mut app = Application::new(fonts);
+    let window = app.add_window();
+    let (posted, arriving) = mpsc::channel();
+    let runner = app.attach_host(
+        Arc::new(move |command| {
+            let _ = posted.send(command);
+        }),
+        Arc::new(|| {}),
+    );
+    let mut surface = skia_safe::surfaces::raster_n32_premul((800, 600)).expect("surface");
+    crate::Window::draw(app.sole_window(), &mut app, surface.canvas());
+    let settle = |app: &mut Application| {
+        for _ in 0..5 {
+            runner.run();
+            while let Ok(command) = arriving.try_recv() {
+                app.perform_batch(vec![command]);
+            }
+        }
+    };
+
+    assert!(app.add_document(
+        app.sole_window(),
+        plain_document("one\ntwo\nthree\n"),
+        "target.md".to_owned(),
+        true
+    ));
+    let (target, editor) = app.focused_editor_id();
+    let base = crate::OpenDocuments::register(
+        &mut app.store_mut(),
+        plain_document("one\nTWO\nthree\n"),
+        None,
+        "base.md".to_owned(),
+        0,
+    );
+    let diff = crate::OpenDocuments::track_diff(&mut app.store_mut(), base, target, true, None)
+        .expect("tracked");
+    let _ = window;
+
+    // A benign entity command: deliver drops it, the batch tails run.
+    let tick = |app: &mut Application| {
+        app.perform_batch(vec![crate::AppCommand::Entity(
+            target,
+            EditorCommand::ApplyRepair(Vec::new()),
+        )]);
+    };
+    let stripes = |app: &Application| -> Vec<u32> {
+        crate::OpenDocuments::document_ref(app.store(), target)
+            .and_then(|document| document.scroll_stripes(editor))
+            .map(|landed| landed.segments.iter().map(|segment| segment.byte).collect())
+            .unwrap_or_default()
+    };
+
+    tick(&mut app);
+    settle(&mut app);
+    let born = stripes(&app);
+    assert!(!born.is_empty(), "the tracked hunk projects onto the track");
+
+    // The diff CHANGES: the first line gains its own hunk.
+    {
+        let fonts = ::editor::env::Fonts::of(app.store())();
+        let theme = ::editor::env::Themes::of(app.store());
+        let mut store = app.store_mut();
+        let mut document = crate::OpenDocuments::document(&store, target).expect("open");
+        document.edit(
+            &::editor::Operation::insert_at(0, "zero\n"),
+            &fonts,
+            &theme,
+            &mut imba::effect::Batch::new().effects(),
+        );
+        crate::OpenDocuments::put_document(&mut store, target, document);
+    }
+    tick(&mut app);
+    settle(&mut app);
+    let moved = stripes(&app);
+    assert_ne!(moved, born, "an edit that moves the hunks moves the track");
+    assert!(
+        moved.contains(&0),
+        "the typed line's own hunk lands on the track after the normalize: {moved:?}"
+    );
+
+    // The COMMIT road: the base catches up with the target — the diff
+    // empties and the track must clear.
+    {
+        let fonts = ::editor::env::Fonts::of(app.store())();
+        let theme = ::editor::env::Themes::of(app.store());
+        let target_text = crate::OpenDocuments::document_ref(app.store(), target)
+            .map(|document| {
+                let mut view = document.text().view();
+                let count = view.byte_count();
+                view.byte_string(0, count)
+            })
+            .expect("open");
+        let mut store = app.store_mut();
+        let mut document = crate::OpenDocuments::document(&store, base).expect("open");
+        let catch_up = ::editor::diff::diff(
+            document.text(),
+            &::editor::Text::from_string_exact(&target_text),
+        );
+        document.edit(
+            &catch_up,
+            &fonts,
+            &theme,
+            &mut imba::effect::Batch::new().effects(),
+        );
+        crate::OpenDocuments::put_document(&mut store, base, document);
+    }
+    tick(&mut app);
+    settle(&mut app);
+    assert_eq!(
+        stripes(&app),
+        Vec::<u32>::new(),
+        "the committed diff leaves no marks on the track"
+    );
+
+    // The REAL commit road: HEAD moves, the base ask answers a NEW
+    // location — adopt unTRACKS the old diff and retracks against the
+    // fresh base. First give the track marks again...
+    {
+        let fonts = ::editor::env::Fonts::of(app.store())();
+        let theme = ::editor::env::Themes::of(app.store());
+        let mut store = app.store_mut();
+        let mut document = crate::OpenDocuments::document(&store, base).expect("open");
+        document.edit(
+            &::editor::Operation::insert_at(0, "gone\n"),
+            &fonts,
+            &theme,
+            &mut imba::effect::Batch::new().effects(),
+        );
+        crate::OpenDocuments::put_document(&mut store, base, document);
+    }
+    tick(&mut app);
+    settle(&mut app);
+    assert!(
+        !stripes(&app).is_empty(),
+        "the diverged base marks the track again"
+    );
+
+    // ...then land the new HEAD: a base equal to the target's text,
+    // under its own location.
+    let target_text = crate::OpenDocuments::document_ref(app.store(), target)
+        .map(|document| {
+            let mut view = document.text().view();
+            let count = view.byte_count();
+            view.byte_string(0, count)
+        })
+        .expect("open");
+    let head = ::editor::ResourceLocation::new(
+        ::editor::ResourceType::document(),
+        ::editor::Authority::new("local"),
+        vec!["head-v2.md".to_owned()],
+    );
+    let _head_id = crate::OpenDocuments::register(
+        &mut app.store_mut(),
+        plain_document(&target_text),
+        Some(head.clone()),
+        "head-v2.md".to_owned(),
+        0,
+    );
+    app.perform_batch(vec![crate::AppCommand::BaseLocated {
+        document: target,
+        base: Some(head),
+    }]);
+    settle(&mut app);
+    assert_eq!(
+        stripes(&app),
+        Vec::<u32>::new(),
+        "the retracked (empty) diff clears the track"
+    );
+
+    // And a fresh edit AFTER the retrack stripes again — through the
+    // real typing road.
+    assert!(crate::test_driver::type_text(&mut app, "typed"));
+    settle(&mut app);
+    assert!(
+        !stripes(&app).is_empty(),
+        "typing into the retracked pane marks the track"
+    );
+
+    // A split-diff PANEL tracks its own diff on the same document
+    // (stripes=false). Its hunks must NOT leak onto the pane's track:
+    // when the pane's own stripes diff clears, the track clears too,
+    // panel or no panel.
+    let snapshot = crate::OpenDocuments::register(
+        &mut app.store_mut(),
+        plain_document(
+            "something
+entirely
+unrelated
+",
+        ),
+        None,
+        "panel-base.md".to_owned(),
+        0,
+    );
+    let panel_diff =
+        crate::OpenDocuments::track_diff(&mut app.store_mut(), snapshot, target, false, None)
+            .expect("the panel road tracks");
+    // The pane's own diff empties: HEAD catches up again.
+    let target_text = crate::OpenDocuments::document_ref(app.store(), target)
+        .map(|document| {
+            let mut view = document.text().view();
+            let count = view.byte_count();
+            view.byte_string(0, count)
+        })
+        .expect("open");
+    let head3 = ::editor::ResourceLocation::new(
+        ::editor::ResourceType::document(),
+        ::editor::Authority::new("local"),
+        vec!["head-v3.md".to_owned()],
+    );
+    let _ = crate::OpenDocuments::register(
+        &mut app.store_mut(),
+        plain_document(&target_text),
+        Some(head3.clone()),
+        "head-v3.md".to_owned(),
+        0,
+    );
+    app.perform_batch(vec![crate::AppCommand::BaseLocated {
+        document: target,
+        base: Some(head3),
+    }]);
+    settle(&mut app);
+    assert_eq!(
+        stripes(&app),
+        Vec::<u32>::new(),
+        "the committed pane clears its track even while a diff panel holds its own diff"
+    );
+    let _ = (diff, panel_diff);
+}

@@ -1558,7 +1558,12 @@ impl Window {
                 fx,
             )
         });
-        document.enable_scroll_stripes(new_editor);
+        documents::scroll_stripes::enable_scroll_stripes(
+            store,
+            document_id,
+            &mut document,
+            new_editor,
+        );
 
         crate::OpenDocuments::put_document(store, document_id, document);
 
@@ -1870,7 +1875,12 @@ impl Window {
         let editor_id = crate::app::entity_scope(document_id, fx, |fx| {
             crate::mount_editor(store, &mut document, width, target, fx)
         });
-        document.enable_scroll_stripes(editor_id);
+        documents::scroll_stripes::enable_scroll_stripes(
+            store,
+            document_id,
+            &mut document,
+            editor_id,
+        );
         crate::OpenDocuments::put_document(store, document_id, document);
         crate::OpenDocuments::touch(store, document_id);
         self.replace_focused_panel(
