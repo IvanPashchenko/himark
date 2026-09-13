@@ -1838,7 +1838,7 @@ fn a_through_end_wash_fills_the_block_gap_below() {
             canvas.clear(skia_safe::Color::WHITE);
             match slot {
                 None => shaped.paint(canvas, 0.0),
-                Some(bottom) => shaped.paint_in_slot(canvas, 0.0, bottom),
+                Some(bottom) => shaped.paint_in_slot(canvas, 0.0, 0.0, bottom),
             }
             let image = surface.image_snapshot();
             let pixmap = image.peek_pixels().expect("raster pixels");
@@ -4672,4 +4672,152 @@ fn a_small_scroll_keeps_the_overlapping_shaped_lines() {
         }
     }
     assert!(overlapping >= 10, "the bands overlap: {overlapping}");
+}
+
+#[test]
+fn translucent_washes_never_double_at_block_seams() {
+    // Mixed block metrics (plain text around a fenced code block,
+    // plus an inline-code span): the paragraph rects can stand
+    // taller than the layout slots, and an overflowing translucent
+    // band doubles up with the next row's — horizontal stripes.
+    let source =
+        "plain one\nplain two\n```\ncode a\ncode b\ncode c\n```\nplain three\nplain four\n";
+    let mut document = crate::test_document::fenced_code_document(source);
+    let theme = test_theme();
+    let editor = document.add_editor(
+        400.0,
+        None,
+        crate::document::EditorBuild::Complete,
+        &[],
+        &test_fonts(),
+        &theme,
+        &mut imba::effect::Batch::new().effects(),
+    );
+    let operation = crate::diff::diff(&text::Text::from_string_exact(""), document.text());
+    let id = document.add_diff(operation, 0);
+    let hunks = document.diff(id).expect("tracked").markup();
+    document.show_markup(editor, hunks);
+    // The third line renders with DIFFERENT metrics (inline code font).
+    let styled = document.add_markup();
+    document.show_markup(editor, styled);
+    let mut tints = crate::markup::Markup::new();
+    tints.push_styled(14..20, crate::theme::StyleId::InlineCode);
+    document.replace_markup(
+        styled,
+        tints,
+        &[],
+        &test_fonts(),
+        &theme,
+        &mut imba::effect::Batch::new().effects(),
+    );
+
+    let mut surface = skia_safe::surfaces::raster_n32_premul((400, 300)).expect("surface");
+    let canvas = surface.canvas();
+    canvas.clear(skia_safe::Color::BLACK);
+    document.paint(
+        editor,
+        canvas,
+        skia_safe::Rect::from_xywh(0.0, 0.0, 400.0, 300.0),
+        false,
+        &test_fonts(),
+        &theme,
+    );
+    let image = surface.image_snapshot();
+    let pixmap = image.peek_pixels().expect("raster pixels");
+    let bytes = pixmap.bytes().expect("pixel bytes");
+    let row_bytes = image.width() as usize * 4;
+    let x = 300usize; // far right of any glyph
+    let content = document.content_height(editor) as usize;
+    let first = &bytes[x * 4..x * 4 + 4];
+    let first: [u8; 4] = first.try_into().expect("rgba");
+    for y in 0..content.min(299) {
+        let px = &bytes[y * row_bytes + x * 4..y * row_bytes + x * 4 + 4];
+        assert_eq!(
+            px, &first,
+            "one wash layer everywhere — no doubled band at scanline {y}"
+        );
+    }
+}
+
+#[test]
+fn inline_diff_wash_is_seamless_at_retina_scale() {
+    // The unified inline face's added wash, painted like production:
+    // scale 2 with a fractional pane origin. Any per-row band error
+    // (bleed, crown, AA seam) breaks the uniformity.
+    let before = "alpha\nbeta\ngamma\n";
+    let after = "alpha\n// one\n// two\nlet clamped = x;\nlet rect = y;\nRect::new(\nbeta\ngamma\n";
+    let theme = test_theme();
+    let left = plain_document(before);
+    let mut right = plain_document(after);
+    let operation = crate::diff::diff(left.text(), right.text());
+    let id = right.add_diff(operation.clone(), left.revision());
+    let hunks = right.diff(id).expect("tracked").markup();
+    let prepared = crate::split_diff::prepare_marks(&operation, left.text());
+    let mut throwaway = imba::effect::Batch::new();
+    let quiet = &mut throwaway.effects();
+    let extras = right.add_markup();
+    right.replace_markup(
+        extras,
+        prepared.right.clone(),
+        &[],
+        &test_fonts(),
+        &theme,
+        quiet,
+    );
+    let _ = left;
+    let editor = right.add_editor(
+        400.0,
+        None,
+        crate::document::EditorBuild::Bounded,
+        &[hunks, extras],
+        &test_fonts(),
+        &theme,
+        quiet,
+    );
+
+    // Paint at retina scale across a sweep of FRACTIONAL scroll
+    // offsets — stripes that come and go with the scroll position
+    // are sub-pixel seams between per-row bands.
+    for step in 0..20u32 {
+        let scroll = step as f32 * 0.05;
+        let mut surface = skia_safe::surfaces::raster_n32_premul((800, 1200)).expect("surface");
+        let canvas = surface.canvas();
+        canvas.clear(skia_safe::Color::BLACK);
+        canvas.scale((2.0, 2.0));
+        canvas.translate((0.0, -scroll));
+        right.paint(
+            editor,
+            canvas,
+            skia_safe::Rect::from_xywh(0.0, 0.0, 400.0, 600.0),
+            false,
+            &test_fonts(),
+            &theme,
+        );
+        let image = surface.image_snapshot();
+        let pixmap = image.peek_pixels().expect("raster pixels");
+        let bytes = pixmap.bytes().expect("pixel bytes");
+        let row_bytes = image.width() as usize * 4;
+        let x = 760usize;
+        let content = ((right.content_height(editor) * 2.0) as usize).min(1199);
+        let at = |y: usize| -> [u8; 4] {
+            bytes[y * row_bytes + x * 4..y * row_bytes + x * 4 + 4]
+                .try_into()
+                .expect("rgba")
+        };
+        let washed: Vec<usize> = (0..content).filter(|y| at(*y)[..3] != [0, 0, 0]).collect();
+        let (first, last) = (
+            *washed.first().expect("the hunk washed"),
+            *washed.last().expect("the hunk washed"),
+        );
+        assert!(last - first > 100, "several washed rows: {first}..{last}");
+        // The hunk's own edges may land on partial pixels; the
+        // INTERIOR must be one seamless layer.
+        for y in first + 2..last.saturating_sub(2) {
+            assert_eq!(
+                at(y),
+                at(first + 2),
+                "no stripe at device scanline {y} under scroll {scroll}"
+            );
+        }
+    }
 }

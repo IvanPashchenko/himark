@@ -518,7 +518,7 @@ impl EditorViewport {
                     }
                 }
 
-                shaped.paint_in_slot(canvas, line.text_top, line.top + line.height);
+                shaped.paint_in_slot(canvas, line.top, line.text_top, line.top + line.height);
             }
         }
 

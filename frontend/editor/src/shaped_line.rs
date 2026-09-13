@@ -461,15 +461,50 @@ impl ShapedLine {
     }
 
     pub(crate) fn paint(&self, canvas: &Canvas, top: f32) {
-        self.paint_in_slot(canvas, top, top + self.paragraph.height());
+        self.paint_in_slot(canvas, top, top, top + self.paragraph.height());
     }
 
-    pub(crate) fn paint_in_slot(&self, canvas: &Canvas, top: f32, slot_bottom: f32) {
+    pub(crate) fn paint_in_slot(&self, canvas: &Canvas, slot_top: f32, top: f32, slot_bottom: f32) {
         if !self.backgrounds.is_empty() {
             let mut paint = skia_safe::Paint::default();
             let display_end = self.display.as_str().encode_utf16().count();
 
             let gap_below = (slot_bottom - top - self.paragraph.height()).max(0.0);
+            // The paragraph's own rects can stand TALLER than the
+            // layout slot (shrunk line heights, mixed metrics); a
+            // translucent band bleeding into the next row doubles up
+            // with its neighbor's — the horizontal-stripes artifact.
+            // Bands never leave the slot. (They do not stretch up to
+            // `slot_top` either: the space above the text belongs to
+            // the line's ABOVE inlays, never to its wash.)
+            let _ = slot_top;
+            let clamped = |rect: Rect| {
+                let rect = rect.with_offset((0.0, top));
+                Rect::new(
+                    rect.left,
+                    rect.top,
+                    rect.right,
+                    rect.bottom.min(slot_bottom),
+                )
+            };
+            // Whole-line bands take their VERTICAL edges from the
+            // layout slot, not from paragraph metrics: skia's line
+            // boxes sit a sub-pixel inside the slot, and at
+            // fractional scroll offsets those slivers surface as
+            // row-seam stripes that come and go with the scroll
+            // position. Snapping makes adjacent rows share exact
+            // edges, which rasterize seamlessly at any offset.
+            let seamless = |rect: Rect| {
+                let local_top = rect.top;
+                let mut out = clamped(rect);
+                if local_top < 1.0 {
+                    out.top = top;
+                }
+                if (out.bottom - slot_bottom).abs() < 1.5 {
+                    out.bottom = slot_bottom;
+                }
+                out
+            };
             for band in &self.backgrounds {
                 paint.set_color(band.color);
                 match band.extent {
@@ -479,14 +514,20 @@ impl ShapedLine {
                             crate::theme::BackgroundHeight::Line => RectHeightStyle::Max,
                         };
                         for rect in self.band_rects(band.range.clone(), style) {
-                            canvas.draw_rect(rect.with_offset((0.0, top)), &paint);
+                            let rect = clamped(rect);
+                            if rect.bottom > rect.top {
+                                canvas.draw_rect(rect, &paint);
+                            }
                         }
                     }
                     crate::theme::BackgroundExtent::ToLineEnd
                     | crate::theme::BackgroundExtent::WholeLine => {
                         let gap = if band.through_end { gap_below } else { 0.0 };
                         self.extended_bands(band, display_end, gap, |rect| {
-                            canvas.draw_rect(rect.with_offset((0.0, top)), &paint);
+                            let rect = seamless(rect);
+                            if rect.bottom > rect.top {
+                                canvas.draw_rect(rect, &paint);
+                            }
                         });
                     }
                 }
