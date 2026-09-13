@@ -1174,46 +1174,47 @@ where
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         _arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let width = constraints.max.width;
-        self.laid_width
-            .store(width.to_bits(), std::sync::atomic::Ordering::Relaxed);
+    ) -> impl crate::Layout<'a, Self::Command> + 'a {
+        crate::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let width = constraints.max.width;
+            self.laid_width
+                .store(width.to_bits(), std::sync::atomic::Ordering::Relaxed);
 
-        let reveal = self.selection.as_ref().and_then(|selection| {
-            if !selection.reveal {
-                return None;
+            let reveal = self.selection.as_ref().and_then(|selection| {
+                if !selection.reveal {
+                    return None;
+                }
+                let index = self.own_row_index(selection.cursor.as_ref()?)?;
+                let mut cursor = self.items.cursor();
+                if !cursor.seek_to_index(index as u32) {
+                    return None;
+                }
+                let top = cursor.position().metric_at(ROW_PX) as f32;
+                let height = cursor.element_metrics().metric_at(ROW_PX) as f32;
+                Some(Rect::from_xywh(0.0, top, width.max(1.0), height))
+            });
+            ListWidget {
+                items: &self.items,
+                selection: self.selection.as_ref(),
+                matches: &self.matches,
+                reveal,
+                animations: &self.animations,
+                separators: self.separators,
+                store,
+                ui,
+                child_constraints: Constraints {
+                    min: Size::default(),
+                    max: Size::new(width, f32::MAX),
+                },
+                size: Size::new(width, self.items.metrics().metric_at(ROW_PX) as f32),
+                focused: self.focused,
             }
-            let index = self.own_row_index(selection.cursor.as_ref()?)?;
-            let mut cursor = self.items.cursor();
-            if !cursor.seek_to_index(index as u32) {
-                return None;
-            }
-            let top = cursor.position().metric_at(ROW_PX) as f32;
-            let height = cursor.element_metrics().metric_at(ROW_PX) as f32;
-            Some(Rect::from_xywh(0.0, top, width.max(1.0), height))
-        });
-        ListWidget {
-            items: &self.items,
-            selection: self.selection.as_ref(),
-            matches: &self.matches,
-            reveal,
-            animations: &self.animations,
-            separators: self.separators,
-            store,
-            ui,
-            child_constraints: Constraints {
-                min: Size::default(),
-                max: Size::new(width, f32::MAX),
-            },
-            size: Size::new(width, self.items.metrics().metric_at(ROW_PX) as f32),
-            focused: self.focused,
-        }
+        })
     }
 }
 

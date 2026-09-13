@@ -480,21 +480,22 @@ fn scroll_carries_anchors_by_the_scroll_offset() {
             _fx: &mut crate::effect::Effects<'_, Cmd>,
         ) {
         }
-        fn layout<'a>(
+        fn display<'a>(
             &'a self,
             arena: &'a Arena,
             _store: &'a Store,
             _ui: &'a UiCtx,
-            constraints: Constraints,
-        ) -> impl Thunk<'a, Cmd> + 'a {
-            let mut root: Container<'_, Cmd> =
-                Container::new(arena, Size::new(constraints.max.width, 500.0));
-            root.place(
-                0.0,
-                300.0,
-                leaf::<Cmd>(10.0, 10.0).overlay(HOST, |_, _: Rect| Vec::new()),
-            );
-            root
+        ) -> impl crate::Layout<'a, Cmd> + 'a {
+            crate::laid(move |_arena: &'a Arena, constraints: Constraints| {
+                let mut root: Container<'_, Cmd> =
+                    Container::new(arena, Size::new(constraints.max.width, 500.0));
+                root.place(
+                    0.0,
+                    300.0,
+                    leaf::<Cmd>(10.0, 10.0).overlay(HOST, |_, _: Rect| Vec::new()),
+                );
+                root
+            })
         }
     }
 

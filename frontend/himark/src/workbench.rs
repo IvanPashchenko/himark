@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use imba::{
-    arena::Arena, constraints::Constraints, store::Store, thunk_ext::ThunkExt, Thunk, UiCtx, View,
+    arena::Arena, constraints::Constraints, store::Store, thunk_ext::ThunkExt, UiCtx, View,
 };
 use skia_safe::Size;
 
@@ -142,37 +142,38 @@ impl View for Workbench {
         self.root.perform(store, ui, command, fx)
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let size = constraints.max;
-        let theme = ::editor::env::Themes::of(store);
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let size = constraints.max;
+            let theme = ::editor::env::Themes::of(store);
 
-        let geometry = match self.root.full_bleed() {
-            true => WorkbenchGeometry {
-                x: 0.0,
-                top: 0.0,
-                split_width: size.width,
-            },
-            false => workbench_geometry(size.width, size.height, &theme.ui().window),
-        };
-        let split_height = (size.height - geometry.top).max(1.0);
-        let root = self.root.layout(
-            arena,
-            store,
-            ui,
-            Constraints::tight(Size::new(geometry.split_width, split_height)),
-        );
+            let geometry = match self.root.full_bleed() {
+                true => WorkbenchGeometry {
+                    x: 0.0,
+                    top: 0.0,
+                    split_width: size.width,
+                },
+                false => workbench_geometry(size.width, size.height, &theme.ui().window),
+            };
+            let split_height = (size.height - geometry.top).max(1.0);
+            let root = self.root.layout(
+                arena,
+                store,
+                ui,
+                Constraints::tight(Size::new(geometry.split_width, split_height)),
+            );
 
-        let mut container = imba::container::container(arena, size);
-        container.place(geometry.x, geometry.top, root);
+            let mut container = imba::container::container(arena, size);
+            container.place(geometry.x, geometry.top, root);
 
-        container.paint_below(move |_arena, canvas, _| {
-            canvas.clear(theme.ui().window.background.0);
+            container.paint_below(move |_arena, canvas, _| {
+                canvas.clear(theme.ui().window.background.0);
+            })
         })
     }
 }

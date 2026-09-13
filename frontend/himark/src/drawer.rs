@@ -10,7 +10,7 @@ use imba::{
     leaf::leaf,
     store::Store,
     thunk_ext::ThunkExt,
-    Thunk, UiCtx, View,
+    UiCtx, View,
 };
 
 use crate::{ModalRequest, ModalView};
@@ -111,34 +111,34 @@ impl View for Drawer {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let size = constraints.max;
-        let mut surface = container(arena, size);
-        let content = self
-            .content
-            .as_ref()
-            .layout_dyn(arena, store, ui, constraints)
-            .map(DrawerCommand::Content);
-        surface.place(self.offset.value(), 0.0, content);
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let size = constraints.max;
+            let mut surface = container(arena, size);
+            let content = self
+                .content
+                .as_ref()
+                .layout_dyn(arena, store, ui, constraints)
+                .map(DrawerCommand::Content);
+            surface.place(self.offset.value(), 0.0, content);
 
-        let animating = self.offset.running();
-        let clock =
-            leaf::<DrawerCommand>(size.width, size.height).event(move |_arena, event, _size| {
-                match event {
+            let animating = self.offset.running();
+            let clock = leaf::<DrawerCommand>(size.width, size.height).event(
+                move |_arena, event, _size| match event {
                     Event::AnimationClock { now } if animating => {
                         EventResult::Command(DrawerCommand::Tick(*now))
                     }
                     _ => EventResult::Ignored,
-                }
-            });
-        surface.place(0.0, 0.0, clock);
-        surface
+                },
+            );
+            surface.place(0.0, 0.0, clock);
+            surface
+        })
     }
 }
 

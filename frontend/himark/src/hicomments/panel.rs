@@ -17,7 +17,7 @@ use imba::{
     leaf::leaf,
     store::Store,
     thunk_ext::ThunkExt,
-    Thunk, UiCtx, View, Widget,
+    UiCtx, View, Widget,
 };
 use skia_safe::{Rect, Size};
 
@@ -362,70 +362,69 @@ impl View for CommentsView {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let size = constraints.max;
-        let mut overlay = container(arena, size);
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let size = constraints.max;
+            let mut overlay = container(arena, size);
 
-        let chrome = crate::env::Themes::of(store).ui().peeker.clone();
-        let chip_height = chrome.hint_size * 2.0;
-        let band = chrome.margin + chip_height + PANEL_PAD;
-        let rows = self
-            .list
-            .layout(
-                arena,
-                store,
-                ui,
-                Constraints::tight(Size::new(size.width, size.height - band)),
-            )
-            .map(CommentsCommand::Rows);
-        overlay.place(0.0, band, rows);
+            let chrome = crate::env::Themes::of(store).ui().peeker.clone();
+            let chip_height = chrome.hint_size * 2.0;
+            let band = chrome.margin + chip_height + PANEL_PAD;
+            let rows = self
+                .list
+                .layout(
+                    arena,
+                    store,
+                    ui,
+                    Constraints::tight(Size::new(size.width, size.height - band)),
+                )
+                .map(CommentsCommand::Rows);
+            overlay.place(0.0, band, rows);
 
-        let chip_font = crate::fonts::ui_font(ui, chrome.hint_size);
-        let advance = chip_font.measure_str("SEND ALL", None).0;
-        let chip_width = advance + chrome.hint_size * 2.0;
-        let chip_radius = chrome.well_radius;
-        let rule = chrome.rule.0;
-        let dim = chrome.dim_text.0;
-        let chip = leaf::<CommentsCommand>(chip_width, chip_height)
-            .paint_instead(move |_arena, canvas, rect| {
-                let mut paint = skia_safe::Paint::default();
-                paint.set_anti_alias(true);
-                paint.set_stroke(true);
-                paint.set_stroke_width(1.0);
-                paint.set_color(rule);
-                canvas.draw_round_rect(
-                    rect.with_inset((0.5, 0.5)),
-                    chip_radius,
-                    chip_radius,
-                    &paint,
-                );
-                paint.set_stroke(false);
-                paint.set_color(dim);
-                canvas.draw_str(
-                    "SEND ALL",
-                    (
-                        rect.left + (rect.width() - advance) * 0.5,
-                        rect.top + rect.height() * 0.5 + 6.0,
-                    ),
-                    &chip_font,
-                    &paint,
-                );
-            })
-            .event(|_arena, event, _size| match event {
-                Event::MouseDown { .. } => EventResult::Command(CommentsCommand::SendAll),
-                _ => EventResult::Ignored,
-            });
+            let chip_font = crate::fonts::ui_font(ui, chrome.hint_size);
+            let advance = chip_font.measure_str("SEND ALL", None).0;
+            let chip_width = advance + chrome.hint_size * 2.0;
+            let chip_radius = chrome.well_radius;
+            let rule = chrome.rule.0;
+            let dim = chrome.dim_text.0;
+            let chip = leaf::<CommentsCommand>(chip_width, chip_height)
+                .paint_instead(move |_arena, canvas, rect| {
+                    let mut paint = skia_safe::Paint::default();
+                    paint.set_anti_alias(true);
+                    paint.set_stroke(true);
+                    paint.set_stroke_width(1.0);
+                    paint.set_color(rule);
+                    canvas.draw_round_rect(
+                        rect.with_inset((0.5, 0.5)),
+                        chip_radius,
+                        chip_radius,
+                        &paint,
+                    );
+                    paint.set_stroke(false);
+                    paint.set_color(dim);
+                    canvas.draw_str(
+                        "SEND ALL",
+                        (
+                            rect.left + (rect.width() - advance) * 0.5,
+                            rect.top + rect.height() * 0.5 + 6.0,
+                        ),
+                        &chip_font,
+                        &paint,
+                    );
+                })
+                .event(|_arena, event, _size| match event {
+                    Event::MouseDown { .. } => EventResult::Command(CommentsCommand::SendAll),
+                    _ => EventResult::Ignored,
+                });
 
-        let searching = self.list.searching();
-        let keymap =
-            leaf::<CommentsCommand>(size.width, size.height).event(move |_arena, event, _size| {
-                match event {
+            let searching = self.list.searching();
+            let keymap = leaf::<CommentsCommand>(size.width, size.height).event(
+                move |_arena, event, _size| match event {
                     Event::KeyDown {
                         key: InputKey::Escape,
                         ..
@@ -457,17 +456,18 @@ impl View for CommentsView {
                         ..
                     } => EventResult::Command(CommentsCommand::Pick),
                     _ => EventResult::Ignored,
-                }
-            });
-        overlay.place(0.0, 0.0, keymap);
-        overlay.place(
-            (size.width - chrome.margin - chip_width).max(0.0),
-            chrome.margin,
-            chip,
-        );
+                },
+            );
+            overlay.place(0.0, 0.0, keymap);
+            overlay.place(
+                (size.width - chrome.margin - chip_width).max(0.0),
+                chrome.margin,
+                chip,
+            );
 
-        let stale = Comments::generation(store) != self.seen;
-        overlay.wrap(move |inner| ReconcileShell { inner, stale })
+            let stale = Comments::generation(store) != self.seen;
+            overlay.wrap(move |inner| ReconcileShell { inner, stale })
+        })
     }
 }
 

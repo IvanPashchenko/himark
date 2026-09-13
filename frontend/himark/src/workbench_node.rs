@@ -11,7 +11,7 @@ use imba::{
     split::{Arrangement, Pane, SplitCommand, SplitView},
     store::Store,
     thunk_ext::ThunkExt,
-    Thunk, UiCtx, View,
+    UiCtx, View,
 };
 
 pub trait PanelView: imba::CloneDynView + Clone + Sized + 'static {
@@ -170,14 +170,17 @@ impl imba::View for ClosedPanel {
     ) {
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         _arena: &'a imba::arena::Arena,
         _store: &'a Store,
         _ui: &'a imba::UiCtx,
-        constraints: imba::constraints::Constraints,
-    ) -> impl imba::Thunk<'a, Self::Command> + 'a {
-        imba::leaf::leaf(constraints.max.width, constraints.max.height)
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(
+            move |_arena: &'a imba::arena::Arena, constraints: imba::constraints::Constraints| {
+                imba::leaf::leaf(constraints.max.width, constraints.max.height)
+            },
+        )
     }
 }
 
@@ -446,30 +449,31 @@ impl View for Panel {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let content: imba::ThunkBox<'a, PanelCommand> = match self {
-            Self::Editor(pane) => imba::ThunkBox::new(
-                arena,
-                pane.layout(arena, store, ui, constraints)
-                    .map(PanelCommand::Editor)
-                    .overlay_host(editor::sticky::HOST)
-                    .overlay_host(editor::scroll_stripe::HOST),
-            ),
-            Self::Plugin(view) => imba::ThunkBox::new(
-                arena,
-                view.layout_dyn(arena, store, ui, constraints)
-                    .map(PanelCommand::Plugin),
-            ),
-        };
-        let mut panel = imba::container::container(arena, constraints.max);
-        panel.place_boxed(0.0, 0.0, content);
-        panel
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let content: imba::ThunkBox<'a, PanelCommand> = match self {
+                Self::Editor(pane) => imba::ThunkBox::new(
+                    arena,
+                    pane.layout(arena, store, ui, constraints)
+                        .map(PanelCommand::Editor)
+                        .overlay_host(editor::sticky::HOST)
+                        .overlay_host(editor::scroll_stripe::HOST),
+                ),
+                Self::Plugin(view) => imba::ThunkBox::new(
+                    arena,
+                    view.layout_dyn(arena, store, ui, constraints)
+                        .map(PanelCommand::Plugin),
+                ),
+            };
+            let mut panel = imba::container::container(arena, constraints.max);
+            panel.place_boxed(0.0, 0.0, content);
+            panel
+        })
     }
 }
 
@@ -1132,86 +1136,87 @@ impl View for WorkbenchNode {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let widget: imba::ThunkBox<'a, NodeCommand> = match self {
-            Self::Leaf(slot) => match &slot.find {
-                None => imba::ThunkBox::new(
-                    arena,
-                    slot.panel
-                        .layout(arena, store, ui, constraints)
-                        .map(NodeCommand::Leaf),
-                ),
-
-                Some(find) => {
-                    let size = constraints.max;
-                    let chrome = ::editor::env::Themes::of(store).ui().search.clone();
-                    let bar_height = crate::find::FindBar::height(&chrome).min(size.height);
-                    let mut column = imba::container::container(arena, size);
-                    column.place(
-                        0.0,
-                        bar_height,
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let widget: imba::ThunkBox<'a, NodeCommand> = match self {
+                Self::Leaf(slot) => match &slot.find {
+                    None => imba::ThunkBox::new(
+                        arena,
                         slot.panel
-                            .layout(
-                                arena,
-                                store,
-                                ui,
-                                Constraints::tight(skia_safe::Size::new(
-                                    size.width,
-                                    (size.height - bar_height).max(1.0),
-                                )),
-                            )
+                            .layout(arena, store, ui, constraints)
                             .map(NodeCommand::Leaf),
-                    );
-                    column.place(
-                        0.0,
-                        0.0,
-                        find.layout(arena, store, ui, size.width)
-                            .map(|command| NodeCommand::Leaf(PanelCommand::Find(command))),
-                    );
-                    imba::ThunkBox::new(arena, column)
-                }
-            },
+                    ),
 
-            Self::Split(split) => {
-                let divider = split.divider_rect(constraints.max);
-                let theme = ::editor::env::Themes::of(store);
-                let window = &theme.ui().window;
-                let color = window.divider.0;
-                let inset = window.divider_inset;
-                imba::ThunkBox::new(
-                    arena,
-                    split
-                        .layout(arena, store, ui, constraints)
-                        .map(|command| NodeCommand::Split(Box::new(command)))
-                        .paint_below(move |_arena, canvas, _| {
-                            let mut paint = skia_safe::Paint::default();
-                            paint.set_anti_alias(true);
-                            paint.set_color(color);
-                            canvas.draw_rect(divider.with_offset((-inset, 0.0)), &paint);
-                        }),
-                )
-            }
-        };
-
-        if matches!(self, Self::Leaf(slot) if slot.hover.armed()) {
-            return imba::ThunkBox::new(
-                arena,
-                widget.event(|_arena, event, _size| match event {
-                    imba::event::Event::AnimationClock { now } => {
-                        imba::event::EventResult::Command(NodeCommand::Leaf(
-                            PanelCommand::HoverTick(*now),
-                        ))
+                    Some(find) => {
+                        let size = constraints.max;
+                        let chrome = ::editor::env::Themes::of(store).ui().search.clone();
+                        let bar_height = crate::find::FindBar::height(&chrome).min(size.height);
+                        let mut column = imba::container::container(arena, size);
+                        column.place(
+                            0.0,
+                            bar_height,
+                            slot.panel
+                                .layout(
+                                    arena,
+                                    store,
+                                    ui,
+                                    Constraints::tight(skia_safe::Size::new(
+                                        size.width,
+                                        (size.height - bar_height).max(1.0),
+                                    )),
+                                )
+                                .map(NodeCommand::Leaf),
+                        );
+                        column.place(
+                            0.0,
+                            0.0,
+                            find.layout(arena, store, ui, size.width)
+                                .map(|command| NodeCommand::Leaf(PanelCommand::Find(command))),
+                        );
+                        imba::ThunkBox::new(arena, column)
                     }
-                    _ => imba::event::EventResult::Ignored,
-                }),
-            );
-        }
-        widget
+                },
+
+                Self::Split(split) => {
+                    let divider = split.divider_rect(constraints.max);
+                    let theme = ::editor::env::Themes::of(store);
+                    let window = &theme.ui().window;
+                    let color = window.divider.0;
+                    let inset = window.divider_inset;
+                    imba::ThunkBox::new(
+                        arena,
+                        split
+                            .layout(arena, store, ui, constraints)
+                            .map(|command| NodeCommand::Split(Box::new(command)))
+                            .paint_below(move |_arena, canvas, _| {
+                                let mut paint = skia_safe::Paint::default();
+                                paint.set_anti_alias(true);
+                                paint.set_color(color);
+                                canvas.draw_rect(divider.with_offset((-inset, 0.0)), &paint);
+                            }),
+                    )
+                }
+            };
+
+            if matches!(self, Self::Leaf(slot) if slot.hover.armed()) {
+                return imba::ThunkBox::new(
+                    arena,
+                    widget.event(|_arena, event, _size| match event {
+                        imba::event::Event::AnimationClock { now } => {
+                            imba::event::EventResult::Command(NodeCommand::Leaf(
+                                PanelCommand::HoverTick(*now),
+                            ))
+                        }
+                        _ => imba::event::EventResult::Ignored,
+                    }),
+                );
+            }
+            widget
+        })
     }
 }

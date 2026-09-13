@@ -194,22 +194,28 @@ impl imba::View for ChatPane {
         Chats::put(store, self.chat.clone(), panel);
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a imba::arena::Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: imba::constraints::Constraints,
-    ) -> impl imba::Thunk<'a, Self::Command> + 'a {
-        let widget: imba::ThunkBox<'a, Self::Command> = match Chats::chat_ref(store, &self.chat) {
-            Some(panel) => imba::ThunkBox::new(arena, panel.layout(arena, store, ui, constraints)),
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(
+            move |_arena: &'a imba::arena::Arena, constraints: imba::constraints::Constraints| {
+                let widget: imba::ThunkBox<'a, Self::Command> =
+                    match Chats::chat_ref(store, &self.chat) {
+                        Some(panel) => {
+                            imba::ThunkBox::new(arena, panel.layout(arena, store, ui, constraints))
+                        }
 
-            None => imba::ThunkBox::new(
-                arena,
-                imba::leaf::leaf(constraints.max.width, constraints.max.height),
-            ),
-        };
-        widget
+                        None => imba::ThunkBox::new(
+                            arena,
+                            imba::leaf::leaf(constraints.max.width, constraints.max.height),
+                        ),
+                    };
+                widget
+            },
+        )
     }
 }
 

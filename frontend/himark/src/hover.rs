@@ -315,45 +315,49 @@ impl imba::View for HoverView {
     ) {
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a imba::arena::Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        _constraints: imba::constraints::Constraints,
-    ) -> impl imba::Thunk<'a, Self::Command> + 'a {
-        let theme = crate::env::Themes::of(store);
-        let fill = theme.ui().combo.menu_fill.0;
-        let document = &self.view.document;
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(
+            move |_arena: &'a imba::arena::Arena, _constraints: imba::constraints::Constraints| {
+                let theme = crate::env::Themes::of(store);
+                let fill = theme.ui().combo.menu_fill.0;
+                let document = &self.view.document;
 
-        let inner_width = document.max_width(self.view.editor).clamp(60.0, CARD_WIDTH);
-        let inner_height = document.content_height(self.view.editor);
-        let width = inner_width + CARD_PAD * 2.0;
-        let height = inner_height + CARD_PAD * 2.0;
-        let editor = self.view.layout(
-            arena,
-            store,
-            ui,
-            imba::constraints::Constraints {
-                min: skia_safe::Size::new(inner_width, inner_height),
-                max: skia_safe::Size::new(inner_width, f32::MAX),
+                let inner_width = document.max_width(self.view.editor).clamp(60.0, CARD_WIDTH);
+                let inner_height = document.content_height(self.view.editor);
+                let width = inner_width + CARD_PAD * 2.0;
+                let height = inner_height + CARD_PAD * 2.0;
+                let editor = self.view.layout(
+                    arena,
+                    store,
+                    ui,
+                    imba::constraints::Constraints {
+                        min: skia_safe::Size::new(inner_width, inner_height),
+                        max: skia_safe::Size::new(inner_width, f32::MAX),
+                    },
+                );
+                let mut card =
+                    imba::container::container(arena, skia_safe::Size::new(width, height));
+                card.place(
+                    0.0,
+                    0.0,
+                    imba::leaf::leaf::<Self::Command>(width, height).paint_instead(
+                        move |_arena, canvas, rect| {
+                            let mut paint = skia_safe::Paint::default();
+                            paint.set_anti_alias(true);
+                            paint.set_color(fill);
+                            canvas.draw_round_rect(rect, 8.0, 8.0, &paint);
+                        },
+                    ),
+                );
+                card.place(CARD_PAD, CARD_PAD, editor);
+                card
             },
-        );
-        let mut card = imba::container::container(arena, skia_safe::Size::new(width, height));
-        card.place(
-            0.0,
-            0.0,
-            imba::leaf::leaf::<Self::Command>(width, height).paint_instead(
-                move |_arena, canvas, rect| {
-                    let mut paint = skia_safe::Paint::default();
-                    paint.set_anti_alias(true);
-                    paint.set_color(fill);
-                    canvas.draw_round_rect(rect, 8.0, 8.0, &paint);
-                },
-            ),
-        );
-        card.place(CARD_PAD, CARD_PAD, editor);
-        card
+        )
     }
 }
 

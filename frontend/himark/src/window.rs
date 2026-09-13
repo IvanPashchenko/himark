@@ -129,93 +129,94 @@ impl View for Layers {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, WindowCommand> + 'a {
-        let title = self.workbench.root.focused_pane().title(store);
+    ) -> impl imba::Layout<'a, WindowCommand> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let title = self.workbench.root.focused_pane().title(store);
 
-        let size = constraints.max;
-        let toolbar_height = ::editor::env::Themes::of(store).ui().toolbar.height;
-        let below = Constraints::tight(Size::new(
-            size.width,
-            (size.height - toolbar_height).max(1.0),
-        ));
+            let size = constraints.max;
+            let toolbar_height = ::editor::env::Themes::of(store).ui().toolbar.height;
+            let below = Constraints::tight(Size::new(
+                size.width,
+                (size.height - toolbar_height).max(1.0),
+            ));
 
-        let revealed = self
-            .workbench
-            .dock()
-            .map_or(0.0, crate::dock::Dock::revealed);
-        let base_below = Constraints::tight(Size::new(
-            (size.width - revealed).max(1.0),
-            (size.height - toolbar_height).max(1.0),
-        ));
+            let revealed = self
+                .workbench
+                .dock()
+                .map_or(0.0, crate::dock::Dock::revealed);
+            let base_below = Constraints::tight(Size::new(
+                (size.width - revealed).max(1.0),
+                (size.height - toolbar_height).max(1.0),
+            ));
 
-        let bottom_rect = self.workbench.shown_bottom().map(|bottom| {
-            let chrome = ::editor::env::Themes::of(store).ui().sheet.clone();
+            let bottom_rect = self.workbench.shown_bottom().map(|bottom| {
+                let chrome = ::editor::env::Themes::of(store).ui().sheet.clone();
 
-            let mut rect = bottom.rect(&chrome, store, base_below.max);
-            rect.offset((0.0, toolbar_height));
-            rect
-        });
-        LayersWidget {
-            focus: self.focus,
-            toolbar_height,
-            bottom_rect,
-            dock_edge_x: self.workbench.dock().map(|_| size.width - revealed),
-            base: below_layer(
-                arena,
-                size,
+                let mut rect = bottom.rect(&chrome, store, base_below.max);
+                rect.offset((0.0, toolbar_height));
+                rect
+            });
+            LayersWidget {
+                focus: self.focus,
                 toolbar_height,
-                imba::ThunkBox::new(arena, self.workbench.layout(arena, store, ui, base_below)),
-            ),
-            toolbar: self.toolbar.layout(
-                arena,
-                store,
-                ui,
-                constraints.max.width,
-                title,
-                self.workbench
-                    .dock()
-                    .filter(|dock| dock.target_width() > 0.0)
-                    .map(crate::dock::Dock::owner),
-            ),
-            side: self.side.as_ref().map(|side| {
-                below_layer(
+                bottom_rect,
+                dock_edge_x: self.workbench.dock().map(|_| size.width - revealed),
+                base: below_layer(
                     arena,
                     size,
                     toolbar_height,
-                    side.layout_dyn(arena, store, ui, below),
-                )
-            }),
-            dock: self.workbench.dock().map(|dock| {
-                below_layer(
+                    imba::ThunkBox::new(arena, self.workbench.layout(arena, store, ui, base_below)),
+                ),
+                toolbar: self.toolbar.layout(
                     arena,
-                    size,
-                    toolbar_height,
-                    dock.layout_dyn(arena, store, ui, below),
-                )
-            }),
-            bottom: self.workbench.shown_bottom().map(|bottom| {
-                below_layer(
-                    arena,
-                    size,
-                    toolbar_height,
-                    imba::DynView::layout_dyn(bottom, arena, store, ui, base_below),
-                )
-            }),
-            modal: self.modal.as_ref().map(|modal| {
-                below_layer(
-                    arena,
-                    size,
-                    toolbar_height,
-                    modal.as_ref().layout_dyn(arena, store, ui, below),
-                )
-            }),
-        }
+                    store,
+                    ui,
+                    constraints.max.width,
+                    title,
+                    self.workbench
+                        .dock()
+                        .filter(|dock| dock.target_width() > 0.0)
+                        .map(crate::dock::Dock::owner),
+                ),
+                side: self.side.as_ref().map(|side| {
+                    below_layer(
+                        arena,
+                        size,
+                        toolbar_height,
+                        side.layout_dyn(arena, store, ui, below),
+                    )
+                }),
+                dock: self.workbench.dock().map(|dock| {
+                    below_layer(
+                        arena,
+                        size,
+                        toolbar_height,
+                        dock.layout_dyn(arena, store, ui, below),
+                    )
+                }),
+                bottom: self.workbench.shown_bottom().map(|bottom| {
+                    below_layer(
+                        arena,
+                        size,
+                        toolbar_height,
+                        imba::DynView::layout_dyn(bottom, arena, store, ui, base_below),
+                    )
+                }),
+                modal: self.modal.as_ref().map(|modal| {
+                    below_layer(
+                        arena,
+                        size,
+                        toolbar_height,
+                        modal.as_ref().layout_dyn(arena, store, ui, below),
+                    )
+                }),
+            }
+        })
     }
 }
 
@@ -1905,14 +1906,15 @@ impl View for Window {
         self.content.perform(store, ui, command, fx)
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, WindowCommand> + 'a {
-        self.content.layout(arena, store, ui, constraints)
+    ) -> impl imba::Layout<'a, WindowCommand> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            self.content.layout(arena, store, ui, constraints)
+        })
     }
 }
 

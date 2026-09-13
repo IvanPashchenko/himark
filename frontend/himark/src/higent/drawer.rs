@@ -21,7 +21,7 @@ use imba::{
     scroll::ScrollView,
     store::Store,
     thunk_ext::ThunkExt,
-    Thunk, UiCtx, View, Widget,
+    UiCtx, View, Widget,
 };
 use skia_safe::{Rect, Size};
 
@@ -518,148 +518,150 @@ impl View for AgentsPanel {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let size = constraints.max;
-        let mut overlay = container(arena, size);
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let size = constraints.max;
+            let mut overlay = container(arena, size);
 
-        let theme = crate::env::Themes::of(store);
-        let ui_theme = theme.ui().clone();
-        let header = ui_theme.panel.header_height;
-        let inset = crate::panel_inset(&ui_theme);
-        let title_font = crate::fonts::ui_font(ui, ui_theme.panel.title_size);
-        let mut panel = container(arena, Size::new(PANEL_WIDTH, size.height));
-        let backdrop = leaf::<AgentsCommand>(PANEL_WIDTH, size.height)
-            .paint_instead(move |_arena, canvas, rect| {
-                crate::paint_panel_chrome(canvas, rect, &ui_theme, &title_font, "Sessions", "");
-            })
-            .event(|_arena, event, _size| match event {
-                Event::MouseDown { .. } => EventResult::Handled,
-                _ => EventResult::Ignored,
-            })
-            .hit_opaque();
-        panel.place(0.0, 0.0, backdrop);
-        let rows = self
-            .list
-            .layout(
-                arena,
-                store,
-                ui,
-                Constraints::tight(Size::new(
-                    PANEL_WIDTH - inset * 2.0 - 2.0,
-                    (size.height - inset * 2.0 - header - PANEL_PAD).max(1.0),
-                )),
-            )
-            .map(AgentsCommand::Rows);
-        panel.place(inset + 1.0, inset + header + PANEL_PAD, rows);
-        if let Some(input) = &self.adding {
-            let search = theme.ui().search.clone();
-            let well_height = self.row_height + 8.0;
-            let well_width = (PANEL_WIDTH - inset * 2.0).max(1.0);
-            let well_y = size.height - inset - well_height;
-            let input_fill = search.input_fill;
-            let empty = input.document.text().byte_count() == 0;
-            let peeker = theme.ui().peeker.clone();
-            let placeholder_font = crate::fonts::ui_text_font(ui, peeker.hint_size);
-            let placeholder_dim = peeker.dim_text.0;
-            let hint_size = peeker.hint_size;
-            let well = leaf::<AgentsCommand>(well_width, well_height).paint_instead(
-                move |_arena, canvas, rect| {
-                    let mut paint = skia_safe::Paint::default();
-                    paint.set_anti_alias(true);
-                    paint.set_color(input_fill.0);
-                    canvas.draw_round_rect(rect, 6.0, 6.0, &paint);
-                    if empty {
-                        paint.set_color(placeholder_dim);
-                        canvas.draw_str(
-                            "ws://host:port/?tkn=…",
-                            (
-                                rect.left + 10.0,
-                                rect.top + rect.height() * 0.5 + hint_size * 0.35,
-                            ),
-                            &placeholder_font,
-                            &paint,
-                        );
+            let theme = crate::env::Themes::of(store);
+            let ui_theme = theme.ui().clone();
+            let header = ui_theme.panel.header_height;
+            let inset = crate::panel_inset(&ui_theme);
+            let title_font = crate::fonts::ui_font(ui, ui_theme.panel.title_size);
+            let mut panel = container(arena, Size::new(PANEL_WIDTH, size.height));
+            let backdrop = leaf::<AgentsCommand>(PANEL_WIDTH, size.height)
+                .paint_instead(move |_arena, canvas, rect| {
+                    crate::paint_panel_chrome(canvas, rect, &ui_theme, &title_font, "Sessions", "");
+                })
+                .event(|_arena, event, _size| match event {
+                    Event::MouseDown { .. } => EventResult::Handled,
+                    _ => EventResult::Ignored,
+                })
+                .hit_opaque();
+            panel.place(0.0, 0.0, backdrop);
+            let rows = self
+                .list
+                .layout(
+                    arena,
+                    store,
+                    ui,
+                    Constraints::tight(Size::new(
+                        PANEL_WIDTH - inset * 2.0 - 2.0,
+                        (size.height - inset * 2.0 - header - PANEL_PAD).max(1.0),
+                    )),
+                )
+                .map(AgentsCommand::Rows);
+            panel.place(inset + 1.0, inset + header + PANEL_PAD, rows);
+            if let Some(input) = &self.adding {
+                let search = theme.ui().search.clone();
+                let well_height = self.row_height + 8.0;
+                let well_width = (PANEL_WIDTH - inset * 2.0).max(1.0);
+                let well_y = size.height - inset - well_height;
+                let input_fill = search.input_fill;
+                let empty = input.document.text().byte_count() == 0;
+                let peeker = theme.ui().peeker.clone();
+                let placeholder_font = crate::fonts::ui_text_font(ui, peeker.hint_size);
+                let placeholder_dim = peeker.dim_text.0;
+                let hint_size = peeker.hint_size;
+                let well = leaf::<AgentsCommand>(well_width, well_height).paint_instead(
+                    move |_arena, canvas, rect| {
+                        let mut paint = skia_safe::Paint::default();
+                        paint.set_anti_alias(true);
+                        paint.set_color(input_fill.0);
+                        canvas.draw_round_rect(rect, 6.0, 6.0, &paint);
+                        if empty {
+                            paint.set_color(placeholder_dim);
+                            canvas.draw_str(
+                                "ws://host:port/?tkn=…",
+                                (
+                                    rect.left + 10.0,
+                                    rect.top + rect.height() * 0.5 + hint_size * 0.35,
+                                ),
+                                &placeholder_font,
+                                &paint,
+                            );
+                        }
+                    },
+                );
+                panel.place(inset, well_y, well);
+                let inner_height = (well_height - search.input_pad_y * 2.0).max(1.0);
+                panel.place(
+                    inset + search.input_pad_x,
+                    well_y + search.input_pad_y,
+                    input
+                        .layout(
+                            arena,
+                            store,
+                            ui,
+                            Constraints {
+                                min: Size::new(0.0, inner_height),
+                                max: Size::new(
+                                    (well_width - search.input_pad_x * 2.0).max(1.0),
+                                    inner_height,
+                                ),
+                            },
+                        )
+                        .map(AgentsCommand::AddHostInput)
+                        .focus_scope(true),
+                );
+            }
+
+            overlay.place(0.0, 0.0, panel);
+
+            let adding = self.adding.is_some();
+            let keymap = leaf::<AgentsCommand>(size.width, size.height).event(
+                move |_arena, event, _size| {
+                    if adding {
+                        return match event {
+                            Event::KeyDown {
+                                key: InputKey::Enter,
+                                ..
+                            } => EventResult::Command(AgentsCommand::SubmitAddHost),
+                            Event::KeyDown {
+                                key: InputKey::Escape,
+                                ..
+                            } => EventResult::Command(AgentsCommand::CancelAddHost),
+                            _ => EventResult::Ignored,
+                        };
                     }
-                },
-            );
-            panel.place(inset, well_y, well);
-            let inner_height = (well_height - search.input_pad_y * 2.0).max(1.0);
-            panel.place(
-                inset + search.input_pad_x,
-                well_y + search.input_pad_y,
-                input
-                    .layout(
-                        arena,
-                        store,
-                        ui,
-                        Constraints {
-                            min: Size::new(0.0, inner_height),
-                            max: Size::new(
-                                (well_width - search.input_pad_x * 2.0).max(1.0),
-                                inner_height,
-                            ),
-                        },
-                    )
-                    .map(AgentsCommand::AddHostInput)
-                    .focus_scope(true),
-            );
-        }
-
-        overlay.place(0.0, 0.0, panel);
-
-        let adding = self.adding.is_some();
-        let keymap =
-            leaf::<AgentsCommand>(size.width, size.height).event(move |_arena, event, _size| {
-                if adding {
-                    return match event {
-                        Event::KeyDown {
-                            key: InputKey::Enter,
-                            ..
-                        } => EventResult::Command(AgentsCommand::SubmitAddHost),
+                    match event {
                         Event::KeyDown {
                             key: InputKey::Escape,
                             ..
-                        } => EventResult::Command(AgentsCommand::CancelAddHost),
+                        } => EventResult::Command(AgentsCommand::Dismiss),
+                        Event::KeyDown {
+                            key: InputKey::Up, ..
+                        } => EventResult::Command(AgentsCommand::Select(-1)),
+                        Event::KeyDown {
+                            key: InputKey::Down,
+                            ..
+                        } => EventResult::Command(AgentsCommand::Select(1)),
+                        Event::KeyDown {
+                            key: InputKey::Left,
+                            ..
+                        } => EventResult::Command(AgentsCommand::Fold(false)),
+                        Event::KeyDown {
+                            key: InputKey::Right,
+                            ..
+                        } => EventResult::Command(AgentsCommand::Fold(true)),
+                        Event::KeyDown {
+                            key: InputKey::Enter,
+                            ..
+                        } => EventResult::Command(AgentsCommand::Pick),
                         _ => EventResult::Ignored,
-                    };
-                }
-                match event {
-                    Event::KeyDown {
-                        key: InputKey::Escape,
-                        ..
-                    } => EventResult::Command(AgentsCommand::Dismiss),
-                    Event::KeyDown {
-                        key: InputKey::Up, ..
-                    } => EventResult::Command(AgentsCommand::Select(-1)),
-                    Event::KeyDown {
-                        key: InputKey::Down,
-                        ..
-                    } => EventResult::Command(AgentsCommand::Select(1)),
-                    Event::KeyDown {
-                        key: InputKey::Left,
-                        ..
-                    } => EventResult::Command(AgentsCommand::Fold(false)),
-                    Event::KeyDown {
-                        key: InputKey::Right,
-                        ..
-                    } => EventResult::Command(AgentsCommand::Fold(true)),
-                    Event::KeyDown {
-                        key: InputKey::Enter,
-                        ..
-                    } => EventResult::Command(AgentsCommand::Pick),
-                    _ => EventResult::Ignored,
-                }
-            });
-        overlay.place(0.0, 0.0, keymap);
+                    }
+                },
+            );
+            overlay.place(0.0, 0.0, keymap);
 
-        let boot = !self.booted;
-        overlay.wrap(move |inner| BootShell { inner, boot })
+            let boot = !self.booted;
+            overlay.wrap(move |inner| BootShell { inner, boot })
+        })
     }
 }
 

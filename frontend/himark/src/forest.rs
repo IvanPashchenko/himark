@@ -9,7 +9,7 @@ use imba::{
     list::{ListSlice, ListView, SearchableList},
     scroll::ScrollView,
     store::Store,
-    Thunk, UiCtx, View,
+    UiCtx, View,
 };
 
 use crate::tree_item::{TreeItemView, TreeLabel, TreeListCommand};
@@ -373,14 +373,15 @@ impl<K: Clone + Eq + Hash + Send + Sync + 'static> View for ForestList<K> {
         self.list.perform(store, ui, command, fx)
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        self.list.layout(arena, store, ui, constraints)
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            self.list.layout(arena, store, ui, constraints)
+        })
     }
 }
 

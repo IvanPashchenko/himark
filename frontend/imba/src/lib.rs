@@ -14,6 +14,7 @@ pub mod event;
 pub mod focus;
 pub mod image;
 pub mod ime;
+pub mod layout;
 pub mod lazy;
 pub mod leaf;
 pub mod list;
@@ -65,6 +66,8 @@ impl<Command> PresentableCommand<Command> {
     }
 }
 
+pub use layout::{laid, Laid, Layout, LayoutBox};
+
 pub trait View {
     type Command;
 
@@ -76,13 +79,31 @@ pub trait View {
         fx: &mut effect::Effects<'_, Self::Command>,
     );
 
+    /// Read the state, name the structure (docs/UI.md, revision 3) —
+    /// the ONLY stage with the store in scope; borrows from it and
+    /// from the view ride the returned layout for the frame.
+    fn display<'a>(
+        &'a self,
+        arena: &'a Arena,
+        store: &'a Store,
+        ui: &'a UiCtx,
+    ) -> impl Layout<'a, Self::Command> + 'a;
+
+    /// The composed pipeline — display, then size. Containers and
+    /// the frame root call this; layout combinators address the
+    /// stages separately.
     fn layout<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
         constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a;
+    ) -> ThunkBox<'a, Self::Command>
+    where
+        Self: Sized,
+    {
+        self.display(arena, store, ui).layout(arena, constraints)
+    }
 
     fn destroy(&mut self, store: &mut Store, fx: &mut effect::Effects<'_, Self::Command>) {
         let _ = (store, fx);

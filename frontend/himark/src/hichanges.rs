@@ -23,7 +23,7 @@ use imba::{
     leaf::leaf,
     store::Store,
     thunk_ext::ThunkExt,
-    Thunk, UiCtx, View, Widget,
+    UiCtx, View, Widget,
 };
 use skia_safe::{Paint, Rect, Size};
 
@@ -1295,134 +1295,135 @@ impl View for ChangesView {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let size = constraints.max;
-        let mut overlay = container(arena, size);
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let size = constraints.max;
+            let mut overlay = container(arena, size);
 
-        let chrome = crate::env::Themes::of(store).ui().peeker.clone();
-        let search = crate::env::Themes::of(store).ui().search.clone();
-        let chip_height = chrome.hint_size * 2.0;
+            let chrome = crate::env::Themes::of(store).ui().peeker.clone();
+            let search = crate::env::Themes::of(store).ui().search.clone();
+            let chip_height = chrome.hint_size * 2.0;
 
-        // The well follows the message editor's TRUE height: a
-        // multi-line commit message grows the box (and pushes the
-        // rows down) instead of spilling over them. Capped so a wall
-        // of text never eats the whole panel.
-        let well_height = (self.message.content_height() + search.input_pad_y * 2.0)
-            .max(search.input_height)
-            .min(size.height * 0.4);
-        let box_band = well_height + PANEL_PAD;
-        let band = chrome.margin + chip_height + PANEL_PAD + box_band;
-        let rows = self
-            .list
-            .layout(
-                arena,
-                store,
-                ui,
-                Constraints::tight(Size::new(size.width, size.height - band)),
-            )
-            .map(ChangesCommand::Rows);
-        overlay.place(0.0, band, rows);
-
-        let well_y = chrome.margin + chip_height + PANEL_PAD;
-        let well_pad = chrome.margin;
-        let well_width = (size.width - well_pad * 2.0).max(1.0);
-        let input_fill = search.input_fill;
-        let message_focused = self.message_focused;
-        let message_empty = self.message.document.text().byte_count() == 0;
-        let placeholder_font = crate::fonts::ui_text_font(ui, chrome.hint_size);
-        let placeholder_dim = chrome.dim_text.0;
-        let well = leaf::<ChangesCommand>(well_width, well_height)
-            .paint_instead(move |_arena, canvas, rect| {
-                let mut paint = Paint::default();
-                paint.set_anti_alias(true);
-                paint.set_color(input_fill.0);
-                canvas.draw_round_rect(rect, 6.0, 6.0, &paint);
-                if message_empty && !message_focused {
-                    paint.set_color(placeholder_dim);
-                    canvas.draw_str(
-                        "Message (⌘⏎ to commit)",
-                        (
-                            rect.left + 10.0,
-                            rect.top + rect.height() * 0.5 + chrome.hint_size * 0.35,
-                        ),
-                        &placeholder_font,
-                        &paint,
-                    );
-                }
-            })
-            .event(|_arena, event, _size| match event {
-                Event::MouseDown { .. } => EventResult::Command(ChangesCommand::FocusMessage(true)),
-                _ => EventResult::Ignored,
-            });
-        overlay.place(well_pad, well_y, well);
-        let inner_height = (well_height - search.input_pad_y * 2.0).max(1.0);
-        overlay.place(
-            well_pad + search.input_pad_x,
-            well_y + search.input_pad_y,
-            self.message
+            // The well follows the message editor's TRUE height: a
+            // multi-line commit message grows the box (and pushes the
+            // rows down) instead of spilling over them. Capped so a wall
+            // of text never eats the whole panel.
+            let well_height = (self.message.content_height() + search.input_pad_y * 2.0)
+                .max(search.input_height)
+                .min(size.height * 0.4);
+            let box_band = well_height + PANEL_PAD;
+            let band = chrome.margin + chip_height + PANEL_PAD + box_band;
+            let rows = self
+                .list
                 .layout(
                     arena,
                     store,
                     ui,
-                    Constraints {
-                        min: Size::new(0.0, inner_height),
-                        max: Size::new(
-                            (well_width - search.input_pad_x * 2.0).max(1.0),
-                            inner_height,
-                        ),
-                    },
+                    Constraints::tight(Size::new(size.width, size.height - band)),
                 )
-                .map(ChangesCommand::Message)
-                .focus_scope(self.message_focused),
-        );
+                .map(ChangesCommand::Rows);
+            overlay.place(0.0, band, rows);
 
-        let chip_font = crate::fonts::ui_font(ui, chrome.hint_size);
-        let advance = chip_font.measure_str("REFRESH", None).0;
-        let chip_width = advance + chrome.hint_size * 2.0;
-        let chip_radius = chrome.well_radius;
-        let rule = chrome.rule.0;
-        let dim = chrome.dim_text.0;
-        let chip = leaf::<ChangesCommand>(chip_width, chip_height)
-            .paint_instead(move |_arena, canvas, rect| {
-                let mut paint = Paint::default();
-                paint.set_anti_alias(true);
-                paint.set_stroke(true);
-                paint.set_stroke_width(1.0);
-                paint.set_color(rule);
-                canvas.draw_round_rect(
-                    rect.with_inset((0.5, 0.5)),
-                    chip_radius,
-                    chip_radius,
-                    &paint,
-                );
-                paint.set_stroke(false);
-                paint.set_color(dim);
-                canvas.draw_str(
-                    "REFRESH",
-                    (
-                        rect.left + (rect.width() - advance) * 0.5,
-                        rect.top + rect.height() * 0.5 + 6.0,
-                    ),
-                    &chip_font,
-                    &paint,
-                );
-            })
-            .event(|_arena, event, _size| match event {
-                Event::MouseDown { .. } => EventResult::Command(ChangesCommand::Refetch),
-                _ => EventResult::Ignored,
-            });
+            let well_y = chrome.margin + chip_height + PANEL_PAD;
+            let well_pad = chrome.margin;
+            let well_width = (size.width - well_pad * 2.0).max(1.0);
+            let input_fill = search.input_fill;
+            let message_focused = self.message_focused;
+            let message_empty = self.message.document.text().byte_count() == 0;
+            let placeholder_font = crate::fonts::ui_text_font(ui, chrome.hint_size);
+            let placeholder_dim = chrome.dim_text.0;
+            let well = leaf::<ChangesCommand>(well_width, well_height)
+                .paint_instead(move |_arena, canvas, rect| {
+                    let mut paint = Paint::default();
+                    paint.set_anti_alias(true);
+                    paint.set_color(input_fill.0);
+                    canvas.draw_round_rect(rect, 6.0, 6.0, &paint);
+                    if message_empty && !message_focused {
+                        paint.set_color(placeholder_dim);
+                        canvas.draw_str(
+                            "Message (⌘⏎ to commit)",
+                            (
+                                rect.left + 10.0,
+                                rect.top + rect.height() * 0.5 + chrome.hint_size * 0.35,
+                            ),
+                            &placeholder_font,
+                            &paint,
+                        );
+                    }
+                })
+                .event(|_arena, event, _size| match event {
+                    Event::MouseDown { .. } => {
+                        EventResult::Command(ChangesCommand::FocusMessage(true))
+                    }
+                    _ => EventResult::Ignored,
+                });
+            overlay.place(well_pad, well_y, well);
+            let inner_height = (well_height - search.input_pad_y * 2.0).max(1.0);
+            overlay.place(
+                well_pad + search.input_pad_x,
+                well_y + search.input_pad_y,
+                self.message
+                    .layout(
+                        arena,
+                        store,
+                        ui,
+                        Constraints {
+                            min: Size::new(0.0, inner_height),
+                            max: Size::new(
+                                (well_width - search.input_pad_x * 2.0).max(1.0),
+                                inner_height,
+                            ),
+                        },
+                    )
+                    .map(ChangesCommand::Message)
+                    .focus_scope(self.message_focused),
+            );
 
-        let searching = self.list.searching();
-        let message_focused = self.message_focused;
-        let keymap =
-            leaf::<ChangesCommand>(size.width, size.height).event(move |_arena, event, _size| {
-                match event {
+            let chip_font = crate::fonts::ui_font(ui, chrome.hint_size);
+            let advance = chip_font.measure_str("REFRESH", None).0;
+            let chip_width = advance + chrome.hint_size * 2.0;
+            let chip_radius = chrome.well_radius;
+            let rule = chrome.rule.0;
+            let dim = chrome.dim_text.0;
+            let chip = leaf::<ChangesCommand>(chip_width, chip_height)
+                .paint_instead(move |_arena, canvas, rect| {
+                    let mut paint = Paint::default();
+                    paint.set_anti_alias(true);
+                    paint.set_stroke(true);
+                    paint.set_stroke_width(1.0);
+                    paint.set_color(rule);
+                    canvas.draw_round_rect(
+                        rect.with_inset((0.5, 0.5)),
+                        chip_radius,
+                        chip_radius,
+                        &paint,
+                    );
+                    paint.set_stroke(false);
+                    paint.set_color(dim);
+                    canvas.draw_str(
+                        "REFRESH",
+                        (
+                            rect.left + (rect.width() - advance) * 0.5,
+                            rect.top + rect.height() * 0.5 + 6.0,
+                        ),
+                        &chip_font,
+                        &paint,
+                    );
+                })
+                .event(|_arena, event, _size| match event {
+                    Event::MouseDown { .. } => EventResult::Command(ChangesCommand::Refetch),
+                    _ => EventResult::Ignored,
+                });
+
+            let searching = self.list.searching();
+            let message_focused = self.message_focused;
+            let keymap = leaf::<ChangesCommand>(size.width, size.height).event(
+                move |_arena, event, _size| match event {
                     Event::KeyDown {
                         key: InputKey::Enter,
                         mods,
@@ -1465,17 +1466,18 @@ impl View for ChangesView {
                         ..
                     } => EventResult::Command(ChangesCommand::Pick),
                     _ => EventResult::Ignored,
-                }
-            });
-        overlay.place(0.0, 0.0, keymap);
-        overlay.place(
-            (size.width - chrome.margin - chip_width).max(0.0),
-            chrome.margin,
-            chip,
-        );
+                },
+            );
+            overlay.place(0.0, 0.0, keymap);
+            overlay.place(
+                (size.width - chrome.margin - chip_width).max(0.0),
+                chrome.margin,
+                chip,
+            );
 
-        let stale = Changes::generation(store) != self.seen;
-        overlay.wrap(move |inner| ReconcileShell { inner, stale })
+            let stale = Changes::generation(store) != self.seen;
+            overlay.wrap(move |inner| ReconcileShell { inner, stale })
+        })
     }
 }
 

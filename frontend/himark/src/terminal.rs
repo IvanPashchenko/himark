@@ -14,7 +14,7 @@ use alacritty_terminal::term::{Config, Term, TermMode};
 use alacritty_terminal::vte::ansi::{Color as TermColor, CursorShape, NamedColor, Processor, Rgb};
 
 use imba::event::{Event, EventResult, Key, Modifiers};
-use imba::{arena::Arena, constraints::Constraints, store::Store, Thunk, UiCtx, View, Widget};
+use imba::{arena::Arena, constraints::Constraints, store::Store, UiCtx, View, Widget};
 use skia_safe::{Canvas, Color, Font, Paint, Point, Rect, Size};
 
 use crate::PanelView;
@@ -215,42 +215,43 @@ impl View for TerminalView {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let Some(session) = Terminals::session_ref(store, &self.channel) else {
-            let blank = imba::ThunkBox::new(
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let Some(session) = Terminals::session_ref(store, &self.channel) else {
+                let blank = imba::ThunkBox::new(
+                    arena,
+                    imba::leaf::leaf(constraints.max.width, constraints.max.height),
+                );
+                return blank;
+            };
+            let chrome = crate::env::Themes::of(store).ui().terminal.clone();
+            let font = grid_font(ui, &chrome);
+            let cell = cell_metrics(&font);
+            let fallbacks = ui.env(|| FallbackFaces {
+                manager: ui
+                    .get::<crate::env::UiFonts>()
+                    .and_then(|fonts| fonts.0.fallback_manager())
+                    .unwrap_or_else(skia_safe::FontMgr::new),
+                by_char: Default::default(),
+            });
+            imba::ThunkBox::new(
                 arena,
-                imba::leaf::leaf(constraints.max.width, constraints.max.height),
-            );
-            return blank;
-        };
-        let chrome = crate::env::Themes::of(store).ui().terminal.clone();
-        let font = grid_font(ui, &chrome);
-        let cell = cell_metrics(&font);
-        let fallbacks = ui.env(|| FallbackFaces {
-            manager: ui
-                .get::<crate::env::UiFonts>()
-                .and_then(|fonts| fonts.0.fallback_manager())
-                .unwrap_or_else(skia_safe::FontMgr::new),
-            by_char: Default::default(),
-        });
-        imba::ThunkBox::new(
-            arena,
-            imba::eager(TerminalWidget {
-                session,
-                size: constraints.max,
-                chrome,
-                font,
-                cell,
-                fallbacks,
-                surface: imba::event::ScrollSurfaceId::keyed(self.number),
-            }),
-        )
+                imba::eager(TerminalWidget {
+                    session,
+                    size: constraints.max,
+                    chrome,
+                    font,
+                    cell,
+                    fallbacks,
+                    surface: imba::event::ScrollSurfaceId::keyed(self.number),
+                }),
+            )
+        })
     }
 }
 

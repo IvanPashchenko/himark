@@ -9,7 +9,7 @@ use crate::{
     event::{Event, EventResult},
     store::Store,
     thunk_ext::ThunkExt,
-    Thunk, View, Widget,
+    View, Widget,
 };
 use skia_safe::{Contains, Rect, Size};
 
@@ -154,49 +154,51 @@ where
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let size = constraints.max;
-        let divider = self.divider_rect(size);
-        let (first_size, second_origin) = match self.arrangement {
-            Arrangement::Row => (Size::new(divider.left, size.height), (divider.left, 0.0)),
-            Arrangement::Column => (Size::new(size.width, divider.top), (0.0, divider.top)),
-        };
-        let second_size = Size::new(size.width - second_origin.0, size.height - second_origin.1);
-        let first_rect = Rect::from_xywh(0.0, 0.0, first_size.width, first_size.height);
-        let second_rect = Rect::from_xywh(
-            second_origin.0,
-            second_origin.1,
-            second_size.width,
-            second_size.height,
-        );
+    ) -> impl crate::Layout<'a, Self::Command> + 'a {
+        crate::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let size = constraints.max;
+            let divider = self.divider_rect(size);
+            let (first_size, second_origin) = match self.arrangement {
+                Arrangement::Row => (Size::new(divider.left, size.height), (divider.left, 0.0)),
+                Arrangement::Column => (Size::new(size.width, divider.top), (0.0, divider.top)),
+            };
+            let second_size =
+                Size::new(size.width - second_origin.0, size.height - second_origin.1);
+            let first_rect = Rect::from_xywh(0.0, 0.0, first_size.width, first_size.height);
+            let second_rect = Rect::from_xywh(
+                second_origin.0,
+                second_origin.1,
+                second_size.width,
+                second_size.height,
+            );
 
-        let first = self
-            .first
-            .layout(arena, store, ui, Constraints::tight(first_size))
-            .map(SplitCommand::First)
-            .focus_scope(self.focused == Pane::First);
-        let second = self
-            .second
-            .layout(arena, store, ui, Constraints::tight(second_size))
-            .map(SplitCommand::Second)
-            .focus_scope(self.focused == Pane::Second);
+            let first = self
+                .first
+                .layout(arena, store, ui, Constraints::tight(first_size))
+                .map(SplitCommand::First)
+                .focus_scope(self.focused == Pane::First);
+            let second = self
+                .second
+                .layout(arena, store, ui, Constraints::tight(second_size))
+                .map(SplitCommand::Second)
+                .focus_scope(self.focused == Pane::Second);
 
-        let mut panes = container(arena, size);
-        panes.place(first_rect.left, first_rect.top, first);
-        panes.place(second_rect.left, second_rect.top, second);
+            let mut panes = container(arena, size);
+            panes.place(first_rect.left, first_rect.top, first);
+            panes.place(second_rect.left, second_rect.top, second);
 
-        SplitWidget {
-            panes,
-            first_rect,
-            second_rect,
-            focused: self.focused,
-        }
+            SplitWidget {
+                panes,
+                first_rect,
+                second_rect,
+                focused: self.focused,
+            }
+        })
     }
 }
 

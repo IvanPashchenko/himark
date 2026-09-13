@@ -94,47 +94,49 @@ impl View for ToolRowView {
         );
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let width = constraints.max.width.max(1.0);
-        match self {
-            Self::Body(cell) => imba::ThunkBox::new(
-                arena,
-                cell.layout(arena, store, ui, constraints)
-                    .map(|command| ToolRowCommand::Cell(Box::new(command))),
-            ),
-            Self::Face(face) => {
-                let theme = env::Themes::of(store);
-                let tree = theme.ui().tree.clone();
-                let chat = theme.ui().chat.clone();
-                let font = crate::fonts::ui_text_font(ui, tree.font_size);
-                let color = if face.failed {
-                    chat.stop_color.0
-                } else if face.live {
-                    chat.text_color.0
-                } else {
-                    chat.notice_color.0
-                };
-                let text = face.text.clone();
-                imba::ThunkBox::new(
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let width = constraints.max.width.max(1.0);
+            match self {
+                Self::Body(cell) => imba::ThunkBox::new(
                     arena,
-                    leaf::<ToolRowCommand>(width, tree.row_height).paint_instead(
-                        move |_arena, canvas, rect| {
-                            let mut paint = Paint::default();
-                            paint.set_anti_alias(true);
-                            paint.set_color(color);
-                            let baseline = rect.top + rect.height() * 0.5 + tree.font_size * 0.36;
-                            canvas.draw_str(&text, (rect.left, baseline), &font, &paint);
-                        },
-                    ),
-                )
+                    cell.layout(arena, store, ui, constraints)
+                        .map(|command| ToolRowCommand::Cell(Box::new(command))),
+                ),
+                Self::Face(face) => {
+                    let theme = env::Themes::of(store);
+                    let tree = theme.ui().tree.clone();
+                    let chat = theme.ui().chat.clone();
+                    let font = crate::fonts::ui_text_font(ui, tree.font_size);
+                    let color = if face.failed {
+                        chat.stop_color.0
+                    } else if face.live {
+                        chat.text_color.0
+                    } else {
+                        chat.notice_color.0
+                    };
+                    let text = face.text.clone();
+                    imba::ThunkBox::new(
+                        arena,
+                        leaf::<ToolRowCommand>(width, tree.row_height).paint_instead(
+                            move |_arena, canvas, rect| {
+                                let mut paint = Paint::default();
+                                paint.set_anti_alias(true);
+                                paint.set_color(color);
+                                let baseline =
+                                    rect.top + rect.height() * 0.5 + tree.font_size * 0.36;
+                                canvas.draw_str(&text, (rect.left, baseline), &font, &paint);
+                            },
+                        ),
+                    )
+                }
             }
-        }
+        })
     }
 }
 

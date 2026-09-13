@@ -102,29 +102,30 @@ impl View for TurnView {
         self.cells.perform(store, ui, command, fx);
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let chrome = env::Themes::of(store).ui().chat.clone();
-        let width = constraints.max.width.max(1.0);
-        let content_width = Self::content_width(&chrome, width);
-        let inner = self.cells.layout(
-            arena,
-            store,
-            ui,
-            Constraints {
-                min: Size::new(content_width, 0.0),
-                max: Size::new(content_width, f32::MAX),
-            },
-        );
-        let height = inner.size().height;
-        let mut row = container(arena, Size::new(width, height));
-        row.place(((width - content_width) / 2.0).max(0.0), 0.0, inner);
-        row
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let chrome = env::Themes::of(store).ui().chat.clone();
+            let width = constraints.max.width.max(1.0);
+            let content_width = Self::content_width(&chrome, width);
+            let inner = self.cells.layout(
+                arena,
+                store,
+                ui,
+                Constraints {
+                    min: Size::new(content_width, 0.0),
+                    max: Size::new(content_width, f32::MAX),
+                },
+            );
+            let height = inner.size().height;
+            let mut row = container(arena, Size::new(width, height));
+            row.place(((width - content_width) / 2.0).max(0.0), 0.0, inner);
+            row
+        })
     }
 }
 

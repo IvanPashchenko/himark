@@ -10,7 +10,7 @@ use imba::{
     event::{Event, EventResult, MouseButton},
     store::Store,
     thunk_ext::ThunkExt,
-    Thunk, View,
+    View,
 };
 use skia_safe::{Canvas, Color, Font, FontMgr, FontStyle, Paint, Rect, Size, Typeface};
 
@@ -396,40 +396,41 @@ impl View for DemoInlay {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         _arena: &'a Arena,
         _store: &'a Store,
         _ui: &'a imba::UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let size = self.size_for(constraints);
-        imba::leaf::leaf(size.width, size.height)
-            .paint_instead(|_arena, canvas, rect| self.paint(canvas, rect))
-            .event({
-                let animating = self.size.running();
-                move |_arena, event, _size| match event {
-                    Event::MouseDown {
-                        mods: _,
-                        button: MouseButton::Left,
-                        ..
-                    } => EventResult::Command(DemoInlayCommand::Toggle),
-                    Event::AnimationClock { now } if animating => {
-                        EventResult::Command(DemoInlayCommand::Tick(*now))
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let size = self.size_for(constraints);
+            imba::leaf::leaf(size.width, size.height)
+                .paint_instead(|_arena, canvas, rect| self.paint(canvas, rect))
+                .event({
+                    let animating = self.size.running();
+                    move |_arena, event, _size| match event {
+                        Event::MouseDown {
+                            mods: _,
+                            button: MouseButton::Left,
+                            ..
+                        } => EventResult::Command(DemoInlayCommand::Toggle),
+                        Event::AnimationClock { now } if animating => {
+                            EventResult::Command(DemoInlayCommand::Tick(*now))
+                        }
+                        _ => EventResult::Ignored,
                     }
-                    _ => EventResult::Ignored,
-                }
-            })
-            .commands(move || {
-                vec![imba::PresentableCommand::new(
-                    "demo.inlay.toggle",
-                    match self.expanded {
-                        true => "Collapse Demo Inlay",
-                        false => "Expand Demo Inlay",
-                    },
-                    DemoInlayCommand::Toggle,
-                )]
-            })
+                })
+                .commands(move || {
+                    vec![imba::PresentableCommand::new(
+                        "demo.inlay.toggle",
+                        match self.expanded {
+                            true => "Collapse Demo Inlay",
+                            false => "Expand Demo Inlay",
+                        },
+                        DemoInlayCommand::Toggle,
+                    )]
+                })
+        })
     }
 }
 

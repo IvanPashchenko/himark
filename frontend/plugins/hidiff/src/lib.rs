@@ -82,21 +82,22 @@ impl View for PairPane {
         himark::OpenDocuments::put_diff_view(store, self.id, pair);
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        imba::eager(GatheredSplit {
-            ui,
-            store,
-            arena,
-            view: himark::OpenDocuments::diff_view_ref(store, self.id)
-                .and_then(|pair| gathered(pair, store)),
-            constraints,
-            laid: std::cell::Cell::new(None),
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            imba::eager(GatheredSplit {
+                ui,
+                store,
+                arena,
+                view: himark::OpenDocuments::diff_view_ref(store, self.id)
+                    .and_then(|pair| gathered(pair, store)),
+                constraints,
+                laid: std::cell::Cell::new(None),
+            })
         })
     }
 }
@@ -327,14 +328,15 @@ impl View for DiffPanelView {
         self.pane.perform(store, ui, command, fx)
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        self.pane.layout(arena, store, ui, constraints)
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            self.pane.layout(arena, store, ui, constraints)
+        })
     }
 }
 

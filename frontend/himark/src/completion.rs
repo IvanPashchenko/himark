@@ -7,7 +7,7 @@ use imba::effect::{CancellationToken, Effects};
 use imba::event::{Event, EventResult, Key};
 use imba::store::Store;
 use imba::thunk_ext::ThunkExt;
-use imba::{Thunk, UiCtx, View};
+use imba::{UiCtx, View};
 
 use crate::rows::{RowList, RowListCommand};
 use crate::{FindEffect, FindTarget, LineCol, ResourceLocation};
@@ -118,86 +118,90 @@ impl View for CompletionPopupView {
     ) {
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a imba::arena::Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: imba::constraints::Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let theme = crate::env::Themes::of(store);
-        let chrome = theme.ui().peeker.clone();
-        let row_height = chrome.row_height.max(1.0);
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(
+            move |_arena: &'a imba::arena::Arena, constraints: imba::constraints::Constraints| {
+                let theme = crate::env::Themes::of(store);
+                let chrome = theme.ui().peeker.clone();
+                let row_height = chrome.row_height.max(1.0);
 
-        let visible = self.rows.min(VISIBLE_ROWS).max(1);
-        let natural = skia_safe::Size::new(POPUP_WIDTH, visible as f32 * row_height + 2.0);
-        let width = match constraints.max.width.is_finite() {
-            true => constraints.max.width,
-            false => natural.width,
-        };
-        let height = match constraints.max.height.is_finite() {
-            true => constraints.max.height,
-            false => natural.height,
-        };
-        let mut popup = imba::container::Container::new(arena, skia_safe::Size::new(width, height));
-        let fill = chrome.background.0;
-        let border = chrome.rule.0;
-        popup.place(
-            0.0,
-            0.0,
-            imba::leaf::leaf::<CompletionCommand>(width, height).paint_instead(
-                move |_arena, canvas, rect| {
-                    let mut paint = skia_safe::Paint::default();
-                    paint.set_color(fill);
-                    canvas.draw_rect(rect, &paint);
-                    paint.set_stroke(true);
-                    paint.set_stroke_width(1.0);
-                    paint.set_color(border);
-                    canvas.draw_rect(rect.with_inset((0.5, 0.5)), &paint);
-                },
-            ),
-        );
-        let rows = self
-            .list
-            .layout(
-                arena,
-                store,
-                ui,
-                imba::constraints::Constraints::tight(skia_safe::Size::new(
-                    width - 2.0,
-                    height - 2.0,
-                )),
-            )
-            .map(CompletionCommand::Rows);
-        popup.place(1.0, 1.0, rows);
+                let visible = self.rows.min(VISIBLE_ROWS).max(1);
+                let natural = skia_safe::Size::new(POPUP_WIDTH, visible as f32 * row_height + 2.0);
+                let width = match constraints.max.width.is_finite() {
+                    true => constraints.max.width,
+                    false => natural.width,
+                };
+                let height = match constraints.max.height.is_finite() {
+                    true => constraints.max.height,
+                    false => natural.height,
+                };
+                let mut popup =
+                    imba::container::Container::new(arena, skia_safe::Size::new(width, height));
+                let fill = chrome.background.0;
+                let border = chrome.rule.0;
+                popup.place(
+                    0.0,
+                    0.0,
+                    imba::leaf::leaf::<CompletionCommand>(width, height).paint_instead(
+                        move |_arena, canvas, rect| {
+                            let mut paint = skia_safe::Paint::default();
+                            paint.set_color(fill);
+                            canvas.draw_rect(rect, &paint);
+                            paint.set_stroke(true);
+                            paint.set_stroke_width(1.0);
+                            paint.set_color(border);
+                            canvas.draw_rect(rect.with_inset((0.5, 0.5)), &paint);
+                        },
+                    ),
+                );
+                let rows = self
+                    .list
+                    .layout(
+                        arena,
+                        store,
+                        ui,
+                        imba::constraints::Constraints::tight(skia_safe::Size::new(
+                            width - 2.0,
+                            height - 2.0,
+                        )),
+                    )
+                    .map(CompletionCommand::Rows);
+                popup.place(1.0, 1.0, rows);
 
-        let armed = self.list.len() > 0;
-        popup.place(
-            0.0,
-            0.0,
-            imba::leaf::leaf::<CompletionCommand>(width, height).event(
-                move |_arena, event, _size| match event {
-                    Event::KeyDown { key: Key::Up, .. } if armed => {
-                        EventResult::Command(CompletionCommand::Select(-1))
-                    }
-                    Event::KeyDown { key: Key::Down, .. } if armed => {
-                        EventResult::Command(CompletionCommand::Select(1))
-                    }
+                let armed = self.list.len() > 0;
+                popup.place(
+                    0.0,
+                    0.0,
+                    imba::leaf::leaf::<CompletionCommand>(width, height).event(
+                        move |_arena, event, _size| match event {
+                            Event::KeyDown { key: Key::Up, .. } if armed => {
+                                EventResult::Command(CompletionCommand::Select(-1))
+                            }
+                            Event::KeyDown { key: Key::Down, .. } if armed => {
+                                EventResult::Command(CompletionCommand::Select(1))
+                            }
 
-                    Event::KeyDown {
-                        key: Key::Enter, ..
-                    } if armed => EventResult::Command(CompletionCommand::PickCursor),
-                    Event::KeyDown { key: Key::Tab, .. } if armed => {
-                        EventResult::Command(CompletionCommand::PickCursor)
-                    }
-                    Event::KeyDown {
-                        key: Key::Escape, ..
-                    } => EventResult::Command(CompletionCommand::Close),
-                    _ => EventResult::Ignored,
-                },
-            ),
-        );
-        popup
+                            Event::KeyDown {
+                                key: Key::Enter, ..
+                            } if armed => EventResult::Command(CompletionCommand::PickCursor),
+                            Event::KeyDown { key: Key::Tab, .. } if armed => {
+                                EventResult::Command(CompletionCommand::PickCursor)
+                            }
+                            Event::KeyDown {
+                                key: Key::Escape, ..
+                            } => EventResult::Command(CompletionCommand::Close),
+                            _ => EventResult::Ignored,
+                        },
+                    ),
+                );
+                popup
+            },
+        )
     }
 }
 

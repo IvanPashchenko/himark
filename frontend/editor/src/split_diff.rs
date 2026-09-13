@@ -937,54 +937,55 @@ impl View for SplitDiffView {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let width = constraints.max.width;
-        let half = ((width - CENTER_GAP) * 0.5).max(1.0);
-        let half_constraints = Constraints {
-            min: Size::new(half, 0.0),
-            max: Size::new(half, f32::MAX),
-        };
-        let left = self
-            .left
-            .layout(arena, store, ui, half_constraints)
-            .map(SplitDiffCommand::Left);
-        let right = self
-            .right
-            .layout(arena, store, ui, half_constraints)
-            .map(SplitDiffCommand::Right);
-        let height = left.size().height.max(right.size().height);
-        let divider = crate::env::Themes::of(store).ui().window.divider.0;
-        let mut pair = container(arena, Size::new(width, height));
-        pair.place(0.0, 0.0, left);
-        pair.place(half + CENTER_GAP, 0.0, right);
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let width = constraints.max.width;
+            let half = ((width - CENTER_GAP) * 0.5).max(1.0);
+            let half_constraints = Constraints {
+                min: Size::new(half, 0.0),
+                max: Size::new(half, f32::MAX),
+            };
+            let left = self
+                .left
+                .layout(arena, store, ui, half_constraints)
+                .map(SplitDiffCommand::Left);
+            let right = self
+                .right
+                .layout(arena, store, ui, half_constraints)
+                .map(SplitDiffCommand::Right);
+            let height = left.size().height.max(right.size().height);
+            let divider = crate::env::Themes::of(store).ui().window.divider.0;
+            let mut pair = container(arena, Size::new(width, height));
+            pair.place(0.0, 0.0, left);
+            pair.place(half + CENTER_GAP, 0.0, right);
 
-        let focused = if self.left.focus() != crate::editor_view::EditorFocus::None {
-            Some(0)
-        } else if self.right.focus() != crate::editor_view::EditorFocus::None {
-            Some(1)
-        } else {
-            None
-        };
-        let pair = pair.wrap_realized(move |pair| PairChain { pair, focused });
+            let focused = if self.left.focus() != crate::editor_view::EditorFocus::None {
+                Some(0)
+            } else if self.right.focus() != crate::editor_view::EditorFocus::None {
+                Some(1)
+            } else {
+                None
+            };
+            let pair = pair.wrap_realized(move |pair| PairChain { pair, focused });
 
-        pair.paint_above(move |_arena, canvas, rect| {
-            let mut paint = skia_safe::Paint::default();
-            paint.set_color(divider);
-            canvas.draw_rect(
-                skia_safe::Rect::from_xywh(
-                    rect.left + half + CENTER_GAP * 0.5 - 0.5,
-                    rect.top,
-                    1.0,
-                    rect.height(),
-                ),
-                &paint,
-            );
+            pair.paint_above(move |_arena, canvas, rect| {
+                let mut paint = skia_safe::Paint::default();
+                paint.set_color(divider);
+                canvas.draw_rect(
+                    skia_safe::Rect::from_xywh(
+                        rect.left + half + CENTER_GAP * 0.5 - 0.5,
+                        rect.top,
+                        1.0,
+                        rect.height(),
+                    ),
+                    &paint,
+                );
+            })
         })
     }
 }

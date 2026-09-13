@@ -105,33 +105,34 @@ impl View for EditorIdView {
         crate::OpenDocuments::put_document(store, self.document, view.document);
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let constraints = Constraints {
-            min: constraints.min,
-            max: skia_safe::Size::new(
-                Self::editor_width(
-                    constraints.max.width,
-                    &::editor::env::Themes::of(store).ui().window,
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let constraints = Constraints {
+                min: constraints.min,
+                max: skia_safe::Size::new(
+                    Self::editor_width(
+                        constraints.max.width,
+                        &::editor::env::Themes::of(store).ui().window,
+                    ),
+                    constraints.max.height,
                 ),
-                constraints.max.height,
-            ),
-        };
-        GatheredPane {
-            ui,
-            view: self.gathered(store),
-            store,
-            arena,
-            constraints,
-            content_pad: ::editor::env::Themes::of(store).ui().window.content_pad,
+            };
+            GatheredPane {
+                ui,
+                view: self.gathered(store),
+                store,
+                arena,
+                constraints,
+                content_pad: ::editor::env::Themes::of(store).ui().window.content_pad,
 
-            viewport: skia_safe::Rect::new_empty(),
-        }
+                viewport: skia_safe::Rect::new_empty(),
+            }
+        })
     }
 }
 

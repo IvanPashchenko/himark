@@ -218,14 +218,15 @@ impl View for FixedContent {
     ) {
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         _arena: &'a Arena,
         _store: &'a Store,
         _ui: &'a crate::ui::UiCtx,
-        _constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        crate::eager(FixedWidget { size: self.size })
+    ) -> impl crate::Layout<'a, Self::Command> + 'a {
+        crate::laid(move |_arena: &'a Arena, _constraints: Constraints| {
+            crate::eager(FixedWidget { size: self.size })
+        })
     }
 }
 
@@ -331,16 +332,17 @@ impl View for PanContent {
         _fx: &mut crate::effect::Effects<'_, f32>,
     ) {
     }
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         _arena: &'a Arena,
         _store: &'a Store,
         _ui: &'a crate::ui::UiCtx,
-        _constraints: Constraints,
-    ) -> impl Thunk<'a, f32> + 'a {
-        crate::eager(PanWidget {
-            surface: self.surface,
-            height: 500.0,
+    ) -> impl crate::Layout<'a, f32> + 'a {
+        crate::laid(move |_arena: &'a Arena, _constraints: Constraints| {
+            crate::eager(PanWidget {
+                surface: self.surface,
+                height: 500.0,
+            })
         })
     }
 }
@@ -456,14 +458,15 @@ fn a_fitted_view_never_claims() {
             _fx: &mut crate::effect::Effects<'_, f32>,
         ) {
         }
-        fn layout<'a>(
+        fn display<'a>(
             &'a self,
             _arena: &'a Arena,
             _store: &'a Store,
             _ui: &'a crate::ui::UiCtx,
-            _constraints: Constraints,
-        ) -> impl Thunk<'a, f32> + 'a {
-            crate::leaf::leaf(100.0, 50.0)
+        ) -> impl crate::Layout<'a, f32> + 'a {
+            crate::laid(move |_arena: &'a Arena, _constraints: Constraints| {
+                crate::leaf::leaf(100.0, 50.0)
+            })
         }
     }
     let view = ScrollView::new(Short);
@@ -696,16 +699,17 @@ fn boxed_dyn_view_routes_commands_back_to_the_typed_view() {
             }
         }
 
-        fn layout<'a>(
+        fn display<'a>(
             &'a self,
             _arena: &'a Arena,
             _store: &'a Store,
             _ui: &'a crate::ui::UiCtx,
-            _constraints: Constraints,
-        ) -> impl Thunk<'a, Self::Command> + 'a {
-            leaf(10.0, 10.0).event(|_, event, _| match event {
-                Event::MouseDown { .. } => EventResult::Command(CounterCommand::Add(2)),
-                _ => EventResult::Ignored,
+        ) -> impl crate::Layout<'a, Self::Command> + 'a {
+            crate::laid(move |_arena: &'a Arena, _constraints: Constraints| {
+                leaf(10.0, 10.0).event(|_, event, _| match event {
+                    Event::MouseDown { .. } => EventResult::Command(CounterCommand::Add(2)),
+                    _ => EventResult::Ignored,
+                })
             })
         }
     }
@@ -987,23 +991,24 @@ impl View for Row {
     ) {
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         _arena: &'a Arena,
         _store: &'a Store,
         _ui: &'a crate::ui::UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let _ = constraints;
-        crate::eager(RowWidget {
-            height: self.height,
-        })
-        .commands(|| {
-            vec![crate::PresentableCommand::new(
-                "row.poke",
-                "Poke Row",
-                RowCommand::Text("poked"),
-            )]
+    ) -> impl crate::Layout<'a, Self::Command> + 'a {
+        crate::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let _ = constraints;
+            crate::eager(RowWidget {
+                height: self.height,
+            })
+            .commands(|| {
+                vec![crate::PresentableCommand::new(
+                    "row.poke",
+                    "Poke Row",
+                    RowCommand::Text("poked"),
+                )]
+            })
         })
     }
 }

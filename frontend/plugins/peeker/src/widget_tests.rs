@@ -20,14 +20,15 @@ impl imba::View for StubWidget {
     ) {
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         _arena: &'a Arena,
         _store: &'a Store,
         _ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        leaf(constraints.max.width, constraints.max.height)
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            leaf(constraints.max.width, constraints.max.height)
+        })
     }
 }
 

@@ -393,48 +393,51 @@ impl imba::View for BeforeInlay {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a imba::arena::Arena,
         store: &'a imba::store::Store,
         ui: &'a imba::UiCtx,
-        constraints: imba::constraints::Constraints,
-    ) -> impl imba::Thunk<'a, BeforeCommand> + 'a {
-        use imba::thunk_ext::ThunkExt;
-        let chrome = crate::env::Themes::of(store).ui().diff.clone();
-        let size = self.card_size(&chrome, constraints);
-        let appearing = self.grow.running();
-        let pad = chrome.card_pad;
-        let want = (size.width - pad * 2.0).max(120.0);
+    ) -> impl imba::Layout<'a, BeforeCommand> + 'a {
+        imba::laid(
+            move |_arena: &'a imba::arena::Arena, constraints: imba::constraints::Constraints| {
+                use imba::thunk_ext::ThunkExt;
+                let chrome = crate::env::Themes::of(store).ui().diff.clone();
+                let size = self.card_size(&chrome, constraints);
+                let appearing = self.grow.running();
+                let pad = chrome.card_pad;
+                let want = (size.width - pad * 2.0).max(120.0);
 
-        let mut container = imba::container::container(arena, size);
+                let mut container = imba::container::container(arena, size);
 
-        if !appearing {
-            let editor = self
-                .view
-                .layout(
-                    arena,
-                    store,
-                    ui,
-                    Constraints {
-                        min: Size::new(want, 0.0),
-                        max: Size::new(want, f32::MAX),
-                    },
-                )
-                .map(BeforeCommand::Editor);
-            container.place(pad, pad, editor);
-        }
-        let frame = chrome.clone();
-        let framed =
-            container.paint_below(move |_arena, canvas, rect| paint_card(&frame, canvas, rect));
+                if !appearing {
+                    let editor = self
+                        .view
+                        .layout(
+                            arena,
+                            store,
+                            ui,
+                            Constraints {
+                                min: Size::new(want, 0.0),
+                                max: Size::new(want, f32::MAX),
+                            },
+                        )
+                        .map(BeforeCommand::Editor);
+                    container.place(pad, pad, editor);
+                }
+                let frame = chrome.clone();
+                let framed = container
+                    .paint_below(move |_arena, canvas, rect| paint_card(&frame, canvas, rect));
 
-        let stale = !appearing && (self.view.layout_width() - want).abs() > 1.0;
-        framed.wrap(move |inner| CardWidget {
-            stale,
-            want,
-            animating: appearing,
-            inner,
-        })
+                let stale = !appearing && (self.view.layout_width() - want).abs() > 1.0;
+                framed.wrap(move |inner| CardWidget {
+                    stale,
+                    want,
+                    animating: appearing,
+                    inner,
+                })
+            },
+        )
     }
 }
 

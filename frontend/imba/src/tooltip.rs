@@ -169,41 +169,42 @@ where
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a crate::ui::UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let inner = ThunkBox::new(
-            arena,
-            self.view
-                .layout(arena, store, ui, constraints)
-                .map(TooltipCommand::Host),
-        );
-        let tip = match &self.hover {
-            Hover::Shown { anchor, tip } => Some((
-                *anchor,
-                ThunkBox::new(
-                    arena,
-                    tip.layout(
+    ) -> impl crate::Layout<'a, Self::Command> + 'a {
+        crate::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let inner = ThunkBox::new(
+                arena,
+                self.view
+                    .layout(arena, store, ui, constraints)
+                    .map(TooltipCommand::Host),
+            );
+            let tip = match &self.hover {
+                Hover::Shown { anchor, tip } => Some((
+                    *anchor,
+                    ThunkBox::new(
                         arena,
-                        store,
-                        ui,
-                        Constraints::tight(constraints.max).loosen(),
-                    )
-                    .map(|never: Infallible| match never {}),
-                ),
-            )),
-            _ => None,
-        };
-        TooltipThunk {
-            inner,
-            tip,
-            armed: matches!(self.hover, Hover::Arming { .. }),
-            active: !matches!(self.hover, Hover::Idle),
-        }
+                        tip.layout(
+                            arena,
+                            store,
+                            ui,
+                            Constraints::tight(constraints.max).loosen(),
+                        )
+                        .map(|never: Infallible| match never {}),
+                    ),
+                )),
+                _ => None,
+            };
+            TooltipThunk {
+                inner,
+                tip,
+                armed: matches!(self.hover, Hover::Arming { .. }),
+                active: !matches!(self.hover, Hover::Idle),
+            }
+        })
     }
 }
 
@@ -322,14 +323,13 @@ mod tests {
             _fx: &mut crate::effect::Effects<'_, u32>,
         ) {
         }
-        fn layout<'a>(
+        fn display<'a>(
             &'a self,
             _arena: &'a Arena,
             _store: &'a Store,
             _ui: &'a crate::ui::UiCtx,
-            _constraints: Constraints,
-        ) -> impl Thunk<'a, u32> + 'a {
-            leaf(200.0, 40.0)
+        ) -> impl crate::Layout<'a, u32> + 'a {
+            crate::laid(move |_arena: &'a Arena, _constraints: Constraints| leaf(200.0, 40.0))
         }
     }
 
@@ -345,14 +345,13 @@ mod tests {
         ) {
             match command {}
         }
-        fn layout<'a>(
+        fn display<'a>(
             &'a self,
             _arena: &'a Arena,
             _store: &'a Store,
             _ui: &'a crate::ui::UiCtx,
-            _constraints: Constraints,
-        ) -> impl Thunk<'a, Infallible> + 'a {
-            leaf(60.0, 24.0)
+        ) -> impl crate::Layout<'a, Infallible> + 'a {
+            crate::laid(move |_arena: &'a Arena, _constraints: Constraints| leaf(60.0, 24.0))
         }
     }
 

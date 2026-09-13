@@ -106,104 +106,105 @@ impl View for ResultGroup {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        use imba::thunk_ext::ThunkExt;
-        let width = constraints.max.width;
-        let chrome = crate::env::Themes::of(store).ui().search.clone();
-        let rows = self.rows.layout(
-            arena,
-            store,
-            ui,
-            Constraints {
-                min: Size::default(),
-                max: Size::new((width - chrome.group_text_x).max(120.0), f32::MAX),
-            },
-        );
-        let size = Size::new(width, chrome.group_header + rows.size().height);
-        let mut group = imba::container::container(arena, size);
-        let name = self.name.clone();
-        let group_font = crate::fonts::ui_font(ui, chrome.group_font_size);
-        let group_header = chrome.group_header;
-        group.place(
-            0.0,
-            0.0,
-            imba::leaf::leaf::<Self::Command>(width, group_header).paint_below({
-                let chrome = chrome.clone();
-                move |_arena, canvas, rect| {
-                    let mut paint = Paint::default();
-                    paint.set_anti_alias(true);
-                    paint.set_color(chrome.group_fill.0);
-                    canvas.draw_rect(rect, &paint);
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            use imba::thunk_ext::ThunkExt;
+            let width = constraints.max.width;
+            let chrome = crate::env::Themes::of(store).ui().search.clone();
+            let rows = self.rows.layout(
+                arena,
+                store,
+                ui,
+                Constraints {
+                    min: Size::default(),
+                    max: Size::new((width - chrome.group_text_x).max(120.0), f32::MAX),
+                },
+            );
+            let size = Size::new(width, chrome.group_header + rows.size().height);
+            let mut group = imba::container::container(arena, size);
+            let name = self.name.clone();
+            let group_font = crate::fonts::ui_font(ui, chrome.group_font_size);
+            let group_header = chrome.group_header;
+            group.place(
+                0.0,
+                0.0,
+                imba::leaf::leaf::<Self::Command>(width, group_header).paint_below({
+                    let chrome = chrome.clone();
+                    move |_arena, canvas, rect| {
+                        let mut paint = Paint::default();
+                        paint.set_anti_alias(true);
+                        paint.set_color(chrome.group_fill.0);
+                        canvas.draw_rect(rect, &paint);
 
-                    paint.set_color(chrome.group_separator.0);
-                    for y in [rect.top, rect.bottom - 1.0] {
-                        canvas.draw_rect(
-                            skia_safe::Rect::from_xywh(rect.left, y, rect.width(), 1.0),
+                        paint.set_color(chrome.group_separator.0);
+                        for y in [rect.top, rect.bottom - 1.0] {
+                            canvas.draw_rect(
+                                skia_safe::Rect::from_xywh(rect.left, y, rect.width(), 1.0),
+                                &paint,
+                            );
+                        }
+                        paint.set_color(chrome.group_text.0);
+                        canvas.draw_str(
+                            &name,
+                            (
+                                rect.left + chrome.group_text_x,
+                                rect.top + chrome.group_baseline,
+                            ),
+                            &group_font,
                             &paint,
                         );
                     }
-                    paint.set_color(chrome.group_text.0);
-                    canvas.draw_str(
-                        &name,
-                        (
-                            rect.left + chrome.group_text_x,
-                            rect.top + chrome.group_baseline,
-                        ),
-                        &group_font,
-                        &paint,
-                    );
-                }
-            }),
-        );
-
-        if self.document.is_some() {
-            let button_width = OPEN_BUTTON_WIDTH;
-            let dim = crate::env::Themes::of(store).ui().peeker.dim_text.0;
-            let open_font = crate::fonts::ui_font(ui, chrome.group_font_size);
-            let button = imba::leaf::leaf::<Self::Command>(button_width, group_header)
-                .paint_below(move |_arena, canvas, rect| {
-                    let mut paint = Paint::default();
-                    paint.set_anti_alias(true);
-                    paint.set_color(dim);
-                    canvas.draw_str(
-                        "OPEN",
-                        (rect.left, rect.top + chrome.group_baseline),
-                        &open_font,
-                        &paint,
-                    );
-                })
-                .event(|_arena, event, _size| match event {
-                    imba::event::Event::MouseDown { .. } => {
-                        imba::event::EventResult::Command(GroupCommand::Open)
-                    }
-                    _ => imba::event::EventResult::Ignored,
-                });
-            group.place(
-                (width - button_width - chrome.group_text_x).max(0.0),
-                0.0,
-                button,
+                }),
             );
-        }
-        group.place(
-            chrome.group_text_x,
-            group_header,
-            rows.map(GroupCommand::Rows),
-        );
 
-        let openable = self.document.is_some();
-        group.commands(move || match openable {
-            true => vec![imba::PresentableCommand::new(
-                "workbench.open-in-full",
-                "Open File in Full",
-                GroupCommand::Open,
-            )],
-            false => Vec::new(),
+            if self.document.is_some() {
+                let button_width = OPEN_BUTTON_WIDTH;
+                let dim = crate::env::Themes::of(store).ui().peeker.dim_text.0;
+                let open_font = crate::fonts::ui_font(ui, chrome.group_font_size);
+                let button = imba::leaf::leaf::<Self::Command>(button_width, group_header)
+                    .paint_below(move |_arena, canvas, rect| {
+                        let mut paint = Paint::default();
+                        paint.set_anti_alias(true);
+                        paint.set_color(dim);
+                        canvas.draw_str(
+                            "OPEN",
+                            (rect.left, rect.top + chrome.group_baseline),
+                            &open_font,
+                            &paint,
+                        );
+                    })
+                    .event(|_arena, event, _size| match event {
+                        imba::event::Event::MouseDown { .. } => {
+                            imba::event::EventResult::Command(GroupCommand::Open)
+                        }
+                        _ => imba::event::EventResult::Ignored,
+                    });
+                group.place(
+                    (width - button_width - chrome.group_text_x).max(0.0),
+                    0.0,
+                    button,
+                );
+            }
+            group.place(
+                chrome.group_text_x,
+                group_header,
+                rows.map(GroupCommand::Rows),
+            );
+
+            let openable = self.document.is_some();
+            group.commands(move || match openable {
+                true => vec![imba::PresentableCommand::new(
+                    "workbench.open-in-full",
+                    "Open File in Full",
+                    GroupCommand::Open,
+                )],
+                false => Vec::new(),
+            })
         })
     }
 }
@@ -1127,21 +1128,22 @@ impl View for LocationList {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let inset = crate::env::Themes::of(store).ui().search.group_text_x;
-        self.row_width.store(
-            (constraints.max.width - inset).max(1.0).to_bits(),
-            std::sync::atomic::Ordering::Relaxed,
-        );
-        self.results
-            .layout(arena, store, ui, constraints)
-            .map(LocationListCommand::Results)
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let inset = crate::env::Themes::of(store).ui().search.group_text_x;
+            self.row_width.store(
+                (constraints.max.width - inset).max(1.0).to_bits(),
+                std::sync::atomic::Ordering::Relaxed,
+            );
+            self.results
+                .layout(arena, store, ui, constraints)
+                .map(LocationListCommand::Results)
+        })
     }
 }
 
@@ -1204,65 +1206,72 @@ impl View for ListPanel {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let size = constraints.max;
-        let chrome = crate::env::Themes::of(store).ui().search.clone();
-        let header = chrome.group_header;
-        let mut panel = imba::container::container(arena, size);
-        let title = LocationLists::entry_ref(store, self.id)
-            .map(|entry| entry.title.clone())
-            .unwrap_or_else(|| "Results".to_owned());
-        let font = crate::fonts::ui_font(ui, chrome.group_font_size);
-        let band = chrome.clone();
-        panel.place(
-            0.0,
-            0.0,
-            imba::leaf::leaf::<ListPanelCommand>(size.width, header).paint_below(
-                move |_arena, canvas, rect| {
-                    let mut paint = Paint::default();
-                    paint.set_anti_alias(true);
-                    paint.set_color(band.group_fill.0);
-                    canvas.draw_rect(rect, &paint);
-                    paint.set_color(band.group_text.0);
-                    canvas.draw_str(
-                        &title,
-                        (
-                            rect.left + band.group_text_x,
-                            rect.top + band.group_baseline,
-                        ),
-                        &font,
-                        &paint,
-                    );
-                },
-            ),
-        );
-        match LocationLists::entry_ref(store, self.id) {
-            Some(entry) => panel.place(
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let size = constraints.max;
+            let chrome = crate::env::Themes::of(store).ui().search.clone();
+            let header = chrome.group_header;
+            let mut panel = imba::container::container(arena, size);
+            let title = LocationLists::entry_ref(store, self.id)
+                .map(|entry| entry.title.clone())
+                .unwrap_or_else(|| "Results".to_owned());
+            let font = crate::fonts::ui_font(ui, chrome.group_font_size);
+            let band = chrome.clone();
+            panel.place(
                 0.0,
-                header,
-                entry
-                    .list
-                    .layout(
-                        arena,
-                        store,
-                        ui,
-                        Constraints::tight(Size::new(size.width, (size.height - header).max(1.0))),
-                    )
-                    .map(ListPanelCommand::List),
-            ),
-            None => panel.place(
                 0.0,
-                header,
-                imba::leaf::leaf::<ListPanelCommand>(size.width, (size.height - header).max(1.0)),
-            ),
-        }
-        panel.wrap_realized(move |panel| ListPanelWidget { panel, size })
+                imba::leaf::leaf::<ListPanelCommand>(size.width, header).paint_below(
+                    move |_arena, canvas, rect| {
+                        let mut paint = Paint::default();
+                        paint.set_anti_alias(true);
+                        paint.set_color(band.group_fill.0);
+                        canvas.draw_rect(rect, &paint);
+                        paint.set_color(band.group_text.0);
+                        canvas.draw_str(
+                            &title,
+                            (
+                                rect.left + band.group_text_x,
+                                rect.top + band.group_baseline,
+                            ),
+                            &font,
+                            &paint,
+                        );
+                    },
+                ),
+            );
+            match LocationLists::entry_ref(store, self.id) {
+                Some(entry) => panel.place(
+                    0.0,
+                    header,
+                    entry
+                        .list
+                        .layout(
+                            arena,
+                            store,
+                            ui,
+                            Constraints::tight(Size::new(
+                                size.width,
+                                (size.height - header).max(1.0),
+                            )),
+                        )
+                        .map(ListPanelCommand::List),
+                ),
+                None => panel.place(
+                    0.0,
+                    header,
+                    imba::leaf::leaf::<ListPanelCommand>(
+                        size.width,
+                        (size.height - header).max(1.0),
+                    ),
+                ),
+            }
+            panel.wrap_realized(move |panel| ListPanelWidget { panel, size })
+        })
     }
 }
 

@@ -10,7 +10,7 @@ use imba::{
     leaf::leaf,
     store::Store,
     thunk_ext::ThunkExt,
-    Thunk, UiCtx, View,
+    UiCtx, View,
 };
 use skia_safe::{Paint, Rect, Size};
 
@@ -184,86 +184,91 @@ impl View for Dock {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let size = constraints.max;
-        let revealed = self.revealed();
-        let edge = size.width - revealed;
-        let mut surface = container(arena, size);
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let size = constraints.max;
+            let revealed = self.revealed();
+            let edge = size.width - revealed;
+            let mut surface = container(arena, size);
 
-        let theme = crate::env::Themes::of(store);
-        let chrome = &theme.ui().peeker;
-        let body_bg = chrome.background.0;
-        let rule = chrome.rule.0;
-        let body_width = self.width.max(1.0);
-        let mut body = container(arena, Size::new(body_width, size.height));
-        let backdrop = leaf::<DockCommand>(body_width, size.height)
-            .paint_instead(move |_arena, canvas, rect| {
-                let mut paint = Paint::default();
-                paint.set_color(body_bg);
-                canvas.draw_rect(rect, &paint);
-                let mut hairline = Paint::default();
-                hairline.set_color(rule);
-                canvas.draw_rect(
-                    Rect::from_xywh(rect.left, rect.top, 1.0, rect.height()),
-                    &hairline,
-                );
-            })
-            .event(|_arena, event, _size| match event {
-                Event::MouseDown { .. } => EventResult::Handled,
-                _ => EventResult::Ignored,
-            })
-            .hit_opaque();
-        body.place(0.0, 0.0, backdrop);
-        let content = self
-            .content
-            .as_ref()
-            .layout_dyn(
-                arena,
-                store,
-                ui,
-                Constraints::tight(Size::new((body_width - 1.0).max(1.0), size.height)),
-            )
-            .map(DockCommand::Content);
-        body.place(1.0, 0.0, content);
-        surface.place(edge, 0.0, body);
-
-        let animating = self.reveal.running();
-        let resizing = self.resizing;
-        let surface_width = size.width;
-        let handle = leaf::<DockCommand>(HANDLE_REACH * 2.0, size.height).event(
-            move |_arena, event, _leaf_size| match event {
-                Event::AnimationClock { now } if animating => {
-                    EventResult::Command(DockCommand::Tick(*now))
-                }
-                Event::MouseDown { .. } if !animating => {
-                    EventResult::Command(DockCommand::BeginResize)
-                }
-                Event::MouseDrag { point, .. } if resizing => {
-                    let width = (surface_width - (edge - HANDLE_REACH) - point.x)
-                        .clamp(DOCK_MIN_WIDTH, surface_width * DOCK_MAX_RATIO);
-                    EventResult::Command(DockCommand::Resize(width))
-                }
-                Event::MouseUp { .. } if resizing => EventResult::Command(DockCommand::EndResize),
-                _ => EventResult::Ignored,
-            },
-        );
-        surface.place(edge - HANDLE_REACH, 0.0, handle);
-
-        if animating {
-            let clock =
-                leaf::<DockCommand>(1.0, 1.0).event(move |_arena, event, _size| match event {
-                    Event::AnimationClock { now } => EventResult::Command(DockCommand::Tick(*now)),
+            let theme = crate::env::Themes::of(store);
+            let chrome = &theme.ui().peeker;
+            let body_bg = chrome.background.0;
+            let rule = chrome.rule.0;
+            let body_width = self.width.max(1.0);
+            let mut body = container(arena, Size::new(body_width, size.height));
+            let backdrop = leaf::<DockCommand>(body_width, size.height)
+                .paint_instead(move |_arena, canvas, rect| {
+                    let mut paint = Paint::default();
+                    paint.set_color(body_bg);
+                    canvas.draw_rect(rect, &paint);
+                    let mut hairline = Paint::default();
+                    hairline.set_color(rule);
+                    canvas.draw_rect(
+                        Rect::from_xywh(rect.left, rect.top, 1.0, rect.height()),
+                        &hairline,
+                    );
+                })
+                .event(|_arena, event, _size| match event {
+                    Event::MouseDown { .. } => EventResult::Handled,
                     _ => EventResult::Ignored,
-                });
-            surface.place(0.0, 0.0, clock);
-        }
-        surface
+                })
+                .hit_opaque();
+            body.place(0.0, 0.0, backdrop);
+            let content = self
+                .content
+                .as_ref()
+                .layout_dyn(
+                    arena,
+                    store,
+                    ui,
+                    Constraints::tight(Size::new((body_width - 1.0).max(1.0), size.height)),
+                )
+                .map(DockCommand::Content);
+            body.place(1.0, 0.0, content);
+            surface.place(edge, 0.0, body);
+
+            let animating = self.reveal.running();
+            let resizing = self.resizing;
+            let surface_width = size.width;
+            let handle = leaf::<DockCommand>(HANDLE_REACH * 2.0, size.height).event(
+                move |_arena, event, _leaf_size| match event {
+                    Event::AnimationClock { now } if animating => {
+                        EventResult::Command(DockCommand::Tick(*now))
+                    }
+                    Event::MouseDown { .. } if !animating => {
+                        EventResult::Command(DockCommand::BeginResize)
+                    }
+                    Event::MouseDrag { point, .. } if resizing => {
+                        let width = (surface_width - (edge - HANDLE_REACH) - point.x)
+                            .clamp(DOCK_MIN_WIDTH, surface_width * DOCK_MAX_RATIO);
+                        EventResult::Command(DockCommand::Resize(width))
+                    }
+                    Event::MouseUp { .. } if resizing => {
+                        EventResult::Command(DockCommand::EndResize)
+                    }
+                    _ => EventResult::Ignored,
+                },
+            );
+            surface.place(edge - HANDLE_REACH, 0.0, handle);
+
+            if animating {
+                let clock =
+                    leaf::<DockCommand>(1.0, 1.0).event(move |_arena, event, _size| match event {
+                        Event::AnimationClock { now } => {
+                            EventResult::Command(DockCommand::Tick(*now))
+                        }
+                        _ => EventResult::Ignored,
+                    });
+                surface.place(0.0, 0.0, clock);
+            }
+            surface
+        })
     }
 }
 

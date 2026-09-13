@@ -610,212 +610,213 @@ impl View for Cell {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let chrome = env::Themes::of(store).ui().chat.clone();
-        let width = constraints.max.width.max(1.0);
-        let (card_x, card_width) = Self::card_geometry(self.kind, &chrome, width);
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let chrome = env::Themes::of(store).ui().chat.clone();
+            let width = constraints.max.width.max(1.0);
+            let (card_x, card_width) = Self::card_geometry(self.kind, &chrome, width);
 
-        let tools = if let CellBody::Tools(group) = &self.body {
-            let inner_width = (card_width - chrome.pad * 2.0).max(120.0);
-            let rows = group
-                .layout(
-                    arena,
-                    store,
-                    ui,
-                    Constraints {
-                        min: Size::new(inner_width, 0.0),
-                        max: Size::new(inner_width, f32::MAX),
-                    },
-                )
-                .map(CellCommand::ToolRows);
-            let card_height = rows.size().height + chrome.pad * 2.0;
-            let mut card = container(arena, Size::new(width, card_height + chrome.gap));
-            let border = chrome.input_border.0;
-            let surface = cell_surface(CellKind::Tool, &chrome);
-            let radius = chrome.radius;
-            let backdrop = leaf::<CellCommand>(card_width, card_height).paint_instead(
-                move |_arena, canvas, rect| {
-                    let mut paint = Paint::default();
-                    paint.set_anti_alias(true);
-                    if let Some(surface) = surface {
-                        paint.set_color(surface);
-                        canvas.draw_round_rect(rect, radius, radius, &paint);
-                    }
-                    paint.set_stroke(true);
-                    paint.set_stroke_width(1.0);
-                    paint.set_color(border);
-                    canvas.draw_round_rect(rect.with_inset((0.5, 0.5)), radius, radius, &paint);
-                },
-            );
-            card.place(card_x, 0.0, backdrop);
-            card.place(card_x + chrome.pad, chrome.pad, rows);
-            Some(card)
-        } else {
-            None
-        };
-
-        let (header, editor, diff, header_h) = match &self.body {
-            CellBody::Markdown(editor) => (None, Some(editor), None, 0.0),
-            CellBody::PendingDiff { header, .. } => {
-                (Some((header, true)), None, None, Self::header_band(&chrome))
-            }
-            CellBody::Diff { header, view } => (
-                Some((header, false)),
-                None,
-                Some(view),
-                Self::header_band(&chrome),
-            ),
-
-            CellBody::Tools(_) => (None, None, None, 0.0),
-        };
-
-        let editor_target = match &self.body {
-            CellBody::Diff { .. } => {
-                (card_width - chrome.pad * 2.0 - chrome_gutter(store)).max(120.0)
-            }
-            _ => Self::editor_width(self.kind, &chrome, width),
-        };
-
-        let header_h = match self.kind {
-            CellKind::User => Self::header_band(&chrome),
-            _ => header_h,
-        };
-        let diff_thunk = diff.map(|view| {
-            view.layout(
-                arena,
-                store,
-                ui,
-                Constraints {
-                    min: Size::new(editor_target, 0.0),
-                    max: Size::new(editor_target + chrome_gutter(store), f32::MAX),
-                },
-            )
-            .map(CellCommand::Diff)
-        });
-        let editor_height = editor
-            .map(|editor| editor.content_height().max(chrome.min_cell_height))
-            .or_else(|| {
-                diff_thunk
-                    .as_ref()
-                    .map(|thunk| thunk.size().height.max(chrome.min_cell_height))
-            })
-            .unwrap_or(0.0);
-        let card_height = header_h + editor_height + chrome.pad * 2.0;
-        let height = card_height + chrome.gap;
-
-        let is_tools = tools.is_some();
-        let mut card = tools.unwrap_or_else(|| container(arena, Size::new(width, height)));
-        if !is_tools {
-            let border = match self.kind {
-                CellKind::Tool | CellKind::Reasoning => Some(chrome.input_border.0),
-                CellKind::Error => Some(chrome.stop_color.0),
-                CellKind::User | CellKind::Agent | CellKind::Notice => None,
-            };
-            let surface = cell_surface(self.kind, &chrome);
-            if surface.is_some() || border.is_some() {
+            let tools = if let CellBody::Tools(group) = &self.body {
+                let inner_width = (card_width - chrome.pad * 2.0).max(120.0);
+                let rows = group
+                    .layout(
+                        arena,
+                        store,
+                        ui,
+                        Constraints {
+                            min: Size::new(inner_width, 0.0),
+                            max: Size::new(inner_width, f32::MAX),
+                        },
+                    )
+                    .map(CellCommand::ToolRows);
+                let card_height = rows.size().height + chrome.pad * 2.0;
+                let mut card = container(arena, Size::new(width, card_height + chrome.gap));
+                let border = chrome.input_border.0;
+                let surface = cell_surface(CellKind::Tool, &chrome);
                 let radius = chrome.radius;
                 let backdrop = leaf::<CellCommand>(card_width, card_height).paint_instead(
                     move |_arena, canvas, rect| {
-                        let card_rect =
-                            Rect::from_xywh(rect.left, rect.top, rect.width(), rect.height());
                         let mut paint = Paint::default();
                         paint.set_anti_alias(true);
                         if let Some(surface) = surface {
                             paint.set_color(surface);
-                            canvas.draw_round_rect(card_rect, radius, radius, &paint);
+                            canvas.draw_round_rect(rect, radius, radius, &paint);
                         }
-                        if let Some(border) = border {
-                            paint.set_stroke(true);
-                            paint.set_stroke_width(1.0);
-                            paint.set_color(border);
-                            canvas.draw_round_rect(
-                                card_rect.with_inset((0.5, 0.5)),
-                                radius,
-                                radius,
-                                &paint,
-                            );
-                        }
+                        paint.set_stroke(true);
+                        paint.set_stroke_width(1.0);
+                        paint.set_color(border);
+                        canvas.draw_round_rect(rect.with_inset((0.5, 0.5)), radius, radius, &paint);
                     },
                 );
                 card.place(card_x, 0.0, backdrop);
-            }
-            if matches!(self.kind, CellKind::User) {
-                let bar_color = chrome.notice_color.0;
-                let bar = leaf::<CellCommand>(3.0, card_height).paint_instead(
-                    move |_arena, canvas, rect| {
-                        let mut paint = Paint::default();
-                        paint.set_color(bar_color);
-                        canvas.draw_rect(rect, &paint);
+                card.place(card_x + chrome.pad, chrome.pad, rows);
+                Some(card)
+            } else {
+                None
+            };
+
+            let (header, editor, diff, header_h) = match &self.body {
+                CellBody::Markdown(editor) => (None, Some(editor), None, 0.0),
+                CellBody::PendingDiff { header, .. } => {
+                    (Some((header, true)), None, None, Self::header_band(&chrome))
+                }
+                CellBody::Diff { header, view } => (
+                    Some((header, false)),
+                    None,
+                    Some(view),
+                    Self::header_band(&chrome),
+                ),
+
+                CellBody::Tools(_) => (None, None, None, 0.0),
+            };
+
+            let editor_target = match &self.body {
+                CellBody::Diff { .. } => {
+                    (card_width - chrome.pad * 2.0 - chrome_gutter(store)).max(120.0)
+                }
+                _ => Self::editor_width(self.kind, &chrome, width),
+            };
+
+            let header_h = match self.kind {
+                CellKind::User => Self::header_band(&chrome),
+                _ => header_h,
+            };
+            let diff_thunk = diff.map(|view| {
+                view.layout(
+                    arena,
+                    store,
+                    ui,
+                    Constraints {
+                        min: Size::new(editor_target, 0.0),
+                        max: Size::new(editor_target + chrome_gutter(store), f32::MAX),
                     },
-                );
-                card.place(0.0, 0.0, bar);
-                let label_font = crate::fonts::ui_text_font(ui, chrome.title_size * 0.8);
-                let label_chrome = chrome.clone();
-                let label = leaf::<CellCommand>(card_width, header_h).paint_instead(
-                    move |_arena, canvas, rect| {
-                        let mut paint = Paint::default();
-                        paint.set_anti_alias(true);
-                        paint.set_color(label_chrome.notice_color.0);
-                        let mut x = rect.left + label_chrome.pad;
-                        let baseline = rect.top + rect.height() * 0.65;
-                        for ch in "YOU".chars() {
-                            let glyph = ch.to_string();
-                            canvas.draw_str(&glyph, (x, baseline), &label_font, &paint);
-                            x += label_font.measure_str(&glyph, None).0 + 1.5;
-                        }
-                    },
-                );
-                card.place(0.0, 0.0, label);
+                )
+                .map(CellCommand::Diff)
+            });
+            let editor_height = editor
+                .map(|editor| editor.content_height().max(chrome.min_cell_height))
+                .or_else(|| {
+                    diff_thunk
+                        .as_ref()
+                        .map(|thunk| thunk.size().height.max(chrome.min_cell_height))
+                })
+                .unwrap_or(0.0);
+            let card_height = header_h + editor_height + chrome.pad * 2.0;
+            let height = card_height + chrome.gap;
+
+            let is_tools = tools.is_some();
+            let mut card = tools.unwrap_or_else(|| container(arena, Size::new(width, height)));
+            if !is_tools {
+                let border = match self.kind {
+                    CellKind::Tool | CellKind::Reasoning => Some(chrome.input_border.0),
+                    CellKind::Error => Some(chrome.stop_color.0),
+                    CellKind::User | CellKind::Agent | CellKind::Notice => None,
+                };
+                let surface = cell_surface(self.kind, &chrome);
+                if surface.is_some() || border.is_some() {
+                    let radius = chrome.radius;
+                    let backdrop = leaf::<CellCommand>(card_width, card_height).paint_instead(
+                        move |_arena, canvas, rect| {
+                            let card_rect =
+                                Rect::from_xywh(rect.left, rect.top, rect.width(), rect.height());
+                            let mut paint = Paint::default();
+                            paint.set_anti_alias(true);
+                            if let Some(surface) = surface {
+                                paint.set_color(surface);
+                                canvas.draw_round_rect(card_rect, radius, radius, &paint);
+                            }
+                            if let Some(border) = border {
+                                paint.set_stroke(true);
+                                paint.set_stroke_width(1.0);
+                                paint.set_color(border);
+                                canvas.draw_round_rect(
+                                    card_rect.with_inset((0.5, 0.5)),
+                                    radius,
+                                    radius,
+                                    &paint,
+                                );
+                            }
+                        },
+                    );
+                    card.place(card_x, 0.0, backdrop);
+                }
+                if matches!(self.kind, CellKind::User) {
+                    let bar_color = chrome.notice_color.0;
+                    let bar = leaf::<CellCommand>(3.0, card_height).paint_instead(
+                        move |_arena, canvas, rect| {
+                            let mut paint = Paint::default();
+                            paint.set_color(bar_color);
+                            canvas.draw_rect(rect, &paint);
+                        },
+                    );
+                    card.place(0.0, 0.0, bar);
+                    let label_font = crate::fonts::ui_text_font(ui, chrome.title_size * 0.8);
+                    let label_chrome = chrome.clone();
+                    let label = leaf::<CellCommand>(card_width, header_h).paint_instead(
+                        move |_arena, canvas, rect| {
+                            let mut paint = Paint::default();
+                            paint.set_anti_alias(true);
+                            paint.set_color(label_chrome.notice_color.0);
+                            let mut x = rect.left + label_chrome.pad;
+                            let baseline = rect.top + rect.height() * 0.65;
+                            for ch in "YOU".chars() {
+                                let glyph = ch.to_string();
+                                canvas.draw_str(&glyph, (x, baseline), &label_font, &paint);
+                                x += label_font.measure_str(&glyph, None).0 + 1.5;
+                            }
+                        },
+                    );
+                    card.place(0.0, 0.0, label);
+                }
+                if let Some((header, pending)) = header {
+                    card.place(
+                        card_x,
+                        0.0,
+                        header_band_widget(ui, &chrome, header, pending, card_width, header_h),
+                    );
+                }
+                if let Some(editor) = editor {
+                    card.place(
+                        card_x + chrome.pad,
+                        header_h + chrome.pad,
+                        editor
+                            .layout(
+                                arena,
+                                store,
+                                ui,
+                                Constraints {
+                                    min: Size::new(editor_target, editor_height),
+                                    max: Size::new(editor_target + editor.gutter_width, f32::MAX),
+                                },
+                            )
+                            .map(CellCommand::Editor),
+                    );
+                }
+                if let Some(thunk) = diff_thunk {
+                    card.place(card_x + chrome.pad, header_h + chrome.pad, thunk);
+                }
             }
-            if let Some((header, pending)) = header {
-                card.place(
-                    card_x,
-                    0.0,
-                    header_band_widget(ui, &chrome, header, pending, card_width, header_h),
-                );
-            }
-            if let Some(editor) = editor {
-                card.place(
-                    card_x + chrome.pad,
-                    header_h + chrome.pad,
-                    editor
-                        .layout(
-                            arena,
-                            store,
-                            ui,
-                            Constraints {
-                                min: Size::new(editor_target, editor_height),
-                                max: Size::new(editor_target + editor.gutter_width, f32::MAX),
-                            },
-                        )
-                        .map(CellCommand::Editor),
-                );
-            }
-            if let Some(thunk) = diff_thunk {
-                card.place(card_x + chrome.pad, header_h + chrome.pad, thunk);
-            }
-        }
-        let rewrap = match &self.body {
-            CellBody::Markdown(editor) => {
-                ((editor.layout_width() - editor_target).abs() > 1.0).then_some(editor_target)
-            }
-            CellBody::Diff { view, .. } => {
-                let laid = view
-                    .split
-                    .right
-                    .document
-                    .layout_width(view.split.right.editor);
-                ((laid - editor_target).abs() > 1.0).then_some(editor_target)
-            }
-            _ => None,
-        };
-        card.wrap(move |inner| CellWidget { inner, rewrap })
+            let rewrap = match &self.body {
+                CellBody::Markdown(editor) => {
+                    ((editor.layout_width() - editor_target).abs() > 1.0).then_some(editor_target)
+                }
+                CellBody::Diff { view, .. } => {
+                    let laid = view
+                        .split
+                        .right
+                        .document
+                        .layout_width(view.split.right.editor);
+                    ((laid - editor_target).abs() > 1.0).then_some(editor_target)
+                }
+                _ => None,
+            };
+            card.wrap(move |inner| CellWidget { inner, rewrap })
+        })
     }
 }
 

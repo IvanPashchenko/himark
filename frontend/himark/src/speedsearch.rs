@@ -12,7 +12,7 @@ use imba::{
     list::SearchableList,
     store::Store,
     thunk_ext::ThunkExt,
-    Thunk, UiCtx, View,
+    UiCtx, View,
 };
 use skia_safe::{Paint, Rect, Size};
 
@@ -249,80 +249,83 @@ where
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let size = constraints.max;
-        let mut root = imba::container::container(arena, size);
-        let inner = self
-            .inner
-            .layout(arena, store, ui, constraints)
-            .map(SpeedSearchCommand::Inner);
-        root.place(0.0, 0.0, inner);
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let size = constraints.max;
+            let mut root = imba::container::container(arena, size);
+            let inner = self
+                .inner
+                .layout(arena, store, ui, constraints)
+                .map(SpeedSearchCommand::Inner);
+            root.place(0.0, 0.0, inner);
 
-        let searching = self.searching();
-        let chrome = crate::env::Themes::of(store).ui().peeker.clone();
-        // The pill wraps the input editor's TRUE line height — the
-        // chrome never clips the text it hosts.
-        let input_height = self.input.content_height().max(1.0);
-        let pill_height = (input_height + 6.0).max(chrome.row_height * 0.75);
+            let searching = self.searching();
+            let chrome = crate::env::Themes::of(store).ui().peeker.clone();
+            // The pill wraps the input editor's TRUE line height — the
+            // chrome never clips the text it hosts.
+            let input_height = self.input.content_height().max(1.0);
+            let pill_height = (input_height + 6.0).max(chrome.row_height * 0.75);
 
-        let input = self
-            .input
-            .layout(
-                arena,
-                store,
-                ui,
-                Constraints::tight(Size::new(PILL_INPUT_WIDTH, input_height)),
+            let input = self
+                .input
+                .layout(
+                    arena,
+                    store,
+                    ui,
+                    Constraints::tight(Size::new(PILL_INPUT_WIDTH, input_height)),
+                )
+                .map(SpeedSearchCommand::Input)
+                .wrap(move |inner| ChainGate {
+                    inner,
+                    open: searching,
+                });
+            let pill_width = PILL_INPUT_WIDTH + 16.0;
+            let mut pill = imba::container::container(arena, Size::new(pill_width, pill_height));
+            if searching {
+                let fill = chrome.background.0;
+                let rule = chrome.rule.0;
+                let backdrop =
+                    imba::leaf::leaf::<SpeedSearchCommand<T::Command>>(pill_width, pill_height)
+                        .paint_instead(move |_arena, canvas, rect| {
+                            let mut paint = Paint::default();
+                            paint.set_anti_alias(true);
+                            paint.set_color(fill);
+                            canvas.draw_round_rect(rect, 6.0, 6.0, &paint);
+                            let mut edge = Paint::default();
+                            edge.set_anti_alias(true);
+                            edge.set_color(rule);
+                            edge.set_style(skia_safe::paint::Style::Stroke);
+                            canvas.draw_round_rect(
+                                Rect::from_xywh(
+                                    rect.left + 0.5,
+                                    rect.top + 0.5,
+                                    rect.width() - 1.0,
+                                    rect.height() - 1.0,
+                                ),
+                                6.0,
+                                6.0,
+                                &edge,
+                            );
+                        });
+                pill.place(0.0, 0.0, backdrop);
+            }
+            pill.place(8.0, ((pill_height - input_height) * 0.5).max(0.0), input);
+            root.place((size.width - pill_width - 8.0).max(0.0), 4.0, pill);
+
+            let stale = searching
+                && self.launched.as_ref().is_some_and(|(query, generation)| {
+                    *generation != self.searcher.generation(&self.inner) || *query != self.query()
+                });
+            let armed = searching;
+            let keymap = imba::leaf::leaf::<SpeedSearchCommand<T::Command>>(
+                size.width,
+                size.height,
             )
-            .map(SpeedSearchCommand::Input)
-            .wrap(move |inner| ChainGate {
-                inner,
-                open: searching,
-            });
-        let pill_width = PILL_INPUT_WIDTH + 16.0;
-        let mut pill = imba::container::container(arena, Size::new(pill_width, pill_height));
-        if searching {
-            let fill = chrome.background.0;
-            let rule = chrome.rule.0;
-            let backdrop =
-                imba::leaf::leaf::<SpeedSearchCommand<T::Command>>(pill_width, pill_height)
-                    .paint_instead(move |_arena, canvas, rect| {
-                        let mut paint = Paint::default();
-                        paint.set_anti_alias(true);
-                        paint.set_color(fill);
-                        canvas.draw_round_rect(rect, 6.0, 6.0, &paint);
-                        let mut edge = Paint::default();
-                        edge.set_anti_alias(true);
-                        edge.set_color(rule);
-                        edge.set_style(skia_safe::paint::Style::Stroke);
-                        canvas.draw_round_rect(
-                            Rect::from_xywh(
-                                rect.left + 0.5,
-                                rect.top + 0.5,
-                                rect.width() - 1.0,
-                                rect.height() - 1.0,
-                            ),
-                            6.0,
-                            6.0,
-                            &edge,
-                        );
-                    });
-            pill.place(0.0, 0.0, backdrop);
-        }
-        pill.place(8.0, ((pill_height - input_height) * 0.5).max(0.0), input);
-        root.place((size.width - pill_width - 8.0).max(0.0), 4.0, pill);
-
-        let stale = searching
-            && self.launched.as_ref().is_some_and(|(query, generation)| {
-                *generation != self.searcher.generation(&self.inner) || *query != self.query()
-            });
-        let armed = searching;
-        let keymap = imba::leaf::leaf::<SpeedSearchCommand<T::Command>>(size.width, size.height)
             .event(move |_arena, event, _size| match event {
                 Event::Paint { .. } if stale => EventResult::Command(SpeedSearchCommand::Refresh),
                 Event::KeyDown {
@@ -338,8 +341,9 @@ where
                 } if armed => EventResult::Command(SpeedSearchCommand::Clear),
                 _ => EventResult::Ignored,
             });
-        root.place(0.0, 0.0, keymap);
-        root
+            root.place(0.0, 0.0, keymap);
+            root
+        })
     }
 }
 

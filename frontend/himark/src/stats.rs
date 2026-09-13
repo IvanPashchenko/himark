@@ -9,9 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use imba::{
-    arena::Arena, constraints::Constraints, store::Store, thunk_ext::ThunkExt, Thunk, View,
-};
+use imba::{arena::Arena, constraints::Constraints, store::Store, thunk_ext::ThunkExt, View};
 use skia_safe::{Canvas, Font, Paint, Rect};
 
 const FPS_WINDOW: Duration = Duration::from_millis(500);
@@ -154,15 +152,17 @@ impl View for Stats {
         match command {}
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         _arena: &'a Arena,
         store: &'a Store,
         _ui: &'a imba::UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let theme = ::editor::env::Themes::of(store);
-        imba::leaf::leaf(constraints.max.width, constraints.max.height)
-            .paint_instead(move |_arena, canvas, rect| self.paint(canvas, rect, &theme.ui().stats))
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let theme = ::editor::env::Themes::of(store);
+            imba::leaf::leaf(constraints.max.width, constraints.max.height).paint_instead(
+                move |_arena, canvas, rect| self.paint(canvas, rect, &theme.ui().stats),
+            )
+        })
     }
 }

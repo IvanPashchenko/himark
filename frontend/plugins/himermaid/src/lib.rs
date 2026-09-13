@@ -9,8 +9,8 @@ use himark::{
     SyntaxTree,
 };
 use imba::{
-    arena::Arena, constraints::Constraints, store::Store, svg::SvgView, thunk_ext::ThunkExt, Thunk,
-    UiCtx, View,
+    arena::Arena, constraints::Constraints, store::Store, svg::SvgView, thunk_ext::ThunkExt, UiCtx,
+    View,
 };
 use skia_safe::{Canvas, Paint, Rect, Size};
 use text::Text;
@@ -238,16 +238,17 @@ impl View for MermaidView {
         match command {}
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         _arena: &'a Arena,
         _store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let size = self.scaled(constraints.max.width);
-        imba::leaf::leaf(size.width, size.height)
-            .paint_instead(move |_, canvas, rect| self.paint(ui, canvas, rect))
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let size = self.scaled(constraints.max.width);
+            imba::leaf::leaf(size.width, size.height)
+                .paint_instead(move |_, canvas, rect| self.paint(ui, canvas, rect))
+        })
     }
 }
 

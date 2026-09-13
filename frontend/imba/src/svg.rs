@@ -6,8 +6,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use skia_safe::{Canvas, Rect, Size};
 
 use crate::{
-    arena::Arena, constraints::Constraints, store::Store, thunk_ext::ThunkExt, ui::UiCtx, Thunk,
-    View,
+    arena::Arena, constraints::Constraints, store::Store, thunk_ext::ThunkExt, ui::UiCtx, View,
 };
 
 fn fontdb() -> &'static Arc<resvg::usvg::fontdb::Database> {
@@ -175,16 +174,17 @@ impl View for SvgView {
         match command {}
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         _arena: &'a Arena,
         _store: &'a Store,
         _ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let size = self.scaled(constraints.max.width);
-        crate::leaf::leaf(size.width, size.height)
-            .paint_instead(move |_, canvas, rect| self.paint(canvas, rect))
+    ) -> impl crate::Layout<'a, Self::Command> + 'a {
+        crate::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let size = self.scaled(constraints.max.width);
+            crate::leaf::leaf(size.width, size.height)
+                .paint_instead(move |_, canvas, rect| self.paint(canvas, rect))
+        })
     }
 }
 

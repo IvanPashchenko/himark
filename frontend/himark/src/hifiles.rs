@@ -16,7 +16,7 @@ use imba::{
     scroll::ScrollView,
     store::Store,
     thunk_ext::ThunkExt,
-    Thunk, UiCtx, View, Widget,
+    UiCtx, View, Widget,
 };
 use skia_safe::{Paint, PathBuilder, Size};
 
@@ -676,101 +676,103 @@ impl View for SessionTreeView {
         self.persist(store);
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let size = constraints.max;
-        let mut overlay = container(arena, size);
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let size = constraints.max;
+            let mut overlay = container(arena, size);
 
-        let rows = self
-            .tree
-            .list
-            .layout(
-                arena,
-                store,
-                ui,
-                Constraints::tight(Size::new(size.width, size.height - PANEL_PAD)),
-            )
-            .map(TreeCommand::Rows);
-        overlay.place(0.0, PANEL_PAD, rows);
+            let rows = self
+                .tree
+                .list
+                .layout(
+                    arena,
+                    store,
+                    ui,
+                    Constraints::tight(Size::new(size.width, size.height - PANEL_PAD)),
+                )
+                .map(TreeCommand::Rows);
+            overlay.place(0.0, PANEL_PAD, rows);
 
-        let searching = self.tree.list.searching();
-        let keymap =
-            leaf::<TreeCommand>(size.width, size.height).event(move |_arena, event, _size| {
-                match event {
-                    Event::KeyDown {
-                        key: InputKey::Escape,
-                        ..
-                    } if !searching => EventResult::Command(TreeCommand::Dismiss),
-                    Event::KeyDown {
-                        key: InputKey::Up, ..
-                    } if !searching => EventResult::Command(TreeCommand::Select(-1)),
-                    Event::KeyDown {
-                        key: InputKey::Down,
-                        ..
-                    } if !searching => EventResult::Command(TreeCommand::Select(1)),
-                    Event::KeyDown {
-                        key: InputKey::Left,
-                        ..
-                    } if !searching => EventResult::Command(TreeCommand::Fold(false)),
-                    Event::KeyDown {
-                        key: InputKey::Right,
-                        ..
-                    } if !searching => EventResult::Command(TreeCommand::Fold(true)),
-                    Event::KeyDown {
-                        key: InputKey::Enter,
-                        ..
-                    } if searching => EventResult::Commands(vec![
-                        TreeCommand::Pick,
-                        TreeCommand::Rows(SpeedSearchCommand::Clear),
-                    ]),
-                    Event::KeyDown {
-                        key: InputKey::Enter,
-                        ..
-                    } => EventResult::Command(TreeCommand::Pick),
+            let searching = self.tree.list.searching();
+            let keymap =
+                leaf::<TreeCommand>(size.width, size.height).event(move |_arena, event, _size| {
+                    match event {
+                        Event::KeyDown {
+                            key: InputKey::Escape,
+                            ..
+                        } if !searching => EventResult::Command(TreeCommand::Dismiss),
+                        Event::KeyDown {
+                            key: InputKey::Up, ..
+                        } if !searching => EventResult::Command(TreeCommand::Select(-1)),
+                        Event::KeyDown {
+                            key: InputKey::Down,
+                            ..
+                        } if !searching => EventResult::Command(TreeCommand::Select(1)),
+                        Event::KeyDown {
+                            key: InputKey::Left,
+                            ..
+                        } if !searching => EventResult::Command(TreeCommand::Fold(false)),
+                        Event::KeyDown {
+                            key: InputKey::Right,
+                            ..
+                        } if !searching => EventResult::Command(TreeCommand::Fold(true)),
+                        Event::KeyDown {
+                            key: InputKey::Enter,
+                            ..
+                        } if searching => EventResult::Commands(vec![
+                            TreeCommand::Pick,
+                            TreeCommand::Rows(SpeedSearchCommand::Clear),
+                        ]),
+                        Event::KeyDown {
+                            key: InputKey::Enter,
+                            ..
+                        } => EventResult::Command(TreeCommand::Pick),
 
-                    Event::ThemeChanged => EventResult::Command(TreeCommand::Retheme),
-                    _ => EventResult::Ignored,
-                }
-            });
-        overlay.place(0.0, 0.0, keymap);
+                        Event::ThemeChanged => EventResult::Command(TreeCommand::Retheme),
+                        _ => EventResult::Ignored,
+                    }
+                });
+            overlay.place(0.0, 0.0, keymap);
 
-        let watched = self.tree.by_subscription.clone();
-        let inner = overlay.event(move |_arena, event, _size| match event {
-            Event::UserEvent(payload) => match payload.downcast_ref::<crate::watch::FilesChanged>()
-            {
-                Some(changed) => {
-                    let ours: Vec<crate::Subscription> = changed
-                        .0
-                        .iter()
-                        .copied()
-                        .filter(|subscription| watched.contains_key(subscription))
-                        .collect();
-                    match ours.is_empty() {
-                        true => EventResult::Ignored,
-                        false => EventResult::Command(TreeCommand::Changed(ours)),
+            let watched = self.tree.by_subscription.clone();
+            let inner = overlay.event(move |_arena, event, _size| match event {
+                Event::UserEvent(payload) => {
+                    match payload.downcast_ref::<crate::watch::FilesChanged>() {
+                        Some(changed) => {
+                            let ours: Vec<crate::Subscription> = changed
+                                .0
+                                .iter()
+                                .copied()
+                                .filter(|subscription| watched.contains_key(subscription))
+                                .collect();
+                            match ours.is_empty() {
+                                true => EventResult::Ignored,
+                                false => EventResult::Command(TreeCommand::Changed(ours)),
+                            }
+                        }
+                        _ => EventResult::Ignored,
                     }
                 }
                 _ => EventResult::Ignored,
-            },
-            _ => EventResult::Ignored,
-        });
+            });
 
-        let follow = self.window.and_then(|window| {
-            let entity = crate::Windows::window_ref(store, window)?;
-            match entity.focus_generation() != self.followed {
-                true => entity
-                    .focused_location()
-                    .cloned()
-                    .map(|location| (location, entity.focus_generation())),
-                false => None,
-            }
-        });
-        inner.wrap(move |inner| FollowShell { inner, follow })
+            let follow = self.window.and_then(|window| {
+                let entity = crate::Windows::window_ref(store, window)?;
+                match entity.focus_generation() != self.followed {
+                    true => entity
+                        .focused_location()
+                        .cloned()
+                        .map(|location| (location, entity.focus_generation())),
+                    false => None,
+                }
+            });
+            inner.wrap(move |inner| FollowShell { inner, follow })
+        })
     }
 }
 

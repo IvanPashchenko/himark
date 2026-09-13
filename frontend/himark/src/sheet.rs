@@ -12,7 +12,7 @@ use imba::{
     leaf::leaf,
     store::Store,
     thunk_ext::ThunkExt,
-    Thunk, UiCtx, View,
+    UiCtx, View,
 };
 
 const SLIDE_MS: f64 = 160.0;
@@ -205,84 +205,85 @@ impl View for Sheet {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let size = constraints.max;
-        let theme = ::editor::env::Themes::of(store);
-        let chrome = theme.ui().sheet.clone();
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let size = constraints.max;
+            let theme = ::editor::env::Themes::of(store);
+            let chrome = theme.ui().sheet.clone();
 
-        let fill = theme.ui().window.background.0;
-        let rect = self.rect(&chrome, store, size);
-        let mut surface = container(arena, size);
+            let fill = theme.ui().window.background.0;
+            let rect = self.rect(&chrome, store, size);
+            let mut surface = container(arena, size);
 
-        let cast = chrome.cast;
-        let cast_border = chrome.cast_border.0;
-        surface.place(
-            rect.left + cast,
-            rect.top + cast,
-            leaf::<SheetCommand>(rect.width(), rect.height()).paint_instead(
-                move |_arena, canvas, paint_rect| {
-                    let mut paint = skia_safe::Paint::default();
-                    paint.set_style(skia_safe::PaintStyle::Stroke);
-                    paint.set_stroke_width(2.0);
-                    paint.set_color(cast_border);
-                    canvas.draw_rect(paint_rect.with_inset((1.0, 1.0)), &paint);
-                },
-            ),
-        );
+            let cast = chrome.cast;
+            let cast_border = chrome.cast_border.0;
+            surface.place(
+                rect.left + cast,
+                rect.top + cast,
+                leaf::<SheetCommand>(rect.width(), rect.height()).paint_instead(
+                    move |_arena, canvas, paint_rect| {
+                        let mut paint = skia_safe::Paint::default();
+                        paint.set_style(skia_safe::PaintStyle::Stroke);
+                        paint.set_stroke_width(2.0);
+                        paint.set_color(cast_border);
+                        canvas.draw_rect(paint_rect.with_inset((1.0, 1.0)), &paint);
+                    },
+                ),
+            );
 
-        let border = chrome.border.0;
-        surface.place(
-            rect.left,
-            rect.top,
-            leaf::<SheetCommand>(rect.width(), rect.height())
-                .paint_instead(move |_arena, canvas, paint_rect| {
-                    let mut paint = skia_safe::Paint::default();
-                    paint.set_style(skia_safe::PaintStyle::Fill);
-                    paint.set_color(fill);
-                    canvas.draw_rect(paint_rect, &paint);
-                    paint.set_style(skia_safe::PaintStyle::Stroke);
-                    paint.set_stroke_width(2.0);
-                    paint.set_color(border);
-                    canvas.draw_rect(paint_rect.with_inset((1.0, 1.0)), &paint);
-                })
-                .hit_opaque(),
-        );
-        let content = self
-            .pane
-            .as_ref()
-            .layout_dyn(
-                arena,
-                store,
-                ui,
-                Constraints::tight(Size::new(rect.width(), rect.height())),
-            )
-            .map(SheetCommand::Content);
-        surface.place(rect.left, rect.top, content);
+            let border = chrome.border.0;
+            surface.place(
+                rect.left,
+                rect.top,
+                leaf::<SheetCommand>(rect.width(), rect.height())
+                    .paint_instead(move |_arena, canvas, paint_rect| {
+                        let mut paint = skia_safe::Paint::default();
+                        paint.set_style(skia_safe::PaintStyle::Fill);
+                        paint.set_color(fill);
+                        canvas.draw_rect(paint_rect, &paint);
+                        paint.set_style(skia_safe::PaintStyle::Stroke);
+                        paint.set_stroke_width(2.0);
+                        paint.set_color(border);
+                        canvas.draw_rect(paint_rect.with_inset((1.0, 1.0)), &paint);
+                    })
+                    .hit_opaque(),
+            );
+            let content = self
+                .pane
+                .as_ref()
+                .layout_dyn(
+                    arena,
+                    store,
+                    ui,
+                    Constraints::tight(Size::new(rect.width(), rect.height())),
+                )
+                .map(SheetCommand::Content);
+            surface.place(rect.left, rect.top, content);
 
-        let animating = self.rise.running();
-        let clock =
-            leaf::<SheetCommand>(size.width, size.height).event(move |_arena, event, _size| {
-                match event {
-                    Event::AnimationClock { now } if animating => {
-                        EventResult::Command(SheetCommand::Tick(*now))
+            let animating = self.rise.running();
+            let clock =
+                leaf::<SheetCommand>(size.width, size.height).event(move |_arena, event, _size| {
+                    match event {
+                        Event::AnimationClock { now } if animating => {
+                            EventResult::Command(SheetCommand::Tick(*now))
+                        }
+                        _ => EventResult::Ignored,
                     }
-                    _ => EventResult::Ignored,
-                }
-            });
-        surface.place(0.0, 0.0, clock);
+                });
+            surface.place(0.0, 0.0, clock);
 
-        surface.event(|_arena, event, _size| match event {
-            Event::KeyDown {
-                key: imba::event::Key::Escape,
-                ..
-            } => EventResult::Command(SheetCommand::Toggle),
-            _ => EventResult::Ignored,
+            surface.event(|_arena, event, _size| match event {
+                Event::KeyDown {
+                    key: imba::event::Key::Escape,
+                    ..
+                } => EventResult::Command(SheetCommand::Toggle),
+                _ => EventResult::Ignored,
+            })
         })
     }
 }

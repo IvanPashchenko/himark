@@ -2,9 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::ui::UiCtx;
-use crate::{
-    arena::Arena, constraints::Constraints, store::Store, thunk_ext::ThunkExt, Thunk, View,
-};
+use crate::{arena::Arena, constraints::Constraints, store::Store, thunk_ext::ThunkExt, View};
 
 pub type DynCommand = Box<dyn std::any::Any + Send + Sync>;
 
@@ -103,13 +101,14 @@ impl View for Box<dyn DynView> {
         self.as_mut().perform_dyn(store, ui, command, fx)
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        self.as_ref().layout_dyn(arena, store, ui, constraints)
+    ) -> impl crate::Layout<'a, Self::Command> + 'a {
+        crate::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            self.as_ref().layout_dyn(arena, store, ui, constraints)
+        })
     }
 }

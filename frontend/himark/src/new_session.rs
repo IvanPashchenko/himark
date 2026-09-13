@@ -12,7 +12,7 @@ use imba::{
     scroll::{ScrollCommand, ScrollView},
     store::Store,
     thunk_ext::ThunkExt,
-    Thunk, UiCtx, View, Widget,
+    UiCtx, View, Widget,
 };
 use skia_safe::{Paint, Rect, Size};
 
@@ -75,52 +75,53 @@ impl View for ModelOption {
         match command {}
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         _arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let chrome = crate::env::Themes::of(store).ui().combo.clone();
-        let heading = self.model.is_none();
-        let label = if heading {
-            self.label.to_uppercase()
-        } else {
-            self.label.clone()
-        };
-        let font = if heading {
-            crate::fonts::ui_font(ui, chrome.label_size)
-        } else {
-            crate::fonts::ui_text_font(ui, chrome.menu_row_size)
-        };
-        let text_width = if heading {
-            crate::combo::tracked_width(&font, &label)
-        } else {
-            font.measure_str(&label, None).0
-        };
-        let natural = text_width + chrome.menu_pad * if heading { 2.0 } else { 2.75 };
-        let width = if constraints.max.width.is_finite() {
-            constraints.max.width
-        } else {
-            natural.max(constraints.min.width)
-        };
-        let height = chrome.menu_row_height;
-        leaf::<Self::Command>(width, height).paint_instead(move |_arena, canvas, rect| {
-            let mut paint = Paint::default();
-            paint.set_anti_alias(true);
-            paint.set_color(if heading {
-                chrome.menu_trail.0
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let chrome = crate::env::Themes::of(store).ui().combo.clone();
+            let heading = self.model.is_none();
+            let label = if heading {
+                self.label.to_uppercase()
             } else {
-                chrome.menu_text.0
-            });
-            let baseline = rect.top + (rect.height() + font.size() * 0.7) * 0.5;
-            let x = rect.left + chrome.menu_pad * if heading { 1.0 } else { 1.75 };
-            if heading {
-                crate::combo::draw_tracked(canvas, &font, &paint, &label, x, baseline);
+                self.label.clone()
+            };
+            let font = if heading {
+                crate::fonts::ui_font(ui, chrome.label_size)
             } else {
-                canvas.draw_str(&label, (x, baseline), &font, &paint);
-            }
+                crate::fonts::ui_text_font(ui, chrome.menu_row_size)
+            };
+            let text_width = if heading {
+                crate::combo::tracked_width(&font, &label)
+            } else {
+                font.measure_str(&label, None).0
+            };
+            let natural = text_width + chrome.menu_pad * if heading { 2.0 } else { 2.75 };
+            let width = if constraints.max.width.is_finite() {
+                constraints.max.width
+            } else {
+                natural.max(constraints.min.width)
+            };
+            let height = chrome.menu_row_height;
+            leaf::<Self::Command>(width, height).paint_instead(move |_arena, canvas, rect| {
+                let mut paint = Paint::default();
+                paint.set_anti_alias(true);
+                paint.set_color(if heading {
+                    chrome.menu_trail.0
+                } else {
+                    chrome.menu_text.0
+                });
+                let baseline = rect.top + (rect.height() + font.size() * 0.7) * 0.5;
+                let x = rect.left + chrome.menu_pad * if heading { 1.0 } else { 1.75 };
+                if heading {
+                    crate::combo::draw_tracked(canvas, &font, &paint, &label, x, baseline);
+                } else {
+                    canvas.draw_str(&label, (x, baseline), &font, &paint);
+                }
+            })
         })
     }
 }
@@ -780,242 +781,200 @@ impl View for NewSessionView {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let size = constraints.max;
-        let themes = crate::env::Themes::of(store);
-        let theme = themes.ui();
-        let controls_h = theme.toolbar.height;
-        let editor_h = (size.height - controls_h).max(1.0);
-        let gutter = theme.editor_gutter.width;
-        let top_pad = theme.chat.pad * 2.0;
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let size = constraints.max;
+            let themes = crate::env::Themes::of(store);
+            let theme = themes.ui();
+            let controls_h = theme.toolbar.height;
+            let editor_h = (size.height - controls_h).max(1.0);
+            let gutter = theme.editor_gutter.width;
+            let top_pad = theme.chat.pad * 2.0;
 
-        let mut root = imba::container::container(arena, size);
+            let mut root = imba::container::container(arena, size);
 
-        let background = theme.window.background.0;
-        let rule = theme.toolbar.rule.0;
-        root.place(
-            0.0,
-            0.0,
-            leaf::<NewSessionCommand>(size.width, size.height).paint_instead(
-                move |_arena, canvas, rect| {
-                    let mut paint = Paint::default();
-                    paint.set_color(background);
-                    canvas.draw_rect(rect, &paint);
-                    paint.set_color(rule);
-                    canvas.draw_rect(
-                        Rect::from_xywh(rect.left, rect.bottom - controls_h, rect.width(), 1.0),
-                        &paint,
-                    );
-                },
-            ),
-        );
-
-        root.place(
-            0.0,
-            top_pad,
-            self.input
-                .layout(
-                    arena,
-                    store,
-                    ui,
-                    Constraints::tight(Size::new(size.width, (editor_h - top_pad).max(1.0))),
-                )
-                .map(NewSessionCommand::Editor)
-                .focus_scope(true),
-        );
-
-        let row_top = size.height - controls_h + 1.0;
-        let row_h = controls_h - 1.0;
-
-        let key_font = crate::fonts::ui_text_font(ui, theme.peeker.hint_size * 0.95);
-        let caps_font = crate::fonts::ui_font(ui, theme.combo.label_size * 1.1);
-        let pad = theme.combo.pad;
-        let start_label = "START SESSION";
-        let start_width = start_label
-            .chars()
-            .map(|ch| caps_font.measure_str(ch.to_string(), None).0 + 1.5)
-            .sum::<f32>()
-            + key_font.measure_str("⌘⏎", None).0
-            + theme.combo.gap
-            + pad * 2.0;
-        let start_x = size.width - start_width;
-
-        let mut row = imba::container::container(
-            arena,
-            Size::new((start_x - theme.combo.gap).max(0.0), row_h),
-        );
-        let mut x = 0.0f32;
-        let context: [(&Combo, fn(ComboCommand) -> NewSessionCommand); 3] = [
-            (&self.host, NewSessionCommand::Host),
-            (&self.dir, NewSessionCommand::Dir),
-            (&self.mode, NewSessionCommand::Mode),
-        ];
-        for (index, (combo, wrap)) in context.into_iter().enumerate() {
-            let width = combo.cell_width(ui, &theme.combo);
-            if let Some(span) = self.cell_spans.get(index) {
-                span.store(
-                    ((x.to_bits() as u64) << 32) | width.to_bits() as u64,
-                    std::sync::atomic::Ordering::Relaxed,
-                );
-            }
-            row.place(x, 0.0, combo.cell(arena, store, ui, row_h).map(wrap));
-            x += width;
-        }
-        let width = self.model.cell_width(ui, &theme.combo);
-        if let Some(span) = self.cell_spans.get(3) {
-            span.store(
-                ((x.to_bits() as u64) << 32) | width.to_bits() as u64,
-                std::sync::atomic::Ordering::Relaxed,
-            );
-        }
-        row.place(
-            x,
-            0.0,
-            self.model
-                .cell(arena, store, ui, row_h)
-                .map(NewSessionCommand::Model),
-        );
-        x += width;
-
-        let choices: [(&Combo, fn(ComboCommand) -> NewSessionCommand); 2] = [
-            (&self.effort, NewSessionCommand::Effort),
-            (&self.edits, NewSessionCommand::Edits),
-        ];
-        for (offset, (combo, wrap)) in choices.into_iter().enumerate() {
-            let width = combo.cell_width(ui, &theme.combo);
-            if let Some(span) = self.cell_spans.get(offset + 4) {
-                span.store(
-                    ((x.to_bits() as u64) << 32) | width.to_bits() as u64,
-                    std::sync::atomic::Ordering::Relaxed,
-                );
-            }
-            row.place(x, 0.0, combo.cell(arena, store, ui, row_h).map(wrap));
-            x += width;
-        }
-        root.place(0.0, row_top, row);
-
-        let hint_font = crate::fonts::ui_text_font(ui, theme.peeker.hint_size);
-
-        let ready = self.ready();
-        let accent = theme.chat.accent.0;
-        let on_accent = theme.chat.on_accent.0;
-        let accent_soft = theme.peeker.dim_text.0;
-        root.place(
-            start_x,
-            row_top,
-            leaf::<NewSessionCommand>(start_width, row_h)
-                .paint_instead({
-                    let caps_font = caps_font.clone();
-                    let key_font = key_font.clone();
+            let background = theme.window.background.0;
+            let rule = theme.toolbar.rule.0;
+            root.place(
+                0.0,
+                0.0,
+                leaf::<NewSessionCommand>(size.width, size.height).paint_instead(
                     move |_arena, canvas, rect| {
                         let mut paint = Paint::default();
-                        let mut fill = accent;
-                        if !ready {
-                            fill = fill.with_a(0x50);
-                        }
-                        paint.set_color(fill.with_a(fill.a() / 3));
+                        paint.set_color(background);
                         canvas.draw_rect(rect, &paint);
-                        paint.set_anti_alias(false);
-                        paint.set_color(fill);
+                        paint.set_color(rule);
                         canvas.draw_rect(
-                            Rect::from_xywh(rect.left, rect.top, 1.0, rect.height()),
+                            Rect::from_xywh(rect.left, rect.bottom - controls_h, rect.width(), 1.0),
                             &paint,
                         );
-                        paint.set_anti_alias(true);
-                        paint.set_color(on_accent);
-                        let mid = rect.top + rect.height() * 0.5;
-                        let mut cx = rect.left + pad;
-                        for ch in start_label.chars() {
-                            let glyph = ch.to_string();
-                            canvas.draw_str(
-                                &glyph,
-                                (cx, mid + caps_font.size() * 0.35),
-                                &caps_font,
+                    },
+                ),
+            );
+
+            root.place(
+                0.0,
+                top_pad,
+                self.input
+                    .layout(
+                        arena,
+                        store,
+                        ui,
+                        Constraints::tight(Size::new(size.width, (editor_h - top_pad).max(1.0))),
+                    )
+                    .map(NewSessionCommand::Editor)
+                    .focus_scope(true),
+            );
+
+            let row_top = size.height - controls_h + 1.0;
+            let row_h = controls_h - 1.0;
+
+            let key_font = crate::fonts::ui_text_font(ui, theme.peeker.hint_size * 0.95);
+            let caps_font = crate::fonts::ui_font(ui, theme.combo.label_size * 1.1);
+            let pad = theme.combo.pad;
+            let start_label = "START SESSION";
+            let start_width = start_label
+                .chars()
+                .map(|ch| caps_font.measure_str(ch.to_string(), None).0 + 1.5)
+                .sum::<f32>()
+                + key_font.measure_str("⌘⏎", None).0
+                + theme.combo.gap
+                + pad * 2.0;
+            let start_x = size.width - start_width;
+
+            let mut row = imba::container::container(
+                arena,
+                Size::new((start_x - theme.combo.gap).max(0.0), row_h),
+            );
+            let mut x = 0.0f32;
+            let context: [(&Combo, fn(ComboCommand) -> NewSessionCommand); 3] = [
+                (&self.host, NewSessionCommand::Host),
+                (&self.dir, NewSessionCommand::Dir),
+                (&self.mode, NewSessionCommand::Mode),
+            ];
+            for (index, (combo, wrap)) in context.into_iter().enumerate() {
+                let width = combo.cell_width(ui, &theme.combo);
+                if let Some(span) = self.cell_spans.get(index) {
+                    span.store(
+                        ((x.to_bits() as u64) << 32) | width.to_bits() as u64,
+                        std::sync::atomic::Ordering::Relaxed,
+                    );
+                }
+                row.place(x, 0.0, combo.cell(arena, store, ui, row_h).map(wrap));
+                x += width;
+            }
+            let width = self.model.cell_width(ui, &theme.combo);
+            if let Some(span) = self.cell_spans.get(3) {
+                span.store(
+                    ((x.to_bits() as u64) << 32) | width.to_bits() as u64,
+                    std::sync::atomic::Ordering::Relaxed,
+                );
+            }
+            row.place(
+                x,
+                0.0,
+                self.model
+                    .cell(arena, store, ui, row_h)
+                    .map(NewSessionCommand::Model),
+            );
+            x += width;
+
+            let choices: [(&Combo, fn(ComboCommand) -> NewSessionCommand); 2] = [
+                (&self.effort, NewSessionCommand::Effort),
+                (&self.edits, NewSessionCommand::Edits),
+            ];
+            for (offset, (combo, wrap)) in choices.into_iter().enumerate() {
+                let width = combo.cell_width(ui, &theme.combo);
+                if let Some(span) = self.cell_spans.get(offset + 4) {
+                    span.store(
+                        ((x.to_bits() as u64) << 32) | width.to_bits() as u64,
+                        std::sync::atomic::Ordering::Relaxed,
+                    );
+                }
+                row.place(x, 0.0, combo.cell(arena, store, ui, row_h).map(wrap));
+                x += width;
+            }
+            root.place(0.0, row_top, row);
+
+            let hint_font = crate::fonts::ui_text_font(ui, theme.peeker.hint_size);
+
+            let ready = self.ready();
+            let accent = theme.chat.accent.0;
+            let on_accent = theme.chat.on_accent.0;
+            let accent_soft = theme.peeker.dim_text.0;
+            root.place(
+                start_x,
+                row_top,
+                leaf::<NewSessionCommand>(start_width, row_h)
+                    .paint_instead({
+                        let caps_font = caps_font.clone();
+                        let key_font = key_font.clone();
+                        move |_arena, canvas, rect| {
+                            let mut paint = Paint::default();
+                            let mut fill = accent;
+                            if !ready {
+                                fill = fill.with_a(0x50);
+                            }
+                            paint.set_color(fill.with_a(fill.a() / 3));
+                            canvas.draw_rect(rect, &paint);
+                            paint.set_anti_alias(false);
+                            paint.set_color(fill);
+                            canvas.draw_rect(
+                                Rect::from_xywh(rect.left, rect.top, 1.0, rect.height()),
                                 &paint,
                             );
-                            cx += caps_font.measure_str(&glyph, None).0 + 1.5;
+                            paint.set_anti_alias(true);
+                            paint.set_color(on_accent);
+                            let mid = rect.top + rect.height() * 0.5;
+                            let mut cx = rect.left + pad;
+                            for ch in start_label.chars() {
+                                let glyph = ch.to_string();
+                                canvas.draw_str(
+                                    &glyph,
+                                    (cx, mid + caps_font.size() * 0.35),
+                                    &caps_font,
+                                    &paint,
+                                );
+                                cx += caps_font.measure_str(&glyph, None).0 + 1.5;
+                            }
+                            paint.set_color(accent_soft);
+                            canvas.draw_str(
+                                "⌘⏎",
+                                (cx + theme_gap(), mid + key_font.size() * 0.35),
+                                &key_font,
+                                &paint,
+                            );
                         }
-                        paint.set_color(accent_soft);
-                        canvas.draw_str(
-                            "⌘⏎",
-                            (cx + theme_gap(), mid + key_font.size() * 0.35),
-                            &key_font,
-                            &paint,
-                        );
-                    }
+                    })
+                    .event(|_arena, event, _size| match event {
+                        Event::MouseDown { .. } => EventResult::Command(NewSessionCommand::Start),
+                        _ => EventResult::Ignored,
+                    }),
+            );
+
+            let hints = [("⌘⏎", "send"), ("⏎", "newline")];
+            let hint_gap = theme.combo.gap;
+            let hints_width: f32 = hints
+                .iter()
+                .map(|(key, label)| {
+                    key_font.measure_str(key, None).0 + 5.0 + hint_font.measure_str(label, None).0
                 })
-                .event(|_arena, event, _size| match event {
-                    Event::MouseDown { .. } => EventResult::Command(NewSessionCommand::Start),
-                    _ => EventResult::Ignored,
-                }),
-        );
-
-        let hints = [("⌘⏎", "send"), ("⏎", "newline")];
-        let hint_gap = theme.combo.gap;
-        let hints_width: f32 = hints
-            .iter()
-            .map(|(key, label)| {
-                key_font.measure_str(key, None).0 + 5.0 + hint_font.measure_str(label, None).0
-            })
-            .sum::<f32>()
-            + hint_gap
-            + pad * 2.0;
-        let hints_x = start_x - hints_width;
-        let key_color = theme.peeker.dim_text.0;
-        let label_color = theme.combo.label_color.0;
-        root.place(
-            hints_x,
-            row_top,
-            leaf::<NewSessionCommand>(hints_width, row_h).paint_instead({
-                let key_font = key_font.clone();
-                let hint_font = hint_font.clone();
-                move |_arena, canvas, rect| {
-                    let mut paint = Paint::default();
-                    paint.set_anti_alias(false);
-                    paint.set_color(rule);
-                    canvas.draw_rect(
-                        Rect::from_xywh(rect.left, rect.top, 1.0, rect.height()),
-                        &paint,
-                    );
-                    paint.set_anti_alias(true);
-                    let mid = rect.top + rect.height() * 0.5;
-                    let mut x = rect.left + pad;
-                    for (key, label) in hints {
-                        paint.set_color(key_color);
-                        canvas.draw_str(key, (x, mid + key_font.size() * 0.35), &key_font, &paint);
-                        x += key_font.measure_str(key, None).0 + 5.0;
-                        paint.set_color(label_color);
-                        canvas.draw_str(
-                            label,
-                            (x, mid + hint_font.size() * 0.35),
-                            &hint_font,
-                            &paint,
-                        );
-                        x += hint_font.measure_str(label, None).0 + hint_gap;
-                    }
-                }
-            }),
-        );
-
-        let worktree_label = "New worktree";
-        let check = theme.checkbox.size;
-        let worktree_width =
-            pad * 2.0 + check + 10.0 + hint_font.measure_str(worktree_label, None).0;
-        let worktree_x = hints_x - worktree_width;
-        let checked = self.worktree;
-        let box_color = theme.combo.label_color.0;
-        let text_dim = theme.peeker.dim_text.0;
-        root.place(
-            worktree_x,
-            row_top,
-            leaf::<NewSessionCommand>(worktree_width, row_h)
-                .paint_instead({
+                .sum::<f32>()
+                + hint_gap
+                + pad * 2.0;
+            let hints_x = start_x - hints_width;
+            let key_color = theme.peeker.dim_text.0;
+            let label_color = theme.combo.label_color.0;
+            root.place(
+                hints_x,
+                row_top,
+                leaf::<NewSessionCommand>(hints_width, row_h).paint_instead({
+                    let key_font = key_font.clone();
                     let hint_font = hint_font.clone();
                     move |_arena, canvas, rect| {
                         let mut paint = Paint::default();
@@ -1027,44 +986,92 @@ impl View for NewSessionView {
                         );
                         paint.set_anti_alias(true);
                         let mid = rect.top + rect.height() * 0.5;
-                        let box_rect =
-                            Rect::from_xywh(rect.left + pad, mid - check * 0.5, check, check);
-                        paint.set_stroke(true);
-                        paint.set_stroke_width(1.0);
-                        paint.set_color(box_color);
-                        canvas.draw_rect(box_rect, &paint);
-                        if checked {
-                            paint.set_stroke(false);
-                            canvas.draw_rect(box_rect.with_inset((3.0, 3.0)), &paint);
+                        let mut x = rect.left + pad;
+                        for (key, label) in hints {
+                            paint.set_color(key_color);
+                            canvas.draw_str(
+                                key,
+                                (x, mid + key_font.size() * 0.35),
+                                &key_font,
+                                &paint,
+                            );
+                            x += key_font.measure_str(key, None).0 + 5.0;
+                            paint.set_color(label_color);
+                            canvas.draw_str(
+                                label,
+                                (x, mid + hint_font.size() * 0.35),
+                                &hint_font,
+                                &paint,
+                            );
+                            x += hint_font.measure_str(label, None).0 + hint_gap;
                         }
-                        paint.set_stroke(false);
-                        paint.set_color(text_dim);
-                        canvas.draw_str(
-                            worktree_label,
-                            (
-                                rect.left + pad + check + 10.0,
-                                mid + hint_font.size() * 0.35,
-                            ),
-                            &hint_font,
-                            &paint,
-                        );
                     }
-                })
-                .event(|_arena, event, _size| match event {
-                    Event::MouseDown { .. } => {
-                        EventResult::Command(NewSessionCommand::ToggleWorktree)
-                    }
-                    _ => EventResult::Ignored,
                 }),
-        );
+            );
 
-        let stale = self.synced != store_fingerprint(store);
-        let want = (size.width - gutter - theme.chat.pad * 2.0).max(120.0);
-        let rewrap = ((self.input.content().layout_width() - want).abs() > 1.0).then_some(want);
-        root.wrap(move |inner| NewSessionShell {
-            inner,
-            stale,
-            rewrap,
+            let worktree_label = "New worktree";
+            let check = theme.checkbox.size;
+            let worktree_width =
+                pad * 2.0 + check + 10.0 + hint_font.measure_str(worktree_label, None).0;
+            let worktree_x = hints_x - worktree_width;
+            let checked = self.worktree;
+            let box_color = theme.combo.label_color.0;
+            let text_dim = theme.peeker.dim_text.0;
+            root.place(
+                worktree_x,
+                row_top,
+                leaf::<NewSessionCommand>(worktree_width, row_h)
+                    .paint_instead({
+                        let hint_font = hint_font.clone();
+                        move |_arena, canvas, rect| {
+                            let mut paint = Paint::default();
+                            paint.set_anti_alias(false);
+                            paint.set_color(rule);
+                            canvas.draw_rect(
+                                Rect::from_xywh(rect.left, rect.top, 1.0, rect.height()),
+                                &paint,
+                            );
+                            paint.set_anti_alias(true);
+                            let mid = rect.top + rect.height() * 0.5;
+                            let box_rect =
+                                Rect::from_xywh(rect.left + pad, mid - check * 0.5, check, check);
+                            paint.set_stroke(true);
+                            paint.set_stroke_width(1.0);
+                            paint.set_color(box_color);
+                            canvas.draw_rect(box_rect, &paint);
+                            if checked {
+                                paint.set_stroke(false);
+                                canvas.draw_rect(box_rect.with_inset((3.0, 3.0)), &paint);
+                            }
+                            paint.set_stroke(false);
+                            paint.set_color(text_dim);
+                            canvas.draw_str(
+                                worktree_label,
+                                (
+                                    rect.left + pad + check + 10.0,
+                                    mid + hint_font.size() * 0.35,
+                                ),
+                                &hint_font,
+                                &paint,
+                            );
+                        }
+                    })
+                    .event(|_arena, event, _size| match event {
+                        Event::MouseDown { .. } => {
+                            EventResult::Command(NewSessionCommand::ToggleWorktree)
+                        }
+                        _ => EventResult::Ignored,
+                    }),
+            );
+
+            let stale = self.synced != store_fingerprint(store);
+            let want = (size.width - gutter - theme.chat.pad * 2.0).max(120.0);
+            let rewrap = ((self.input.content().layout_width() - want).abs() > 1.0).then_some(want);
+            root.wrap(move |inner| NewSessionShell {
+                inner,
+                stale,
+                rewrap,
+            })
         })
     }
 }
@@ -1212,21 +1219,22 @@ impl View for ComposerPane {
         Composers::put(store, self.window, composer);
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let Some(composer) = Composers::composer_ref(store, self.window) else {
-            let blank = imba::ThunkBox::new(
-                arena,
-                imba::leaf::leaf(constraints.max.width, constraints.max.height),
-            );
-            return blank;
-        };
-        imba::ThunkBox::new(arena, composer.layout(arena, store, ui, constraints))
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let Some(composer) = Composers::composer_ref(store, self.window) else {
+                let blank = imba::ThunkBox::new(
+                    arena,
+                    imba::leaf::leaf(constraints.max.width, constraints.max.height),
+                );
+                return blank;
+            };
+            imba::ThunkBox::new(arena, composer.layout(arena, store, ui, constraints))
+        })
     }
 }
 

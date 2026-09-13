@@ -9,7 +9,7 @@ use crate::{
     constraints::Constraints,
     event::{Event, EventResult},
     store::Store,
-    Thunk, View, Widget,
+    View, Widget,
 };
 
 #[derive(Clone)]
@@ -90,20 +90,21 @@ where
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        StackWidget {
-            base: self.base.layout(arena, store, ui, constraints),
-            modal: self
-                .modal
-                .as_ref()
-                .map(|modal| modal.layout(arena, store, ui, constraints)),
-        }
+    ) -> impl crate::Layout<'a, Self::Command> + 'a {
+        crate::laid(
+            move |_arena: &'a Arena, constraints: Constraints| StackWidget {
+                base: self.base.layout(arena, store, ui, constraints),
+                modal: self
+                    .modal
+                    .as_ref()
+                    .map(|modal| modal.layout(arena, store, ui, constraints)),
+            },
+        )
     }
 }
 

@@ -18,14 +18,18 @@ impl crate::View for Stub {
     ) {
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         _arena: &'a crate::arena::Arena,
         _store: &'a crate::store::Store,
         _ui: &'a crate::UiCtx,
-        _constraints: crate::constraints::Constraints,
-    ) -> impl crate::Thunk<'a, ()> + 'a {
-        crate::leaf::leaf::<()>(10.0, 30.0)
+    ) -> impl crate::Layout<'a, ()> + 'a {
+        crate::laid(
+            move |_arena: &'a crate::arena::Arena,
+                  _constraints: crate::constraints::Constraints| {
+                crate::leaf::leaf::<()>(10.0, 30.0)
+            },
+        )
     }
 }
 
@@ -105,17 +109,22 @@ fn drags_reach_the_focused_row_in_row_coordinates() {
             _fx: &mut crate::effect::Effects<'_, Point>,
         ) {
         }
-        fn layout<'a>(
+        fn display<'a>(
             &'a self,
             _arena: &'a crate::arena::Arena,
             _store: &'a Store,
             _ui: &'a UiCtx,
-            _constraints: Constraints,
-        ) -> impl crate::Thunk<'a, Point> + 'a {
-            crate::leaf::leaf::<Point>(200.0, 30.0).event(|_arena, event, _size| match event {
-                Event::MouseDrag { point, .. } => EventResult::Command(*point),
-                _ => EventResult::Ignored,
-            })
+        ) -> impl crate::Layout<'a, Point> + 'a {
+            crate::laid(
+                move |_arena: &'a crate::arena::Arena, _constraints: Constraints| {
+                    crate::leaf::leaf::<Point>(200.0, 30.0).event(
+                        |_arena, event, _size| match event {
+                            Event::MouseDrag { point, .. } => EventResult::Command(*point),
+                            _ => EventResult::Ignored,
+                        },
+                    )
+                },
+            )
         }
     }
 

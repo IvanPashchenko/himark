@@ -80,32 +80,33 @@ impl imba::View for CheckboxView {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         _arena: &'a Arena,
         _store: &'a Store,
         _ui: &'a UiCtx,
-        _constraints: Constraints,
-    ) -> impl imba::Thunk<'a, Self::Command> + 'a {
-        use imba::thunk_ext::ThunkExt;
-        let chrome = &self.chrome;
-        checkbox(
-            self.checked,
-            CheckboxStyle {
-                size: chrome.size,
-                radius: chrome.radius,
-                stroke: chrome.stroke,
-                border: chrome.border.0,
-                fill: chrome.fill.0,
-                check: chrome.check.0,
-            },
-        )
-        .commands(|| {
-            vec![imba::PresentableCommand::new(
-                "checkbox.toggle",
-                "Toggle Checkbox",
-                CheckboxCommand::Toggle,
-            )]
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, _constraints: Constraints| {
+            use imba::thunk_ext::ThunkExt;
+            let chrome = &self.chrome;
+            checkbox(
+                self.checked,
+                CheckboxStyle {
+                    size: chrome.size,
+                    radius: chrome.radius,
+                    stroke: chrome.stroke,
+                    border: chrome.border.0,
+                    fill: chrome.fill.0,
+                    check: chrome.check.0,
+                },
+            )
+            .commands(|| {
+                vec![imba::PresentableCommand::new(
+                    "checkbox.toggle",
+                    "Toggle Checkbox",
+                    CheckboxCommand::Toggle,
+                )]
+            })
         })
     }
 }

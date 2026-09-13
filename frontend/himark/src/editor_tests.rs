@@ -760,24 +760,27 @@ impl View for TestInlay {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         _arena: &'a imba::arena::Arena,
         _store: &'a Store,
         _ui: &'a imba::UiCtx,
-        _constraints: imba::constraints::Constraints,
-    ) -> impl imba::Thunk<'a, Self::Command> + 'a {
-        use imba::event::{Event, EventResult, MouseButton};
-        use imba::thunk_ext::ThunkExt;
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(
+            move |_arena: &'a imba::arena::Arena, _constraints: imba::constraints::Constraints| {
+                use imba::event::{Event, EventResult, MouseButton};
+                use imba::thunk_ext::ThunkExt;
 
-        imba::leaf::leaf(self.width, self.height).event(|_, event, _| match event {
-            Event::MouseDown {
-                mods: _,
-                button: MouseButton::Left,
-                ..
-            } => EventResult::Command(TestInlayCommand::Grow),
-            _ => EventResult::Ignored,
-        })
+                imba::leaf::leaf(self.width, self.height).event(|_, event, _| match event {
+                    Event::MouseDown {
+                        mods: _,
+                        button: MouseButton::Left,
+                        ..
+                    } => EventResult::Command(TestInlayCommand::Grow),
+                    _ => EventResult::Ignored,
+                })
+            },
+        )
     }
 }
 
@@ -871,20 +874,23 @@ impl View for FocusProbe {
     ) {
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         _arena: &'a imba::arena::Arena,
         _store: &'a Store,
         _ui: &'a imba::UiCtx,
-        _constraints: imba::constraints::Constraints,
-    ) -> impl imba::Thunk<'a, Self::Command> + 'a {
-        use imba::event::{Event, EventResult};
-        use imba::thunk_ext::ThunkExt;
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(
+            move |_arena: &'a imba::arena::Arena, _constraints: imba::constraints::Constraints| {
+                use imba::event::{Event, EventResult};
+                use imba::thunk_ext::ThunkExt;
 
-        imba::leaf::leaf(40.0, 20.0).event(|_, event, _| match event {
-            Event::Paint { focused: false, .. } => EventResult::Command(ProbeCommand::Poke),
-            _ => EventResult::Ignored,
-        })
+                imba::leaf::leaf(40.0, 20.0).event(|_, event, _| match event {
+                    Event::Paint { focused: false, .. } => EventResult::Command(ProbeCommand::Poke),
+                    _ => EventResult::Ignored,
+                })
+            },
+        )
     }
 }
 
@@ -1693,22 +1699,29 @@ fn palette_commands_follow_the_modal_focus() {
                 TestModalCommand::Show => ModalRequest::ShowDocument(self.document),
             });
         }
-        fn layout<'a>(
+        fn display<'a>(
             &'a self,
             _arena: &'a imba::arena::Arena,
             _store: &'a Store,
             _ui: &'a imba::UiCtx,
-            constraints: imba::constraints::Constraints,
-        ) -> impl imba::Thunk<'a, TestModalCommand> + 'a {
-            use imba::thunk_ext::ThunkExt;
-            imba::leaf::leaf::<TestModalCommand>(constraints.max.width, constraints.max.height)
-                .commands(|| {
-                    vec![imba::PresentableCommand::new(
-                        "test.modal.close",
-                        "Close Test Modal",
-                        TestModalCommand::Close,
-                    )]
-                })
+        ) -> impl imba::Layout<'a, TestModalCommand> + 'a {
+            imba::laid(
+                move |_arena: &'a imba::arena::Arena,
+                      constraints: imba::constraints::Constraints| {
+                    use imba::thunk_ext::ThunkExt;
+                    imba::leaf::leaf::<TestModalCommand>(
+                        constraints.max.width,
+                        constraints.max.height,
+                    )
+                    .commands(|| {
+                        vec![imba::PresentableCommand::new(
+                            "test.modal.close",
+                            "Close Test Modal",
+                            TestModalCommand::Close,
+                        )]
+                    })
+                },
+            )
         }
     }
     impl ModalView for TestModal {
@@ -2081,14 +2094,18 @@ fn switching_dismisses_the_overlays_first() {
             _fx: &mut imba::effect::Effects<'_, Self::Command>,
         ) {
         }
-        fn layout<'a>(
+        fn display<'a>(
             &'a self,
             _arena: &'a imba::arena::Arena,
             _store: &'a Store,
             _ui: &'a imba::UiCtx,
-            constraints: imba::constraints::Constraints,
-        ) -> impl imba::Thunk<'a, ()> + 'a {
-            imba::leaf::leaf::<()>(constraints.max.width, constraints.max.height)
+        ) -> impl imba::Layout<'a, ()> + 'a {
+            imba::laid(
+                move |_arena: &'a imba::arena::Arena,
+                      constraints: imba::constraints::Constraints| {
+                    imba::leaf::leaf::<()>(constraints.max.width, constraints.max.height)
+                },
+            )
         }
     }
     impl crate::ModalView for NullModal {
@@ -4114,23 +4131,28 @@ mod dock_tests {
             *self.request.lock().unwrap() = Some(request);
         }
 
-        fn layout<'a>(
+        fn display<'a>(
             &'a self,
             _arena: &'a imba::arena::Arena,
             _store: &'a Store,
             _ui: &'a UiCtx,
-            constraints: Constraints,
-        ) -> impl imba::Thunk<'a, StubCommand> + 'a {
-            let size = constraints.max;
-            leaf::<StubCommand>(size.width, size.height).event(|_arena, event, _size| match event {
-                Event::KeyDown {
-                    key: Key::Escape, ..
-                } => EventResult::Command(StubCommand::Close),
-                Event::KeyDown {
-                    key: Key::Enter, ..
-                } => EventResult::Command(StubCommand::Ask),
-                _ => EventResult::Ignored,
-            })
+        ) -> impl imba::Layout<'a, StubCommand> + 'a {
+            imba::laid(
+                move |_arena: &'a imba::arena::Arena, constraints: Constraints| {
+                    let size = constraints.max;
+                    leaf::<StubCommand>(size.width, size.height).event(|_arena, event, _size| {
+                        match event {
+                            Event::KeyDown {
+                                key: Key::Escape, ..
+                            } => EventResult::Command(StubCommand::Close),
+                            Event::KeyDown {
+                                key: Key::Enter, ..
+                            } => EventResult::Command(StubCommand::Ask),
+                            _ => EventResult::Ignored,
+                        }
+                    })
+                },
+            )
         }
     }
 
@@ -5017,19 +5039,23 @@ fn a_pane_documents_popup_paints_in_the_window() {
             _fx: &mut imba::effect::Effects<'_, ()>,
         ) {
         }
-        fn layout<'a>(
+        fn display<'a>(
             &'a self,
             _arena: &'a imba::arena::Arena,
             _store: &'a imba::store::Store,
             _ui: &'a imba::UiCtx,
-            _constraints: imba::constraints::Constraints,
-        ) -> impl imba::Thunk<'a, Self::Command> + 'a {
-            use imba::thunk_ext::ThunkExt;
-            imba::leaf::leaf::<()>(90.0, 40.0).paint_instead(|_arena, canvas, rect| {
-                let mut paint = skia_safe::Paint::default();
-                paint.set_color(skia_safe::Color::from_rgb(0xff, 0x00, 0xff));
-                canvas.draw_rect(rect, &paint);
-            })
+        ) -> impl imba::Layout<'a, Self::Command> + 'a {
+            imba::laid(
+                move |_arena: &'a imba::arena::Arena,
+                      _constraints: imba::constraints::Constraints| {
+                    use imba::thunk_ext::ThunkExt;
+                    imba::leaf::leaf::<()>(90.0, 40.0).paint_instead(|_arena, canvas, rect| {
+                        let mut paint = skia_safe::Paint::default();
+                        paint.set_color(skia_safe::Color::from_rgb(0xff, 0x00, 0xff));
+                        canvas.draw_rect(rect, &paint);
+                    })
+                },
+            )
         }
     }
 

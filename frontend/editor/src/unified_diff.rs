@@ -176,34 +176,37 @@ impl imba::View for UnifiedDiffView {
         });
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a imba::arena::Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl imba::Thunk<'a, Self::Command> + 'a {
-        let face: imba::ThunkBox<'a, UnifiedDiffCommand> = match self.inline_face(store) {
-            Some(view) if self.layout == DiffLayout::Inline => imba::ThunkBox::new(
-                arena,
-                imba::eager(InlinePane {
-                    ui,
-                    store,
-                    arena,
-                    view,
-                    constraints,
-                })
-                .map(UnifiedDiffCommand::Inline),
-            ),
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(
+            move |_arena: &'a imba::arena::Arena, constraints: Constraints| {
+                let face: imba::ThunkBox<'a, UnifiedDiffCommand> = match self.inline_face(store) {
+                    Some(view) if self.layout == DiffLayout::Inline => imba::ThunkBox::new(
+                        arena,
+                        imba::eager(InlinePane {
+                            ui,
+                            store,
+                            arena,
+                            view,
+                            constraints,
+                        })
+                        .map(UnifiedDiffCommand::Inline),
+                    ),
 
-            _ => imba::ThunkBox::new(
-                arena,
-                self.split
-                    .layout(arena, store, ui, constraints)
-                    .map(UnifiedDiffCommand::Split),
-            ),
-        };
-        face.commands(move || self.toggle_surface())
+                    _ => imba::ThunkBox::new(
+                        arena,
+                        self.split
+                            .layout(arena, store, ui, constraints)
+                            .map(UnifiedDiffCommand::Split),
+                    ),
+                };
+                face.commands(move || self.toggle_surface())
+            },
+        )
     }
 }
 

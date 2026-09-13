@@ -13,7 +13,7 @@ use imba::{
     scroll::ScrollView,
     store::Store,
     thunk_ext::ThunkExt,
-    Thunk, UiCtx, View,
+    UiCtx, View,
 };
 use skia_safe::{Paint, Rect, Size};
 
@@ -528,171 +528,170 @@ impl View for Peeker {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let size = constraints.max;
-        let chrome = &self.chrome;
-        let row_font = himark::fonts::ui_font(ui, chrome.row_size);
-        let hint_font = himark::fonts::ui_font(ui, chrome.hint_size);
-        let margin = chrome.margin;
-        let row_height = chrome.row_height;
-        let list_width = list_width(size, chrome);
-        let preview_x = margin + list_width + chrome.list_preview_gap;
-        let preview_width = self.preview_width;
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let size = constraints.max;
+            let chrome = &self.chrome;
+            let row_font = himark::fonts::ui_font(ui, chrome.row_size);
+            let hint_font = himark::fonts::ui_font(ui, chrome.hint_size);
+            let margin = chrome.margin;
+            let row_height = chrome.row_height;
+            let list_width = list_width(size, chrome);
+            let preview_x = margin + list_width + chrome.list_preview_gap;
+            let preview_width = self.preview_width;
 
-        let inset = margin * 4.0 / 3.0;
-        let list_x = inset + 1.0;
-        let list_top = inset + 8.0;
-        let list_height = (size.height - inset - row_height - 2.0 - list_top).max(row_height);
+            let inset = margin * 4.0 / 3.0;
+            let list_x = inset + 1.0;
+            let list_top = inset + 8.0;
+            let list_height = (size.height - inset - row_height - 2.0 - list_top).max(row_height);
 
-        let sheet_rule = himark::env::Themes::of(store).ui().toolbar.rule.0;
-        let selected = self.selected;
-        let match_count = self.labels.len();
-        let hidden = self.hidden;
-        let has_preview = self.preview.is_some();
+            let sheet_rule = himark::env::Themes::of(store).ui().toolbar.rule.0;
+            let selected = self.selected;
+            let match_count = self.labels.len();
+            let hidden = self.hidden;
+            let has_preview = self.preview.is_some();
 
-        let mut container = imba::container::container(arena, size);
+            let mut container = imba::container::container(arena, size);
 
-        let backdrop = leaf::<PeekerCommand>(size.width, size.height)
-            .paint_instead(move |_arena, canvas, rect| {
-                let chrome = &self.chrome;
-                let mut surface = Paint::default();
-                surface.set_color(chrome.background.0);
-                canvas.draw_rect(rect, &surface);
+            let backdrop = leaf::<PeekerCommand>(size.width, size.height)
+                .paint_instead(move |_arena, canvas, rect| {
+                    let chrome = &self.chrome;
+                    let mut surface = Paint::default();
+                    surface.set_color(chrome.background.0);
+                    canvas.draw_rect(rect, &surface);
 
-                let panel = Rect::from_xywh(
-                    inset,
-                    inset,
-                    list_width + 2.0,
-                    (size.height - inset * 2.0).max(1.0),
-                );
+                    let panel = Rect::from_xywh(
+                        inset,
+                        inset,
+                        list_width + 2.0,
+                        (size.height - inset * 2.0).max(1.0),
+                    );
 
-                let echo = inset * 0.5;
-                let sheet = panel.with_offset((echo, echo));
-                let mut rule = Paint::default();
-                surface.set_color(chrome.background.0);
-                canvas.draw_rect(sheet, &surface);
-                rule.set_color(sheet_rule);
-                for edge in [
-                    Rect::from_xywh(sheet.left, sheet.bottom - 1.0, sheet.width(), 1.0),
-                    Rect::from_xywh(sheet.right - 1.0, sheet.top, 1.0, sheet.height()),
-                ] {
-                    canvas.draw_rect(edge, &rule);
-                }
-                surface.set_color(chrome.background.0);
-                canvas.draw_rect(panel, &surface);
-                rule.set_color(chrome.rule.0);
-                for edge in [
-                    Rect::from_xywh(panel.left, panel.top, panel.width(), 1.0),
-                    Rect::from_xywh(panel.left, panel.bottom - 1.0, panel.width(), 1.0),
-                    Rect::from_xywh(panel.left, panel.top, 1.0, panel.height()),
-                    Rect::from_xywh(panel.right - 1.0, panel.top, 1.0, panel.height()),
-                ] {
-                    canvas.draw_rect(edge, &rule);
-                }
-                rule.set_color(chrome.rule.0);
-                canvas.draw_rect(
-                    Rect::from_xywh(
-                        panel.left,
-                        panel.bottom - chrome.row_height,
-                        panel.width(),
-                        1.0,
-                    ),
-                    &rule,
-                );
+                    let echo = inset * 0.5;
+                    let sheet = panel.with_offset((echo, echo));
+                    let mut rule = Paint::default();
+                    surface.set_color(chrome.background.0);
+                    canvas.draw_rect(sheet, &surface);
+                    rule.set_color(sheet_rule);
+                    for edge in [
+                        Rect::from_xywh(sheet.left, sheet.bottom - 1.0, sheet.width(), 1.0),
+                        Rect::from_xywh(sheet.right - 1.0, sheet.top, 1.0, sheet.height()),
+                    ] {
+                        canvas.draw_rect(edge, &rule);
+                    }
+                    surface.set_color(chrome.background.0);
+                    canvas.draw_rect(panel, &surface);
+                    rule.set_color(chrome.rule.0);
+                    for edge in [
+                        Rect::from_xywh(panel.left, panel.top, panel.width(), 1.0),
+                        Rect::from_xywh(panel.left, panel.bottom - 1.0, panel.width(), 1.0),
+                        Rect::from_xywh(panel.left, panel.top, 1.0, panel.height()),
+                        Rect::from_xywh(panel.right - 1.0, panel.top, 1.0, panel.height()),
+                    ] {
+                        canvas.draw_rect(edge, &rule);
+                    }
+                    rule.set_color(chrome.rule.0);
+                    canvas.draw_rect(
+                        Rect::from_xywh(
+                            panel.left,
+                            panel.bottom - chrome.row_height,
+                            panel.width(),
+                            1.0,
+                        ),
+                        &rule,
+                    );
 
-                let mut dim_text = Paint::default();
-                dim_text.set_anti_alias(true);
-                dim_text.set_color(chrome.dim_text.0);
-                canvas.draw_str(
-                    format!(
-                        "{} matched   enter open   esc dismiss",
-                        match_count + hidden
-                    ),
-                    (
-                        panel.left + chrome.row_text_x,
-                        panel.bottom - chrome.row_baseline,
-                    ),
-                    &hint_font,
-                    &dim_text,
-                );
-                if !has_preview {
+                    let mut dim_text = Paint::default();
+                    dim_text.set_anti_alias(true);
+                    dim_text.set_color(chrome.dim_text.0);
                     canvas.draw_str(
-                        "no preview",
-                        (preview_x, list_top + chrome.no_preview_offset),
-                        &row_font,
+                        format!(
+                            "{} matched   enter open   esc dismiss",
+                            match_count + hidden
+                        ),
+                        (
+                            panel.left + chrome.row_text_x,
+                            panel.bottom - chrome.row_baseline,
+                        ),
+                        &hint_font,
                         &dim_text,
                     );
-                }
-            })
-            .event(|_arena, event, _size| match event {
-                Event::MouseDown { .. } => EventResult::Command(PeekerCommand::Close),
-                _ => EventResult::Ignored,
-            });
-        container.place(0.0, 0.0, backdrop);
+                    if !has_preview {
+                        canvas.draw_str(
+                            "no preview",
+                            (preview_x, list_top + chrome.no_preview_offset),
+                            &row_font,
+                            &dim_text,
+                        );
+                    }
+                })
+                .event(|_arena, event, _size| match event {
+                    Event::MouseDown { .. } => EventResult::Command(PeekerCommand::Close),
+                    _ => EventResult::Ignored,
+                });
+            container.place(0.0, 0.0, backdrop);
 
-        if let Some(slot) = &self.preview {
-            let preview_height = (size.height - list_top - margin).max(1.0);
-            match slot {
-                PreviewSlot::Editor(preview) => {
-                    let pane = preview
-                        .pane
-                        .layout(
-                            arena,
-                            store,
-                            ui,
-                            Constraints::tight(Size::new(preview_width, preview_height)),
-                        )
-                        .map(PeekerCommand::Preview)
-                        .focus_scope(false);
-                    container.place(preview_x, list_top, pane);
-                }
-                PreviewSlot::Widget(index) => {
-                    if let Some((_, widget)) = self.widgets.get(*index) {
-                        let mounted = widget
-                            .layout_dyn(
+            if let Some(slot) = &self.preview {
+                let preview_height = (size.height - list_top - margin).max(1.0);
+                match slot {
+                    PreviewSlot::Editor(preview) => {
+                        let pane = preview
+                            .pane
+                            .layout(
                                 arena,
                                 store,
                                 ui,
                                 Constraints::tight(Size::new(preview_width, preview_height)),
                             )
-                            .map(PeekerCommand::Widget)
+                            .map(PeekerCommand::Preview)
                             .focus_scope(false);
-                        container.place(preview_x, list_top, mounted);
+                        container.place(preview_x, list_top, pane);
+                    }
+                    PreviewSlot::Widget(index) => {
+                        if let Some((_, widget)) = self.widgets.get(*index) {
+                            let mounted = widget
+                                .layout_dyn(
+                                    arena,
+                                    store,
+                                    ui,
+                                    Constraints::tight(Size::new(preview_width, preview_height)),
+                                )
+                                .map(PeekerCommand::Widget)
+                                .focus_scope(false);
+                            container.place(preview_x, list_top, mounted);
+                        }
                     }
                 }
+
+                let shield = leaf::<PeekerCommand>(preview_width, preview_height).event(
+                    |_arena, event, _size| match event {
+                        Event::MouseDown { .. } => EventResult::Handled,
+                        _ => EventResult::Ignored,
+                    },
+                );
+                container.place(preview_x, list_top, shield);
             }
 
-            let shield = leaf::<PeekerCommand>(preview_width, preview_height).event(
-                |_arena, event, _size| match event {
-                    Event::MouseDown { .. } => EventResult::Handled,
-                    _ => EventResult::Ignored,
-                },
+            container.place(
+                list_x,
+                list_top,
+                self.list
+                    .layout(
+                        arena,
+                        store,
+                        ui,
+                        Constraints::tight(Size::new(list_width, list_height)),
+                    )
+                    .map(PeekerCommand::Rows),
             );
-            container.place(preview_x, list_top, shield);
-        }
 
-        container.place(
-            list_x,
-            list_top,
-            self.list
-                .layout(
-                    arena,
-                    store,
-                    ui,
-                    Constraints::tight(Size::new(list_width, list_height)),
-                )
-                .map(PeekerCommand::Rows),
-        );
-
-        let keymap =
-            leaf::<PeekerCommand>(size.width, size.height).event(move |_arena, event, _size| {
-                match event {
+            let keymap = leaf::<PeekerCommand>(size.width, size.height).event(
+                move |_arena, event, _size| match event {
                     Event::KeyDown { key: Key::Up, .. } => {
                         EventResult::Command(PeekerCommand::Select(-1))
                     }
@@ -706,16 +705,17 @@ impl View for Peeker {
                         key: Key::Escape, ..
                     } => EventResult::Command(PeekerCommand::Close),
                     _ => EventResult::Ignored,
-                }
-            });
-        container.place(0.0, 0.0, keymap);
+                },
+            );
+            container.place(0.0, 0.0, keymap);
 
-        container.commands(|| {
-            vec![imba::PresentableCommand::new(
-                "peeker.close",
-                "Close Peeker",
-                PeekerCommand::Close,
-            )]
+            container.commands(|| {
+                vec![imba::PresentableCommand::new(
+                    "peeker.close",
+                    "Close Peeker",
+                    PeekerCommand::Close,
+                )]
+            })
         })
     }
 }

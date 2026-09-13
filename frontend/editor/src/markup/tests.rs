@@ -18,14 +18,13 @@ impl View for NullInlay {
     ) {
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         _arena: &'a Arena,
         _store: &'a Store,
         _ui: &'a UiCtx,
-        _constraints: Constraints,
-    ) -> impl imba::Thunk<'a, Self::Command> + 'a {
-        imba::leaf::leaf(10.0, 10.0)
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, _constraints: Constraints| imba::leaf::leaf(10.0, 10.0))
     }
 }
 

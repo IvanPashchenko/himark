@@ -275,14 +275,18 @@ mod tests {
         ) {
             match command {}
         }
-        fn layout<'a>(
+        fn display<'a>(
             &'a self,
             _arena: &'a imba::arena::Arena,
             _store: &'a imba::store::Store,
             _ui: &'a imba::UiCtx,
-            _constraints: imba::constraints::Constraints,
-        ) -> impl imba::Thunk<'a, Self::Command> + 'a {
-            imba::leaf::leaf(10.0, 10.0)
+        ) -> impl imba::Layout<'a, Self::Command> + 'a {
+            imba::laid(
+                move |_arena: &'a imba::arena::Arena,
+                      _constraints: imba::constraints::Constraints| {
+                    imba::leaf::leaf(10.0, 10.0)
+                },
+            )
         }
     }
 

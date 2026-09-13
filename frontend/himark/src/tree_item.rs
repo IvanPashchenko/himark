@@ -67,51 +67,54 @@ impl View for TreeLabel {
     ) {
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         _arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let theme = crate::env::Themes::of(store);
-        let tree = theme.ui().tree.clone();
-        let colors = theme.ui().peeker.clone();
-        let width = constraints.max.width.max(1.0);
-        let font = match self.strong {
-            true => crate::fonts::ui_font(ui, tree.font_size),
-            false => crate::fonts::ui_text_font(ui, tree.font_size),
-        };
-        let trail_font = crate::fonts::ui_text_font(ui, tree.font_size);
-        let pick = self.pick;
-        let dim = self.dim;
-        let label = self.label.clone();
-        let trail = self.trail.clone();
-        leaf::<TreeLabelCommand>(width, tree.row_height)
-            .paint_instead(move |_arena, canvas, rect| {
-                let baseline = rect.top + rect.height() * 0.5 + tree.font_size * 0.36;
-                let mut paint = Paint::default();
-                paint.set_anti_alias(true);
-                paint.set_color(if dim {
-                    colors.dim_text.0
-                } else {
-                    colors.text.0
-                });
-                canvas.draw_str(&label, (rect.left, baseline), &font, &paint);
-                let mut trail_x = rect.right - tree.text_x * 0.5;
-                for (text, color) in trail.iter().rev() {
-                    let advance = trail_font.measure_str(text, None).0;
-                    trail_x -= advance;
-                    paint.set_color(*color);
-                    canvas.draw_str(text, (trail_x, baseline), &trail_font, &paint);
-                    trail_x -= tree.font_size * 0.4;
-                }
-            })
-            .event(move |_arena, event, _size| match event {
-                Event::MouseDown { .. } if pick => EventResult::Command(TreeLabelCommand::Activate),
-                Event::MouseDown { .. } => EventResult::Handled,
-                _ => EventResult::Ignored,
-            })
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let theme = crate::env::Themes::of(store);
+            let tree = theme.ui().tree.clone();
+            let colors = theme.ui().peeker.clone();
+            let width = constraints.max.width.max(1.0);
+            let font = match self.strong {
+                true => crate::fonts::ui_font(ui, tree.font_size),
+                false => crate::fonts::ui_text_font(ui, tree.font_size),
+            };
+            let trail_font = crate::fonts::ui_text_font(ui, tree.font_size);
+            let pick = self.pick;
+            let dim = self.dim;
+            let label = self.label.clone();
+            let trail = self.trail.clone();
+            leaf::<TreeLabelCommand>(width, tree.row_height)
+                .paint_instead(move |_arena, canvas, rect| {
+                    let baseline = rect.top + rect.height() * 0.5 + tree.font_size * 0.36;
+                    let mut paint = Paint::default();
+                    paint.set_anti_alias(true);
+                    paint.set_color(if dim {
+                        colors.dim_text.0
+                    } else {
+                        colors.text.0
+                    });
+                    canvas.draw_str(&label, (rect.left, baseline), &font, &paint);
+                    let mut trail_x = rect.right - tree.text_x * 0.5;
+                    for (text, color) in trail.iter().rev() {
+                        let advance = trail_font.measure_str(text, None).0;
+                        trail_x -= advance;
+                        paint.set_color(*color);
+                        canvas.draw_str(text, (trail_x, baseline), &trail_font, &paint);
+                        trail_x -= tree.font_size * 0.4;
+                    }
+                })
+                .event(move |_arena, event, _size| match event {
+                    Event::MouseDown { .. } if pick => {
+                        EventResult::Command(TreeLabelCommand::Activate)
+                    }
+                    Event::MouseDown { .. } => EventResult::Handled,
+                    _ => EventResult::Ignored,
+                })
+        })
     }
 }
 
@@ -183,44 +186,45 @@ where
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let tree = crate::env::Themes::of(store).ui().tree.clone();
-        let colors = crate::env::Themes::of(store).ui().peeker.clone();
-        let inset = f32::from(self.depth) * tree.indent;
-        let width = constraints.max.width.max(1.0);
-        let offset = inset + tree.text_x;
-        let inner = self.inner.layout(
-            arena,
-            store,
-            ui,
-            Constraints {
-                min: Size::default(),
-                max: Size::new((width - offset).max(1.0), constraints.max.height),
-            },
-        );
-        let height = inner.size().height.max(tree.row_height);
-        TreeItemWidget {
-            inner,
-            offset,
-            triangle_x: inset + tree.text_x * 0.28,
-            triangle_half: (tree.font_size * 0.28).max(4.0),
-            expanded: self.expanded,
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let tree = crate::env::Themes::of(store).ui().tree.clone();
+            let colors = crate::env::Themes::of(store).ui().peeker.clone();
+            let inset = f32::from(self.depth) * tree.indent;
+            let width = constraints.max.width.max(1.0);
+            let offset = inset + tree.text_x;
+            let inner = self.inner.layout(
+                arena,
+                store,
+                ui,
+                Constraints {
+                    min: Size::default(),
+                    max: Size::new((width - offset).max(1.0), constraints.max.height),
+                },
+            );
+            let height = inner.size().height.max(tree.row_height);
+            TreeItemWidget {
+                inner,
+                offset,
+                triangle_x: inset + tree.text_x * 0.28,
+                triangle_half: (tree.font_size * 0.28).max(4.0),
+                expanded: self.expanded,
 
-            zone: match (self.expanded.is_some(), self.toggle_on_body) {
-                (true, true) => width,
-                (true, false) => offset,
-                (false, _) => 0.0,
-            },
-            color: colors.dim_text.0,
-            size: Size::new(width, height),
-            _command: std::marker::PhantomData,
-        }
+                zone: match (self.expanded.is_some(), self.toggle_on_body) {
+                    (true, true) => width,
+                    (true, false) => offset,
+                    (false, _) => 0.0,
+                },
+                color: colors.dim_text.0,
+                size: Size::new(width, height),
+                _command: std::marker::PhantomData,
+            }
+        })
     }
 }
 

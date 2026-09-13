@@ -12,7 +12,7 @@ use imba::{
     scroll::{ScrollCommand, ScrollView},
     store::Store,
     thunk_ext::ThunkExt,
-    Thunk, UiCtx, View, Widget,
+    UiCtx, View, Widget,
 };
 use skia_safe::{Paint, Rect, Size};
 use text::Text;
@@ -527,18 +527,23 @@ impl View for SearchView {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let thunk: imba::ThunkBox<'a, SearchCommand> = match self.docked {
-            true => imba::ThunkBox::new(arena, self.layout_docked(arena, store, ui, constraints)),
-            false => imba::ThunkBox::new(arena, self.layout_modal(arena, store, ui, constraints)),
-        };
-        thunk
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let thunk: imba::ThunkBox<'a, SearchCommand> = match self.docked {
+                true => {
+                    imba::ThunkBox::new(arena, self.layout_docked(arena, store, ui, constraints))
+                }
+                false => {
+                    imba::ThunkBox::new(arena, self.layout_modal(arena, store, ui, constraints))
+                }
+            };
+            thunk
+        })
     }
 }
 

@@ -774,133 +774,134 @@ impl View for EditorView {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let document = &self.document;
-        let editor_id = self.editor;
-        let fonts = WidgetFonts::resolve(store, ui);
-        let gutter = self.gutter_width.max(0.0);
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let document = &self.document;
+            let editor_id = self.editor;
+            let fonts = WidgetFonts::resolve(store, ui);
+            let gutter = self.gutter_width.max(0.0);
 
-        let stripes = self.base.as_ref().map(|(_, id)| *id);
+            let stripes = self.base.as_ref().map(|(_, id)| *id);
 
-        let target_width = constraints.max.width - gutter;
-        let softwrap = document.softwrap(editor_id);
-        let core_height = document
-            .content_height(editor_id)
-            .max(constraints.min.height);
+            let target_width = constraints.max.width - gutter;
+            let softwrap = document.softwrap(editor_id);
+            let core_height = document
+                .content_height(editor_id)
+                .max(constraints.min.height);
 
-        let core_size = match softwrap {
-            true => Size::new(
-                document
-                    .layout_width(editor_id)
-                    .max(constraints.min.width - gutter),
-                core_height,
-            ),
-            false => Size::new(document.max_width(editor_id).max(target_width), core_height),
-        };
-        let size = match softwrap {
-            true => Size::new(core_size.width + gutter, core_size.height),
-            false => Size::new(gutter + target_width.max(0.0), core_size.height),
-        };
-        lazy(size, move |viewport| {
-            let shared = std::rc::Rc::new(SharedViewport {
-                document,
-                editor: editor_id,
-                fonts: fonts.clone(),
-                theme: crate::env::Themes::of(store),
-                number_lines: gutter > 0.0,
-                stripes,
-                cell: std::cell::RefCell::new(None),
-            });
-            let mut root = container(arena, size);
-            if gutter > 0.0 {
-                root.place(
+            let core_size = match softwrap {
+                true => Size::new(
+                    document
+                        .layout_width(editor_id)
+                        .max(constraints.min.width - gutter),
+                    core_height,
+                ),
+                false => Size::new(document.max_width(editor_id).max(target_width), core_height),
+            };
+            let size = match softwrap {
+                true => Size::new(core_size.width + gutter, core_size.height),
+                false => Size::new(gutter + target_width.max(0.0), core_size.height),
+            };
+            lazy(size, move |viewport| {
+                let shared = std::rc::Rc::new(SharedViewport {
+                    document,
+                    editor: editor_id,
+                    fonts: fonts.clone(),
+                    theme: crate::env::Themes::of(store),
+                    number_lines: gutter > 0.0,
+                    stripes,
+                    cell: std::cell::RefCell::new(None),
+                });
+                let mut root = container(arena, size);
+                if gutter > 0.0 {
+                    root.place(
+                        0.0,
+                        0.0,
+                        imba::eager(EditorGutterView {
+                            shared: shared.clone(),
+                            size: Size::new(gutter, size.height),
+                        }),
+                    );
+                }
+
+                let mut core = container(arena, core_size);
+                core.place(
                     0.0,
                     0.0,
-                    imba::eager(EditorGutterView {
-                        shared: shared.clone(),
-                        size: Size::new(gutter, size.height),
+                    imba::eager(EditorCoreView {
+                        shared,
+                        size: core_size,
+                        surface: imba::event::ScrollSurfaceId::keyed(editor_id.surface_key()),
+                        target_width,
+                        reports_geometry: self.reports_geometry,
+                        location: self.location.as_ref(),
                     }),
                 );
-            }
-
-            let mut core = container(arena, core_size);
-            core.place(
-                0.0,
-                0.0,
-                imba::eager(EditorCoreView {
-                    shared,
-                    size: core_size,
-                    surface: imba::event::ScrollSurfaceId::keyed(editor_id.surface_key()),
-                    target_width,
-                    reports_geometry: self.reports_geometry,
-                    location: self.location.as_ref(),
-                }),
-            );
-            self.place_visible_inlays(editor_id, arena, store, ui, &fonts, &mut core, viewport);
-            match softwrap {
-                true => root.place(gutter, 0.0, core),
-                false => {
-                    let scroll_x = document
-                        .scroll_x(editor_id)
-                        .min((core_size.width - target_width).max(0.0));
-                    let mut window =
-                        container(arena, Size::new(target_width.max(0.0), size.height));
-                    window.place(-scroll_x, 0.0, core);
-                    root.place(gutter, 0.0, window);
-                }
-            }
-
-            let popup_origin = match softwrap {
-                true => skia_safe::Point::new(gutter, 0.0),
-                false => skia_safe::Point::new(
-                    gutter
-                        - document
+                self.place_visible_inlays(editor_id, arena, store, ui, &fonts, &mut core, viewport);
+                match softwrap {
+                    true => root.place(gutter, 0.0, core),
+                    false => {
+                        let scroll_x = document
                             .scroll_x(editor_id)
-                            .min((core_size.width - target_width).max(0.0)),
-                    0.0,
-                ),
-            };
-            let mut popups = crate::popup::visible_popups(
-                &document,
-                editor_id,
-                &fonts.collection(),
-                &crate::env::Themes::of(store),
-                arena,
-                store,
-                ui,
-                viewport,
-                popup_origin,
-            );
+                            .min((core_size.width - target_width).max(0.0));
+                        let mut window =
+                            container(arena, Size::new(target_width.max(0.0), size.height));
+                        window.place(-scroll_x, 0.0, core);
+                        root.place(gutter, 0.0, window);
+                    }
+                }
 
-            if gutter > 0.0 {
-                popups.extend(crate::sticky::sticky_overlays(
+                let popup_origin = match softwrap {
+                    true => skia_safe::Point::new(gutter, 0.0),
+                    false => skia_safe::Point::new(
+                        gutter
+                            - document
+                                .scroll_x(editor_id)
+                                .min((core_size.width - target_width).max(0.0)),
+                        0.0,
+                    ),
+                };
+                let mut popups = crate::popup::visible_popups(
                     &document,
                     editor_id,
                     &fonts.collection(),
                     &crate::env::Themes::of(store),
                     arena,
+                    store,
+                    ui,
                     viewport,
-                    popup_origin.x,
-                    gutter,
-                    size.width,
-                ));
-            }
-            EditorChain {
-                inner: root.realize_into(viewport),
-                view: self,
-                store,
-                ui,
-                arena,
-                fonts: fonts.clone(),
-                theme: crate::env::Themes::of(store),
-                popups,
-            }
+                    popup_origin,
+                );
+
+                if gutter > 0.0 {
+                    popups.extend(crate::sticky::sticky_overlays(
+                        &document,
+                        editor_id,
+                        &fonts.collection(),
+                        &crate::env::Themes::of(store),
+                        arena,
+                        viewport,
+                        popup_origin.x,
+                        gutter,
+                        size.width,
+                    ));
+                }
+                EditorChain {
+                    inner: root.realize_into(viewport),
+                    view: self,
+                    store,
+                    ui,
+                    arena,
+                    fonts: fonts.clone(),
+                    theme: crate::env::Themes::of(store),
+                    popups,
+                }
+            })
         })
     }
 }

@@ -195,58 +195,61 @@ impl imba::View for FoldChip {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a imba::arena::Arena,
         store: &'a imba::store::Store,
         _ui: &'a imba::UiCtx,
-        _constraints: imba::constraints::Constraints,
-    ) -> impl imba::Thunk<'a, FoldCommand> + 'a {
-        use imba::event::{Event, EventResult, MouseButton};
-        use imba::thunk_ext::ThunkExt;
+    ) -> impl imba::Layout<'a, FoldCommand> + 'a {
+        imba::laid(
+            move |_arena: &'a imba::arena::Arena, _constraints: imba::constraints::Constraints| {
+                use imba::event::{Event, EventResult, MouseButton};
+                use imba::thunk_ext::ThunkExt;
 
-        let chrome = crate::env::Themes::of(store).ui().fold_chip.clone();
-        let animating = self.height.running();
-        let height = match animating || self.departing {
-            true => self.height.value(),
-            false => chrome.height,
-        };
-        let empty = animating || self.departing;
-        let chip = imba::leaf::leaf(chrome.width, height)
-            .paint_instead(move |_arena, canvas, rect| {
-                if empty {
-                    return;
-                }
-                use skia_safe::{Paint, Rect};
-                let mut paint = Paint::default();
-                paint.set_anti_alias(true);
-                paint.set_color(chrome.fill.0);
-                canvas.draw_round_rect(
-                    Rect::from_xywh(rect.left, rect.top, rect.width(), rect.height()),
-                    chrome.radius,
-                    chrome.radius,
-                    &paint,
-                );
-                paint.set_color(chrome.dots.0);
-                let radius = (chrome.height * 0.08).max(1.0);
-                let cy = rect.top + rect.height() * 0.62;
-                let cx = rect.left + rect.width() * 0.5;
-                let step = radius * 4.0;
-                for dot in [-1.0f32, 0.0, 1.0] {
-                    canvas.draw_circle((cx + dot * step, cy), radius, &paint);
-                }
-            })
-            .event(move |_arena, event, _size| match event {
-                Event::MouseDown {
-                    button: MouseButton::Left,
-                    ..
-                } => EventResult::Command(FoldCommand::Unfold),
-                Event::AnimationClock { now } if animating => {
-                    EventResult::Command(FoldCommand::Tick(*now))
-                }
-                _ => EventResult::Ignored,
-            });
-        let _ = arena;
-        chip
+                let chrome = crate::env::Themes::of(store).ui().fold_chip.clone();
+                let animating = self.height.running();
+                let height = match animating || self.departing {
+                    true => self.height.value(),
+                    false => chrome.height,
+                };
+                let empty = animating || self.departing;
+                let chip = imba::leaf::leaf(chrome.width, height)
+                    .paint_instead(move |_arena, canvas, rect| {
+                        if empty {
+                            return;
+                        }
+                        use skia_safe::{Paint, Rect};
+                        let mut paint = Paint::default();
+                        paint.set_anti_alias(true);
+                        paint.set_color(chrome.fill.0);
+                        canvas.draw_round_rect(
+                            Rect::from_xywh(rect.left, rect.top, rect.width(), rect.height()),
+                            chrome.radius,
+                            chrome.radius,
+                            &paint,
+                        );
+                        paint.set_color(chrome.dots.0);
+                        let radius = (chrome.height * 0.08).max(1.0);
+                        let cy = rect.top + rect.height() * 0.62;
+                        let cx = rect.left + rect.width() * 0.5;
+                        let step = radius * 4.0;
+                        for dot in [-1.0f32, 0.0, 1.0] {
+                            canvas.draw_circle((cx + dot * step, cy), radius, &paint);
+                        }
+                    })
+                    .event(move |_arena, event, _size| match event {
+                        Event::MouseDown {
+                            button: MouseButton::Left,
+                            ..
+                        } => EventResult::Command(FoldCommand::Unfold),
+                        Event::AnimationClock { now } if animating => {
+                            EventResult::Command(FoldCommand::Tick(*now))
+                        }
+                        _ => EventResult::Ignored,
+                    });
+                let _ = arena;
+                chip
+            },
+        )
     }
 }

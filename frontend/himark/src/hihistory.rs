@@ -28,7 +28,7 @@ use imba::{
     leaf::leaf,
     store::Store,
     thunk_ext::ThunkExt,
-    Thunk, UiCtx, View,
+    UiCtx, View,
 };
 use skia_safe::Size;
 
@@ -898,43 +898,46 @@ impl imba::View for CommitTip {
         match command {}
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         _arena: &'a imba::arena::Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        _constraints: imba::constraints::Constraints,
-    ) -> impl imba::Thunk<'a, Self::Command> + 'a {
-        let theme = crate::env::Themes::of(store);
-        let chrome = theme.ui().combo.clone();
-        let colors = theme.ui().peeker.clone();
-        let font = crate::fonts::ui_text_font(ui, chrome.value_size);
-        let pad = 14.0f32;
-        let line_h = chrome.value_size * 1.45;
-        let width = self
-            .lines
-            .iter()
-            .map(|(line, _)| font.measure_str(line, None).0)
-            .fold(120.0f32, f32::max)
-            + pad * 2.0;
-        let height = self.lines.len() as f32 * line_h + pad * 2.0;
-        let lines = self.lines.clone();
-        imba::leaf::leaf::<Self::Command>(width.min(560.0), height).paint_instead(
-            move |_arena, canvas, rect| {
-                let mut paint = skia_safe::Paint::default();
-                paint.set_anti_alias(true);
-                paint.set_color(chrome.menu_fill.0);
-                canvas.draw_round_rect(rect, 8.0, 8.0, &paint);
-                let mut y = rect.top + pad + chrome.value_size;
-                for (line, dim) in &lines {
-                    paint.set_color(if *dim {
-                        colors.dim_text.0
-                    } else {
-                        colors.text.0
-                    });
-                    canvas.draw_str(line, (rect.left + pad, y), &font, &paint);
-                    y += line_h;
-                }
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(
+            move |_arena: &'a imba::arena::Arena, _constraints: imba::constraints::Constraints| {
+                let theme = crate::env::Themes::of(store);
+                let chrome = theme.ui().combo.clone();
+                let colors = theme.ui().peeker.clone();
+                let font = crate::fonts::ui_text_font(ui, chrome.value_size);
+                let pad = 14.0f32;
+                let line_h = chrome.value_size * 1.45;
+                let width = self
+                    .lines
+                    .iter()
+                    .map(|(line, _)| font.measure_str(line, None).0)
+                    .fold(120.0f32, f32::max)
+                    + pad * 2.0;
+                let height = self.lines.len() as f32 * line_h + pad * 2.0;
+                let lines = self.lines.clone();
+                imba::leaf::leaf::<Self::Command>(width.min(560.0), height).paint_instead(
+                    move |_arena, canvas, rect| {
+                        let mut paint = skia_safe::Paint::default();
+                        paint.set_anti_alias(true);
+                        paint.set_color(chrome.menu_fill.0);
+                        canvas.draw_round_rect(rect, 8.0, 8.0, &paint);
+                        let mut y = rect.top + pad + chrome.value_size;
+                        for (line, dim) in &lines {
+                            paint.set_color(if *dim {
+                                colors.dim_text.0
+                            } else {
+                                colors.text.0
+                            });
+                            canvas.draw_str(line, (rect.left + pad, y), &font, &paint);
+                            y += line_h;
+                        }
+                    },
+                )
             },
         )
     }
@@ -1205,33 +1208,32 @@ impl View for HistoryView {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let size = constraints.max;
-        let mut section = container(arena, size);
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let size = constraints.max;
+            let mut section = container(arena, size);
 
-        let band = PANEL_PAD;
+            let band = PANEL_PAD;
 
-        let rows = self
-            .list
-            .layout(
-                arena,
-                store,
-                ui,
-                Constraints::tight(Size::new(size.width, (size.height - band).max(1.0))),
-            )
-            .map(HistoryCommand::Rows);
-        section.place(0.0, band, rows);
+            let rows = self
+                .list
+                .layout(
+                    arena,
+                    store,
+                    ui,
+                    Constraints::tight(Size::new(size.width, (size.height - band).max(1.0))),
+                )
+                .map(HistoryCommand::Rows);
+            section.place(0.0, band, rows);
 
-        let searching = self.list.view().searching();
-        let keymap =
-            leaf::<HistoryCommand>(size.width, size.height).event(move |_arena, event, _size| {
-                match event {
+            let searching = self.list.view().searching();
+            let keymap = leaf::<HistoryCommand>(size.width, size.height).event(
+                move |_arena, event, _size| match event {
                     Event::KeyDown {
                         key: InputKey::Escape,
                         ..
@@ -1263,28 +1265,30 @@ impl View for HistoryView {
                         ..
                     } => EventResult::Command(HistoryCommand::Pick),
                     _ => EventResult::Ignored,
-                }
-            });
-        section.place(0.0, 0.0, keymap);
+                },
+            );
+            section.place(0.0, 0.0, keymap);
 
-        let stale = self.stale(store);
-        let rows_height = (size.height - band).max(1.0);
-        let near_tail = {
-            let list = self.list.view().inner();
-            list.scroll_y() + rows_height
-                >= list.list().total_height() - crate::env::Themes::of(store).ui().tree.row_height
-        };
-        let pageable = crate::higent::session_folders(store, &self.workspace)
-            .iter()
-            .any(|folder| {
-                History::folder(store, folder).is_some_and(|entry| {
-                    entry.more.as_deref().is_some_and(|more| {
-                        self.grown.get(folder).map(String::as_str) != Some(more)
+            let stale = self.stale(store);
+            let rows_height = (size.height - band).max(1.0);
+            let near_tail = {
+                let list = self.list.view().inner();
+                list.scroll_y() + rows_height
+                    >= list.list().total_height()
+                        - crate::env::Themes::of(store).ui().tree.row_height
+            };
+            let pageable = crate::higent::session_folders(store, &self.workspace)
+                .iter()
+                .any(|folder| {
+                    History::folder(store, folder).is_some_and(|entry| {
+                        entry.more.as_deref().is_some_and(|more| {
+                            self.grown.get(folder).map(String::as_str) != Some(more)
+                        })
                     })
-                })
-            });
-        let grow = near_tail && pageable;
-        section.wrap(move |inner| ReconcileShell { inner, stale, grow })
+                });
+            let grow = near_tail && pageable;
+            section.wrap(move |inner| ReconcileShell { inner, stale, grow })
+        })
     }
 }
 

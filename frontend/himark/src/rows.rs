@@ -11,7 +11,7 @@ use imba::{
     scroll::{ScrollCommand, ScrollView},
     store::Store,
     thunk_ext::ThunkExt,
-    Thunk, UiCtx, View,
+    UiCtx, View,
 };
 use skia_safe::Paint;
 
@@ -41,53 +41,54 @@ impl View for LabelRow {
     ) {
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         _arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let chrome = crate::env::Themes::of(store).ui().peeker.clone();
-        let width = constraints.max.width.max(1.0);
-        let row_height = chrome.row_height;
-        let font = crate::fonts::ui_font(ui, chrome.row_size);
-        let dim = self.dim;
-        let label = self.label.clone();
-        let trail = self.trail.clone();
-        let trail_font = crate::fonts::ui_text_font(ui, chrome.row_size);
-        leaf::<RowCommand>(width, row_height)
-            .paint_instead(move |_arena, canvas, rect| {
-                let mut text = Paint::default();
-                text.set_anti_alias(true);
-                let baseline = rect.top + rect.height() - chrome.row_baseline;
-                text.set_color(if dim {
-                    chrome.dim_text.0
-                } else {
-                    chrome.text.0
-                });
-                canvas.draw_str(
-                    &label,
-                    (rect.left + chrome.row_text_x, baseline),
-                    &font,
-                    &text,
-                );
-                if let Some(trail) = &trail {
-                    let advance = trail_font.measure_str(trail, None).0;
-                    text.set_color(chrome.dim_text.0);
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let chrome = crate::env::Themes::of(store).ui().peeker.clone();
+            let width = constraints.max.width.max(1.0);
+            let row_height = chrome.row_height;
+            let font = crate::fonts::ui_font(ui, chrome.row_size);
+            let dim = self.dim;
+            let label = self.label.clone();
+            let trail = self.trail.clone();
+            let trail_font = crate::fonts::ui_text_font(ui, chrome.row_size);
+            leaf::<RowCommand>(width, row_height)
+                .paint_instead(move |_arena, canvas, rect| {
+                    let mut text = Paint::default();
+                    text.set_anti_alias(true);
+                    let baseline = rect.top + rect.height() - chrome.row_baseline;
+                    text.set_color(if dim {
+                        chrome.dim_text.0
+                    } else {
+                        chrome.text.0
+                    });
                     canvas.draw_str(
-                        trail,
-                        (rect.right - advance - chrome.row_text_x, baseline),
-                        &trail_font,
+                        &label,
+                        (rect.left + chrome.row_text_x, baseline),
+                        &font,
                         &text,
                     );
-                }
-            })
-            .event(move |_arena, event, _size| match event {
-                Event::MouseDown { .. } if !dim => EventResult::Command(RowCommand::Picked),
-                Event::MouseDown { .. } => EventResult::Handled,
-                _ => EventResult::Ignored,
-            })
+                    if let Some(trail) = &trail {
+                        let advance = trail_font.measure_str(trail, None).0;
+                        text.set_color(chrome.dim_text.0);
+                        canvas.draw_str(
+                            trail,
+                            (rect.right - advance - chrome.row_text_x, baseline),
+                            &trail_font,
+                            &text,
+                        );
+                    }
+                })
+                .event(move |_arena, event, _size| match event {
+                    Event::MouseDown { .. } if !dim => EventResult::Command(RowCommand::Picked),
+                    Event::MouseDown { .. } => EventResult::Handled,
+                    _ => EventResult::Ignored,
+                })
+        })
     }
 }
 
@@ -298,14 +299,15 @@ impl View for RowList {
         self.scroll.perform(store, ui, command, fx)
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        self.scroll.layout(arena, store, ui, constraints)
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            self.scroll.layout(arena, store, ui, constraints)
+        })
     }
 }
 

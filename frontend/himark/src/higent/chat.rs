@@ -27,7 +27,7 @@ use imba::{
     scroll::{ScrollCommand, ScrollView},
     store::Store,
     thunk_ext::ThunkExt,
-    Thunk, UiCtx, View, Widget,
+    UiCtx, View, Widget,
 };
 use skia_safe::{Paint, Rect, Size};
 
@@ -82,51 +82,53 @@ impl View for ChatRow {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        match self {
-            ChatRow::Loader { armed } => {
-                let chrome = env::Themes::of(store).ui().chat.clone();
-                let width = constraints.max.width.max(1.0);
-                let text = if *armed {
-                    "· · ·  older turns above  · · ·"
-                } else {
-                    "loading older turns…"
-                };
-                let font = ui_text_font(ui, chrome.title_size * 0.8);
-                let color = chrome.loader_color.0;
-                let height = chrome.loader_height;
-                let band =
-                    leaf::<RowCommand>(width, height).paint_instead(move |_arena, canvas, rect| {
-                        let mut paint = Paint::default();
-                        paint.set_anti_alias(true);
-                        paint.set_color(color);
-                        let label_width = font.measure_str(text, None).0;
-                        canvas.draw_str(
-                            text,
-                            (
-                                rect.left + (rect.width() - label_width) / 2.0,
-                                rect.top + rect.height() * 0.6,
-                            ),
-                            &font,
-                            &paint,
-                        );
-                    });
-                let mut row = container(arena, Size::new(width, height));
-                row.place(0.0, 0.0, band);
-                let armed = *armed;
-                Either::Loader(row.wrap(move |inner| ArmedLoader { inner, armed }))
-            }
-            ChatRow::Turn(turn) => Either::Turn(
-                turn.layout(arena, store, ui, constraints)
-                    .map(RowCommand::Turn),
-            ),
-        }
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(
+            move |_arena: &'a Arena, constraints: Constraints| match self {
+                ChatRow::Loader { armed } => {
+                    let chrome = env::Themes::of(store).ui().chat.clone();
+                    let width = constraints.max.width.max(1.0);
+                    let text = if *armed {
+                        "· · ·  older turns above  · · ·"
+                    } else {
+                        "loading older turns…"
+                    };
+                    let font = ui_text_font(ui, chrome.title_size * 0.8);
+                    let color = chrome.loader_color.0;
+                    let height = chrome.loader_height;
+                    let band = leaf::<RowCommand>(width, height).paint_instead(
+                        move |_arena, canvas, rect| {
+                            let mut paint = Paint::default();
+                            paint.set_anti_alias(true);
+                            paint.set_color(color);
+                            let label_width = font.measure_str(text, None).0;
+                            canvas.draw_str(
+                                text,
+                                (
+                                    rect.left + (rect.width() - label_width) / 2.0,
+                                    rect.top + rect.height() * 0.6,
+                                ),
+                                &font,
+                                &paint,
+                            );
+                        },
+                    );
+                    let mut row = container(arena, Size::new(width, height));
+                    row.place(0.0, 0.0, band);
+                    let armed = *armed;
+                    Either::Loader(row.wrap(move |inner| ArmedLoader { inner, armed }))
+                }
+                ChatRow::Turn(turn) => Either::Turn(
+                    turn.layout(arena, store, ui, constraints)
+                        .map(RowCommand::Turn),
+                ),
+            },
+        )
     }
 }
 
@@ -1728,199 +1730,200 @@ impl View for ChatPanel {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let size = constraints.max;
-        let theme = env::Themes::of(store);
-        let chrome = theme.ui().chat.clone();
-        self.panel_width
-            .store(size.width.max(1.0).to_bits(), Ordering::Relaxed);
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let size = constraints.max;
+            let theme = env::Themes::of(store);
+            let chrome = theme.ui().chat.clone();
+            self.panel_width
+                .store(size.width.max(1.0).to_bits(), Ordering::Relaxed);
 
-        let band_h = self.composer.band_height(&chrome, size.height);
-        let stack_h = self.stack.height(&chrome);
+            let band_h = self.composer.band_height(&chrome, size.height);
+            let stack_h = self.stack.height(&chrome);
 
-        let toolbar_h = theme.ui().toolbar.height;
-        let rows_height = (size.height - band_h - stack_h - toolbar_h).max(1.0);
-        self.rows_height
-            .store(rows_height.to_bits(), Ordering::Relaxed);
+            let toolbar_h = theme.ui().toolbar.height;
+            let rows_height = (size.height - band_h - stack_h - toolbar_h).max(1.0);
+            self.rows_height
+                .store(rows_height.to_bits(), Ordering::Relaxed);
 
-        let mut panel = container(arena, size);
+            let mut panel = container(arena, size);
 
-        panel.place(
-            0.0,
-            0.0,
-            self.rows
-                .layout(
-                    arena,
-                    store,
-                    ui,
-                    Constraints {
-                        min: Size::new(size.width, rows_height),
-                        max: Size::new(size.width, rows_height),
-                    },
-                )
-                .map(ChatPanelCommand::Rows)
-                .focus_scope(self.focus == ChatArea::Transcript),
-        );
-
-        let status = match &self.state {
-            Link::Idle | Link::Subscribing => "connecting…".to_owned(),
-            Link::Failed(error) => format!("failed: {error}"),
-            Link::Ready if self.pending.is_some() => "thinking…".to_owned(),
-            Link::Ready if self.active.is_some() => "responding…".to_owned(),
-            Link::Ready => String::new(),
-        };
-        let composer_empty = self.composer.is_empty();
-        panel.place(
-            0.0,
-            rows_height + stack_h,
-            self.composer
-                .layout(
-                    arena,
-                    store,
-                    ui,
-                    size.width,
-                    size.height,
-                    ComposerProps {
-                        status,
-                        focused: self.focus == ChatArea::Composer,
-                    },
-                )
-                .map(ChatPanelCommand::Composer),
-        );
-
-        if stack_h > 0.0 {
             panel.place(
                 0.0,
-                rows_height,
-                self.stack
-                    .layout(arena, ui, &chrome, size.width)
-                    .map(ChatPanelCommand::Stack),
+                0.0,
+                self.rows
+                    .layout(
+                        arena,
+                        store,
+                        ui,
+                        Constraints {
+                            min: Size::new(size.width, rows_height),
+                            max: Size::new(size.width, rows_height),
+                        },
+                    )
+                    .map(ChatPanelCommand::Rows)
+                    .focus_scope(self.focus == ChatArea::Transcript),
             );
-        }
 
-        self.toolbar.place(
-            arena,
-            &mut panel,
-            store,
-            ui,
-            size.height - toolbar_h + 1.0,
-            toolbar_h - 1.0,
-        );
+            let status = match &self.state {
+                Link::Idle | Link::Subscribing => "connecting…".to_owned(),
+                Link::Failed(error) => format!("failed: {error}"),
+                Link::Ready if self.pending.is_some() => "thinking…".to_owned(),
+                Link::Ready if self.active.is_some() => "responding…".to_owned(),
+                Link::Ready => String::new(),
+            };
+            let composer_empty = self.composer.is_empty();
+            panel.place(
+                0.0,
+                rows_height + stack_h,
+                self.composer
+                    .layout(
+                        arena,
+                        store,
+                        ui,
+                        size.width,
+                        size.height,
+                        ComposerProps {
+                            status,
+                            focused: self.focus == ChatArea::Composer,
+                        },
+                    )
+                    .map(ChatPanelCommand::Composer),
+            );
 
-        {
-            let ui_theme = theme.ui();
-            let busy = self.busy();
-            let sendable = !composer_empty && matches!(self.state, Link::Ready);
-            let stop = busy && composer_empty;
-            let label = if stop {
-                "STOP"
-            } else if busy {
-                "QUEUE"
-            } else {
-                "SEND"
-            };
-            let caps_font = crate::fonts::ui_font(ui, ui_theme.combo.label_size * 1.1);
-            let key_font = crate::fonts::ui_text_font(ui, ui_theme.peeker.hint_size * 0.95);
-            let pad = ui_theme.combo.pad;
-            let cell_width = label
-                .chars()
-                .map(|ch| caps_font.measure_str(ch.to_string(), None).0 + 1.5)
-                .sum::<f32>()
-                + key_font.measure_str("⌘⏎", None).0
-                + ui_theme.combo.gap
-                + pad * 2.0;
-            let accent = if stop {
-                chrome.stop_color.0
-            } else {
-                chrome.accent.0
-            };
-            let on_accent = chrome.on_accent.0;
-            let accent_soft = ui_theme.peeker.dim_text.0;
-            let gap = ui_theme.combo.gap;
-            let cell = imba::leaf::leaf::<ChatPanelCommand>(cell_width, toolbar_h - 1.0)
-                .paint_instead({
-                    let caps_font = caps_font.clone();
-                    let key_font = key_font.clone();
-                    let label = label.to_owned();
-                    move |_arena, canvas, rect| {
-                        let mut paint = skia_safe::Paint::default();
-                        let mut fill = accent;
-                        if !sendable && !busy {
-                            fill = fill.with_a(0x50);
-                        }
-                        paint.set_color(fill.with_a(fill.a() / 3));
-                        canvas.draw_rect(rect, &paint);
-                        paint.set_anti_alias(false);
-                        paint.set_color(fill);
-                        canvas.draw_rect(
-                            skia_safe::Rect::from_xywh(rect.left, rect.top, 1.0, rect.height()),
-                            &paint,
-                        );
-                        paint.set_anti_alias(true);
-                        paint.set_color(on_accent);
-                        let mid = rect.top + rect.height() * 0.5;
-                        let mut cx = rect.left + pad;
-                        for ch in label.chars() {
-                            let glyph = ch.to_string();
-                            canvas.draw_str(
-                                &glyph,
-                                (cx, mid + caps_font.size() * 0.35),
-                                &caps_font,
+            if stack_h > 0.0 {
+                panel.place(
+                    0.0,
+                    rows_height,
+                    self.stack
+                        .layout(arena, ui, &chrome, size.width)
+                        .map(ChatPanelCommand::Stack),
+                );
+            }
+
+            self.toolbar.place(
+                arena,
+                &mut panel,
+                store,
+                ui,
+                size.height - toolbar_h + 1.0,
+                toolbar_h - 1.0,
+            );
+
+            {
+                let ui_theme = theme.ui();
+                let busy = self.busy();
+                let sendable = !composer_empty && matches!(self.state, Link::Ready);
+                let stop = busy && composer_empty;
+                let label = if stop {
+                    "STOP"
+                } else if busy {
+                    "QUEUE"
+                } else {
+                    "SEND"
+                };
+                let caps_font = crate::fonts::ui_font(ui, ui_theme.combo.label_size * 1.1);
+                let key_font = crate::fonts::ui_text_font(ui, ui_theme.peeker.hint_size * 0.95);
+                let pad = ui_theme.combo.pad;
+                let cell_width = label
+                    .chars()
+                    .map(|ch| caps_font.measure_str(ch.to_string(), None).0 + 1.5)
+                    .sum::<f32>()
+                    + key_font.measure_str("⌘⏎", None).0
+                    + ui_theme.combo.gap
+                    + pad * 2.0;
+                let accent = if stop {
+                    chrome.stop_color.0
+                } else {
+                    chrome.accent.0
+                };
+                let on_accent = chrome.on_accent.0;
+                let accent_soft = ui_theme.peeker.dim_text.0;
+                let gap = ui_theme.combo.gap;
+                let cell = imba::leaf::leaf::<ChatPanelCommand>(cell_width, toolbar_h - 1.0)
+                    .paint_instead({
+                        let caps_font = caps_font.clone();
+                        let key_font = key_font.clone();
+                        let label = label.to_owned();
+                        move |_arena, canvas, rect| {
+                            let mut paint = skia_safe::Paint::default();
+                            let mut fill = accent;
+                            if !sendable && !busy {
+                                fill = fill.with_a(0x50);
+                            }
+                            paint.set_color(fill.with_a(fill.a() / 3));
+                            canvas.draw_rect(rect, &paint);
+                            paint.set_anti_alias(false);
+                            paint.set_color(fill);
+                            canvas.draw_rect(
+                                skia_safe::Rect::from_xywh(rect.left, rect.top, 1.0, rect.height()),
                                 &paint,
                             );
-                            cx += caps_font.measure_str(&glyph, None).0 + 1.5;
+                            paint.set_anti_alias(true);
+                            paint.set_color(on_accent);
+                            let mid = rect.top + rect.height() * 0.5;
+                            let mut cx = rect.left + pad;
+                            for ch in label.chars() {
+                                let glyph = ch.to_string();
+                                canvas.draw_str(
+                                    &glyph,
+                                    (cx, mid + caps_font.size() * 0.35),
+                                    &caps_font,
+                                    &paint,
+                                );
+                                cx += caps_font.measure_str(&glyph, None).0 + 1.5;
+                            }
+                            if !stop {
+                                paint.set_color(accent_soft);
+                                canvas.draw_str(
+                                    "⌘⏎",
+                                    (cx + gap, mid + key_font.size() * 0.35),
+                                    &key_font,
+                                    &paint,
+                                );
+                            }
                         }
-                        if !stop {
-                            paint.set_color(accent_soft);
-                            canvas.draw_str(
-                                "⌘⏎",
-                                (cx + gap, mid + key_font.size() * 0.35),
-                                &key_font,
-                                &paint,
-                            );
-                        }
-                    }
-                })
-                .event(move |_arena, event, _size| match event {
-                    imba::event::Event::MouseDown { .. } => {
-                        imba::event::EventResult::Command(ChatPanelCommand::Composer(match stop {
-                            true => ComposerCommand::Stop,
-                            false => ComposerCommand::Submit,
-                        }))
-                    }
-                    _ => imba::event::EventResult::Ignored,
+                    })
+                    .event(move |_arena, event, _size| match event {
+                        imba::event::Event::MouseDown { .. } => imba::event::EventResult::Command(
+                            ChatPanelCommand::Composer(match stop {
+                                true => ComposerCommand::Stop,
+                                false => ComposerCommand::Submit,
+                            }),
+                        ),
+                        _ => imba::event::EventResult::Ignored,
+                    });
+                panel.place(size.width - cell_width, size.height - toolbar_h + 1.0, cell);
+            }
+            let strip_origin = std::sync::Arc::clone(&self.toolbar.strip_origin);
+            let toolbar_stale =
+                super::Agents::channel(store, &self.session_id()).is_some_and(|channel| {
+                    super::SessionToolbar::fingerprint(store, self.server, &channel)
+                        != self.toolbar.synced
                 });
-            panel.place(size.width - cell_width, size.height - toolbar_h + 1.0, cell);
-        }
-        let strip_origin = std::sync::Arc::clone(&self.toolbar.strip_origin);
-        let toolbar_stale =
-            super::Agents::channel(store, &self.session_id()).is_some_and(|channel| {
-                super::SessionToolbar::fingerprint(store, self.server, &channel)
-                    != self.toolbar.synced
-            });
 
-        let rows_height_ = rows_height;
-        let focus = self.focus;
-        let boot = matches!(self.state, Link::Idle);
-        let ask = self.stack.ask_keys();
-        let strip_top = size.height - toolbar_h + 1.0;
-        panel.wrap_realized(move |panel| ChatWidget {
-            panel,
-            rows_height: rows_height_,
-            focus,
-            boot,
-            toolbar_stale,
-            strip_origin,
-            strip_top,
-            ask,
-            composer_empty,
-            expanded: self.composer.expanded(),
+            let rows_height_ = rows_height;
+            let focus = self.focus;
+            let boot = matches!(self.state, Link::Idle);
+            let ask = self.stack.ask_keys();
+            let strip_top = size.height - toolbar_h + 1.0;
+            panel.wrap_realized(move |panel| ChatWidget {
+                panel,
+                rows_height: rows_height_,
+                focus,
+                boot,
+                toolbar_stale,
+                strip_origin,
+                strip_top,
+                ask,
+                composer_empty,
+                expanded: self.composer.expanded(),
+            })
         })
     }
 }

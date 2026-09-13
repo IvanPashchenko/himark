@@ -1,7 +1,7 @@
 // Copyright © 2026 JetBrains s.r.o.
 // SPDX-License-Identifier: Apache-2.0
 
-use imba::{arena::Arena, constraints::Constraints, store::Store, DynCommand, Thunk, UiCtx, View};
+use imba::{arena::Arena, constraints::Constraints, store::Store, DynCommand, UiCtx, View};
 
 use crate::app::AppCommand;
 
@@ -81,14 +81,15 @@ impl View for Box<dyn ModalView> {
         self.as_mut().perform_dyn(store, ui, command, fx)
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        self.as_ref().layout_dyn(arena, store, ui, constraints)
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            self.as_ref().layout_dyn(arena, store, ui, constraints)
+        })
     }
 }
 

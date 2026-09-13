@@ -9,7 +9,7 @@ use imba::{
     leaf::leaf,
     store::Store,
     thunk_ext::ThunkExt,
-    PresentableCommand, Thunk, UiCtx, View,
+    PresentableCommand, UiCtx, View,
 };
 use skia_safe::{Paint, Size};
 
@@ -150,89 +150,88 @@ impl View for PaletteView {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let size = constraints.max;
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let size = constraints.max;
 
-        let chrome = ::himark::env::Themes::of(store).ui().peeker.clone();
-        let row_height = chrome.row_height;
+            let chrome = ::himark::env::Themes::of(store).ui().peeker.clone();
+            let row_height = chrome.row_height;
 
-        let list_width = size.width;
-        let list_x = 0.0;
-        let list_top = chrome.margin;
+            let list_width = size.width;
+            let list_x = 0.0;
+            let list_top = chrome.margin;
 
-        let list_height =
-            (size.height - list_top - chrome.hint_bottom - chrome.row_height).max(row_height);
+            let list_height =
+                (size.height - list_top - chrome.hint_bottom - chrome.row_height).max(row_height);
 
-        let selected = self.selected;
-        let match_count = self.matches.len();
-        let total = self.entries.len();
-        let row_font = himark::fonts::ui_font(ui, chrome.row_size);
-        let hint_font = himark::fonts::ui_font(ui, chrome.hint_size);
+            let selected = self.selected;
+            let match_count = self.matches.len();
+            let total = self.entries.len();
+            let row_font = himark::fonts::ui_font(ui, chrome.row_size);
+            let hint_font = himark::fonts::ui_font(ui, chrome.hint_size);
 
-        let mut container = imba::container::container(arena, size);
+            let mut container = imba::container::container(arena, size);
 
-        let backdrop = leaf::<PaletteCommand>(size.width, size.height)
-            .paint_instead({
-                let chrome = chrome.clone();
-                let hint_font = hint_font.clone();
-                let row_font = row_font.clone();
-                move |_arena, canvas, rect| {
-                    let mut surface = Paint::default();
-                    surface.set_color(chrome.background.0);
-                    canvas.draw_rect(rect, &surface);
+            let backdrop = leaf::<PaletteCommand>(size.width, size.height)
+                .paint_instead({
+                    let chrome = chrome.clone();
+                    let hint_font = hint_font.clone();
+                    let row_font = row_font.clone();
+                    move |_arena, canvas, rect| {
+                        let mut surface = Paint::default();
+                        surface.set_color(chrome.background.0);
+                        canvas.draw_rect(rect, &surface);
 
-                    let mut dim_text = Paint::default();
-                    dim_text.set_anti_alias(true);
-                    dim_text.set_color(chrome.dim_text.0);
-                    if match_count == 0 {
+                        let mut dim_text = Paint::default();
+                        dim_text.set_anti_alias(true);
+                        dim_text.set_color(chrome.dim_text.0);
+                        if match_count == 0 {
+                            canvas.draw_str(
+                                "no matching commands",
+                                (
+                                    list_x + chrome.row_text_x,
+                                    list_top + row_height - chrome.row_baseline,
+                                ),
+                                &row_font,
+                                &dim_text,
+                            );
+                        }
                         canvas.draw_str(
-                            "no matching commands",
-                            (
-                                list_x + chrome.row_text_x,
-                                list_top + row_height - chrome.row_baseline,
+                            format!(
+                                "{match_count} of {total} commands   ↑↓ select   ⏎ run   esc dismiss"
                             ),
-                            &row_font,
+                            (list_x, rect.top + size.height - chrome.hint_bottom),
+                            &hint_font,
                             &dim_text,
                         );
                     }
-                    canvas.draw_str(
-                        format!(
-                            "{match_count} of {total} commands   ↑↓ select   ⏎ run   esc dismiss"
-                        ),
-                        (list_x, rect.top + size.height - chrome.hint_bottom),
-                        &hint_font,
-                        &dim_text,
-                    );
-                }
-            })
-            .event(|_arena, event, _size| match event {
-                Event::MouseDown { .. } => EventResult::Command(PaletteCommand::Close),
-                _ => EventResult::Ignored,
-            });
-        container.place(0.0, 0.0, backdrop);
+                })
+                .event(|_arena, event, _size| match event {
+                    Event::MouseDown { .. } => EventResult::Command(PaletteCommand::Close),
+                    _ => EventResult::Ignored,
+                });
+            container.place(0.0, 0.0, backdrop);
 
-        container.place(
-            list_x,
-            list_top,
-            self.list
-                .layout(
-                    arena,
-                    store,
-                    ui,
-                    Constraints::tight(Size::new(list_width, list_height)),
-                )
-                .map(PaletteCommand::Rows),
-        );
+            container.place(
+                list_x,
+                list_top,
+                self.list
+                    .layout(
+                        arena,
+                        store,
+                        ui,
+                        Constraints::tight(Size::new(list_width, list_height)),
+                    )
+                    .map(PaletteCommand::Rows),
+            );
 
-        let keymap =
-            leaf::<PaletteCommand>(size.width, size.height).event(move |_arena, event, _size| {
-                match event {
+            let keymap = leaf::<PaletteCommand>(size.width, size.height).event(
+                move |_arena, event, _size| match event {
                     Event::KeyDown { key: Key::Up, .. } => {
                         EventResult::Command(PaletteCommand::Select(-1))
                     }
@@ -246,11 +245,12 @@ impl View for PaletteView {
                         key: Key::Escape, ..
                     } => EventResult::Command(PaletteCommand::Close),
                     _ => EventResult::Ignored,
-                }
-            });
-        container.place(0.0, 0.0, keymap);
+                },
+            );
+            container.place(0.0, 0.0, keymap);
 
-        container
+            container
+        })
     }
 }
 

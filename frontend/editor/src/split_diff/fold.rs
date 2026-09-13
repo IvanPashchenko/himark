@@ -326,46 +326,49 @@ impl imba::View for FoldStrip {
     ) {
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a imba::arena::Arena,
         store: &'a imba::store::Store,
         _ui: &'a imba::UiCtx,
-        constraints: imba::constraints::Constraints,
-    ) -> impl imba::Thunk<'a, FoldCommand> + 'a {
-        use imba::event::{Event, EventResult, MouseButton};
-        use imba::thunk_ext::ThunkExt;
-        let chrome = crate::env::Themes::of(store).ui().diff.clone();
-        let width = constraints.max.width.max(1.0);
-        let height = chrome.fold_height;
-        let lines = self.lines;
-        let buttons = Self::buttons(&chrome, width);
-        let font = crate::split_diff::fold::strip_font(chrome.fold_text_size);
-        let strip = imba::leaf::leaf(width, height)
-            .paint_instead(move |_arena, canvas, rect| {
-                paint_strip(canvas, rect, &chrome, lines, &buttons, &font);
-            })
-            .event(move |_arena, event, _size| match event {
-                Event::MouseDown {
-                    button: MouseButton::Left,
-                    point,
-                    ..
-                } => {
-                    for (rect, command) in buttons.iter().zip(FOLD_BUTTONS) {
-                        if point.x >= rect.left
-                            && point.x < rect.right
-                            && point.y >= rect.top
-                            && point.y < rect.bottom
-                        {
-                            return EventResult::Command(command);
+    ) -> impl imba::Layout<'a, FoldCommand> + 'a {
+        imba::laid(
+            move |_arena: &'a imba::arena::Arena, constraints: imba::constraints::Constraints| {
+                use imba::event::{Event, EventResult, MouseButton};
+                use imba::thunk_ext::ThunkExt;
+                let chrome = crate::env::Themes::of(store).ui().diff.clone();
+                let width = constraints.max.width.max(1.0);
+                let height = chrome.fold_height;
+                let lines = self.lines;
+                let buttons = Self::buttons(&chrome, width);
+                let font = crate::split_diff::fold::strip_font(chrome.fold_text_size);
+                let strip = imba::leaf::leaf(width, height)
+                    .paint_instead(move |_arena, canvas, rect| {
+                        paint_strip(canvas, rect, &chrome, lines, &buttons, &font);
+                    })
+                    .event(move |_arena, event, _size| match event {
+                        Event::MouseDown {
+                            button: MouseButton::Left,
+                            point,
+                            ..
+                        } => {
+                            for (rect, command) in buttons.iter().zip(FOLD_BUTTONS) {
+                                if point.x >= rect.left
+                                    && point.x < rect.right
+                                    && point.y >= rect.top
+                                    && point.y < rect.bottom
+                                {
+                                    return EventResult::Command(command);
+                                }
+                            }
+                            EventResult::Handled
                         }
-                    }
-                    EventResult::Handled
-                }
-                _ => EventResult::Ignored,
-            });
-        let _ = arena;
-        strip
+                        _ => EventResult::Ignored,
+                    });
+                let _ = arena;
+                strip
+            },
+        )
     }
 }
 

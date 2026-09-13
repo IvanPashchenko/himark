@@ -487,109 +487,112 @@ impl View for CommentView {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let size = self.card_size(constraints);
-        let mut container = imba::container::container(arena, size);
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let size = self.card_size(constraints);
+            let mut container = imba::container::container(arena, size);
 
-        let pad = self.chrome.pad;
-        let want = (size.width - pad * 2.0).max(120.0);
-        let editor_height = self
-            .editor
-            .content_height()
-            .max(self.chrome.min_editor_height);
-        let editor = self
-            .editor
-            .layout(
-                arena,
-                store,
-                ui,
-                Constraints {
-                    min: Size::new(want, editor_height),
-                    max: Size::new(want, f32::MAX),
-                },
-            )
-            .map(CommentCommand::Editor);
-        container.place(pad, pad, editor);
+            let pad = self.chrome.pad;
+            let want = (size.width - pad * 2.0).max(120.0);
+            let editor_height = self
+                .editor
+                .content_height()
+                .max(self.chrome.min_editor_height);
+            let editor = self
+                .editor
+                .layout(
+                    arena,
+                    store,
+                    ui,
+                    Constraints {
+                        min: Size::new(want, editor_height),
+                        max: Size::new(want, f32::MAX),
+                    },
+                )
+                .map(CommentCommand::Editor);
+            container.place(pad, pad, editor);
 
-        let mut y = pad + editor_height + pad;
-        for entry in &self.foreign {
-            let height = entry.content_height();
-            let laid = entry.layout(
-                arena,
-                store,
-                ui,
-                Constraints {
-                    min: Size::new(want, height),
-                    max: Size::new(want, f32::MAX),
-                },
-            );
-            container.place(pad, y, ReadOnly(laid));
-            y += height + pad;
-        }
+            let mut y = pad + editor_height + pad;
+            for entry in &self.foreign {
+                let height = entry.content_height();
+                let laid = entry.layout(
+                    arena,
+                    store,
+                    ui,
+                    Constraints {
+                        min: Size::new(want, height),
+                        max: Size::new(want, f32::MAX),
+                    },
+                );
+                container.place(pad, y, ReadOnly(laid));
+                y += height + pad;
+            }
 
-        let close = self.chrome.close_size;
-        let chrome = &self.chrome;
-        let cross = imba::leaf::leaf(close, close)
-            .paint_instead(move |_arena, canvas, rect| Self::paint_cross(chrome, canvas, rect))
-            .event(|_arena, event, _size| match event {
-                Event::MouseDown {
-                    button: MouseButton::Left,
-                    ..
-                } => EventResult::Command(CommentCommand::Remove),
-                _ => EventResult::Ignored,
-            });
-        container.place(size.width - close - 6.0, 6.0, cross);
+            let close = self.chrome.close_size;
+            let chrome = &self.chrome;
+            let cross = imba::leaf::leaf(close, close)
+                .paint_instead(move |_arena, canvas, rect| Self::paint_cross(chrome, canvas, rect))
+                .event(|_arena, event, _size| match event {
+                    Event::MouseDown {
+                        button: MouseButton::Left,
+                        ..
+                    } => EventResult::Command(CommentCommand::Remove),
+                    _ => EventResult::Ignored,
+                });
+            container.place(size.width - close - 6.0, 6.0, cross);
 
-        if self.annotation.is_some() {
-            let resolved = self
-                .annotation
-                .as_ref()
-                .and_then(|id| sync::Comments::record(store, id))
-                .map(|record| record.resolved)
-                .unwrap_or(false);
-            let check = imba::leaf::leaf(close, close)
-                .paint_instead(move |_arena, canvas, rect| {
-                    Self::paint_check(chrome, canvas, rect, resolved)
+            if self.annotation.is_some() {
+                let resolved = self
+                    .annotation
+                    .as_ref()
+                    .and_then(|id| sync::Comments::record(store, id))
+                    .map(|record| record.resolved)
+                    .unwrap_or(false);
+                let check = imba::leaf::leaf(close, close)
+                    .paint_instead(move |_arena, canvas, rect| {
+                        Self::paint_check(chrome, canvas, rect, resolved)
+                    })
+                    .event(|_arena, event, _size| match event {
+                        Event::MouseDown {
+                            button: MouseButton::Left,
+                            ..
+                        } => EventResult::Command(CommentCommand::Resolve),
+                        _ => EventResult::Ignored,
+                    });
+                container.place(size.width - close * 2.0 - 12.0, 6.0, check);
+                let plane = imba::leaf::leaf(close, close)
+                    .paint_instead(move |_arena, canvas, rect| {
+                        Self::paint_plane(chrome, canvas, rect)
+                    })
+                    .event(|_arena, event, _size| match event {
+                        Event::MouseDown {
+                            button: MouseButton::Left,
+                            ..
+                        } => EventResult::Command(CommentCommand::Send),
+                        _ => EventResult::Ignored,
+                    });
+                container.place(size.width - close * 3.0 - 18.0, 6.0, plane);
+            }
+
+            let stale = (self.editor.layout_width() - want).abs() > 1.0;
+            container
+                .paint_below(move |_arena, canvas, _rect| {
+                    self.paint_card(canvas, Rect::from_size(size))
                 })
-                .event(|_arena, event, _size| match event {
-                    Event::MouseDown {
-                        button: MouseButton::Left,
-                        ..
-                    } => EventResult::Command(CommentCommand::Resolve),
-                    _ => EventResult::Ignored,
-                });
-            container.place(size.width - close * 2.0 - 12.0, 6.0, check);
-            let plane = imba::leaf::leaf(close, close)
-                .paint_instead(move |_arena, canvas, rect| Self::paint_plane(chrome, canvas, rect))
-                .event(|_arena, event, _size| match event {
-                    Event::MouseDown {
-                        button: MouseButton::Left,
-                        ..
-                    } => EventResult::Command(CommentCommand::Send),
-                    _ => EventResult::Ignored,
-                });
-            container.place(size.width - close * 3.0 - 18.0, 6.0, plane);
-        }
-
-        let stale = (self.editor.layout_width() - want).abs() > 1.0;
-        container
-            .paint_below(move |_arena, canvas, _rect| {
-                self.paint_card(canvas, Rect::from_size(size))
-            })
-            .wrap(move |inner| RewrapOnPaint { stale, want, inner })
-            .commands(|| {
-                vec![imba::PresentableCommand::new(
-                    "comments.remove",
-                    "Remove Comment",
-                    CommentCommand::Remove,
-                )]
-            })
+                .wrap(move |inner| RewrapOnPaint { stale, want, inner })
+                .commands(|| {
+                    vec![imba::PresentableCommand::new(
+                        "comments.remove",
+                        "Remove Comment",
+                        CommentCommand::Remove,
+                    )]
+                })
+        })
     }
 }
 

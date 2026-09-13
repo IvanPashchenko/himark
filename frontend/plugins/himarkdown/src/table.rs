@@ -5,8 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use himark::{Document, EditorCommand, EditorView, Markup};
 use imba::{
-    arena::Arena, constraints::Constraints, store::Store, thunk_ext::ThunkExt, Thunk, UiCtx, View,
-    Widget,
+    arena::Arena, constraints::Constraints, store::Store, thunk_ext::ThunkExt, UiCtx, View, Widget,
 };
 use operation::{Op, Operation};
 use skia_safe::{
@@ -1181,121 +1180,122 @@ impl View for TableEditor {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let strip = self.chrome.control_size + 6.0;
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let strip = self.chrome.control_size + 6.0;
 
-        let trailing = self.chrome.control_size * 0.5 + 2.0;
+            let trailing = self.chrome.control_size * 0.5 + 2.0;
 
-        let available = (constraints.max.width - strip - trailing).max(60.0);
-        self.available.store(available.to_bits(), Ordering::Relaxed);
-        let widths = Self::widths_at(&self.intrinsics, available, &self.chrome);
-        let table = self.table_size(&widths);
-        let size = Size::new(
-            table.width + strip + trailing,
-            table.height + strip + trailing,
-        );
-        let mut container = imba::container::container(arena, size);
-        self.place_controls(&mut container, strip, &widths);
+            let available = (constraints.max.width - strip - trailing).max(60.0);
+            self.available.store(available.to_bits(), Ordering::Relaxed);
+            let widths = Self::widths_at(&self.intrinsics, available, &self.chrome);
+            let table = self.table_size(&widths);
+            let size = Size::new(
+                table.width + strip + trailing,
+                table.height + strip + trailing,
+            );
+            let mut container = imba::container::container(arena, size);
+            self.place_controls(&mut container, strip, &widths);
 
-        let mut y = strip + self.chrome.thickness;
-        for (row_index, (row, height)) in self.rows.iter().zip(&self.row_heights).enumerate() {
-            let mut x = strip + self.chrome.thickness;
-            for (col_index, (cell, width)) in row.iter().zip(&widths).enumerate() {
-                let cell_width = cell.view.layout_width().max(1.0);
-                let inner_width = (width - self.chrome.cell_pad_x * 2.0).max(1.0);
-                let inner_height = (height - self.chrome.cell_pad_y * 2.0).max(1.0);
-                let widget = cell
-                    .view
-                    .layout(
-                        arena,
-                        store,
-                        ui,
-                        Constraints {
-                            min: Size::new(inner_width.max(cell_width), inner_height),
-                            max: Size::new(cell_width, f32::MAX),
-                        },
-                    )
-                    .map(move |command| TableCommand::Cell {
-                        row: row_index,
-                        col: col_index,
-                        command,
-                    });
-                container.place(
-                    x + self.chrome.cell_pad_x,
-                    y + self.chrome.cell_pad_y,
-                    widget,
-                );
-                x += width + self.chrome.thickness;
+            let mut y = strip + self.chrome.thickness;
+            for (row_index, (row, height)) in self.rows.iter().zip(&self.row_heights).enumerate() {
+                let mut x = strip + self.chrome.thickness;
+                for (col_index, (cell, width)) in row.iter().zip(&widths).enumerate() {
+                    let cell_width = cell.view.layout_width().max(1.0);
+                    let inner_width = (width - self.chrome.cell_pad_x * 2.0).max(1.0);
+                    let inner_height = (height - self.chrome.cell_pad_y * 2.0).max(1.0);
+                    let widget = cell
+                        .view
+                        .layout(
+                            arena,
+                            store,
+                            ui,
+                            Constraints {
+                                min: Size::new(inner_width.max(cell_width), inner_height),
+                                max: Size::new(cell_width, f32::MAX),
+                            },
+                        )
+                        .map(move |command| TableCommand::Cell {
+                            row: row_index,
+                            col: col_index,
+                            command,
+                        });
+                    container.place(
+                        x + self.chrome.cell_pad_x,
+                        y + self.chrome.cell_pad_y,
+                        widget,
+                    );
+                    x += width + self.chrome.thickness;
+                }
+                y += height + self.chrome.thickness;
             }
-            y += height + self.chrome.thickness;
-        }
 
-        let relayout = self.needs_relay(available).then_some(available);
-        let painted = &self.painted_focused;
-        container
-            .paint_below(move |_arena, canvas, _rect| {
-                canvas.save();
-                canvas.translate((strip, strip));
-                self.paint_grid(canvas, Rect::from_size(table), &widths);
-                canvas.restore();
-            })
-            .wrap(move |inner| PaintedFocus {
-                painted,
-                relayout,
-                inner,
-            })
-            .commands(move || {
-                let Some((row, col)) = self.focused else {
-                    return Vec::new();
-                };
-                let rows = self.rows.len();
-                let cols = self.rows.first().map_or(0, Vec::len);
-                let mut commands = vec![
-                    imba::PresentableCommand::new(
-                        "table.insert-row-below",
-                        "Table: Insert Row Below",
-                        TableCommand::InsertRow((row + 1).max(1)),
-                    ),
-                    imba::PresentableCommand::new(
-                        "table.insert-column-left",
-                        "Table: Insert Column Left",
-                        TableCommand::InsertColumn(col),
-                    ),
-                    imba::PresentableCommand::new(
-                        "table.insert-column-right",
-                        "Table: Insert Column Right",
-                        TableCommand::InsertColumn(col + 1),
-                    ),
-                ];
-                if row >= 1 {
-                    commands.push(imba::PresentableCommand::new(
-                        "table.insert-row-above",
-                        "Table: Insert Row Above",
-                        TableCommand::InsertRow(row),
-                    ));
-                    if rows > 2 {
+            let relayout = self.needs_relay(available).then_some(available);
+            let painted = &self.painted_focused;
+            container
+                .paint_below(move |_arena, canvas, _rect| {
+                    canvas.save();
+                    canvas.translate((strip, strip));
+                    self.paint_grid(canvas, Rect::from_size(table), &widths);
+                    canvas.restore();
+                })
+                .wrap(move |inner| PaintedFocus {
+                    painted,
+                    relayout,
+                    inner,
+                })
+                .commands(move || {
+                    let Some((row, col)) = self.focused else {
+                        return Vec::new();
+                    };
+                    let rows = self.rows.len();
+                    let cols = self.rows.first().map_or(0, Vec::len);
+                    let mut commands = vec![
+                        imba::PresentableCommand::new(
+                            "table.insert-row-below",
+                            "Table: Insert Row Below",
+                            TableCommand::InsertRow((row + 1).max(1)),
+                        ),
+                        imba::PresentableCommand::new(
+                            "table.insert-column-left",
+                            "Table: Insert Column Left",
+                            TableCommand::InsertColumn(col),
+                        ),
+                        imba::PresentableCommand::new(
+                            "table.insert-column-right",
+                            "Table: Insert Column Right",
+                            TableCommand::InsertColumn(col + 1),
+                        ),
+                    ];
+                    if row >= 1 {
                         commands.push(imba::PresentableCommand::new(
-                            "table.remove-row",
-                            "Table: Remove Row",
-                            TableCommand::RemoveRow(row),
+                            "table.insert-row-above",
+                            "Table: Insert Row Above",
+                            TableCommand::InsertRow(row),
+                        ));
+                        if rows > 2 {
+                            commands.push(imba::PresentableCommand::new(
+                                "table.remove-row",
+                                "Table: Remove Row",
+                                TableCommand::RemoveRow(row),
+                            ));
+                        }
+                    }
+                    if cols > 1 {
+                        commands.push(imba::PresentableCommand::new(
+                            "table.remove-column",
+                            "Table: Remove Column",
+                            TableCommand::RemoveColumn(col),
                         ));
                     }
-                }
-                if cols > 1 {
-                    commands.push(imba::PresentableCommand::new(
-                        "table.remove-column",
-                        "Table: Remove Column",
-                        TableCommand::RemoveColumn(col),
-                    ));
-                }
-                commands
-            })
+                    commands
+                })
+        })
     }
 }
 

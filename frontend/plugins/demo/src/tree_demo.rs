@@ -10,7 +10,7 @@ use imba::{
     scroll::{ScrollCommand, ScrollView},
     store::Store,
     thunk_ext::ThunkExt,
-    Thunk, UiCtx, View, Widget,
+    UiCtx, View, Widget,
 };
 use skia_safe::{Paint, PathBuilder, Rect, Size};
 
@@ -90,22 +90,23 @@ impl View for TreeDemoRow {
     ) {
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         _arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let theme = himark::env::Themes::of(store);
-        imba::eager(TreeDemoRowWidget {
-            row: self,
-            color: theme
-                .base()
-                .color
-                .unwrap_or(skia_safe::Color::from_argb(0xFF, 0x80, 0x80, 0x80)),
-            font: himark::fonts::ui_text_font(ui, 13.0),
-            size: Size::new(constraints.max.width, ROW_HEIGHT),
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let theme = himark::env::Themes::of(store);
+            imba::eager(TreeDemoRowWidget {
+                row: self,
+                color: theme
+                    .base()
+                    .color
+                    .unwrap_or(skia_safe::Color::from_argb(0xFF, 0x80, 0x80, 0x80)),
+                font: himark::fonts::ui_text_font(ui, 13.0),
+                size: Size::new(constraints.max.width, ROW_HEIGHT),
+            })
         })
     }
 }
@@ -266,16 +267,17 @@ impl View for TreeDemoView {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        self.rows
-            .layout(arena, store, ui, constraints)
-            .map(Command::Rows)
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            self.rows
+                .layout(arena, store, ui, constraints)
+                .map(Command::Rows)
+        })
     }
 }
 

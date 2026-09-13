@@ -248,38 +248,39 @@ where
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let viewport = constraints.max;
-        let content = self.content.layout(
-            arena,
-            store,
-            ui,
-            Constraints {
-                min: Size::new(0.0, viewport.height),
-                max: Size::new(viewport.width, f32::MAX),
-            },
-        );
-        let max_scroll = (content.size().height - viewport.height).max(0.0);
+    ) -> impl crate::Layout<'a, Self::Command> + 'a {
+        crate::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let viewport = constraints.max;
+            let content = self.content.layout(
+                arena,
+                store,
+                ui,
+                Constraints {
+                    min: Size::new(0.0, viewport.height),
+                    max: Size::new(viewport.width, f32::MAX),
+                },
+            );
+            let max_scroll = (content.size().height - viewport.height).max(0.0);
 
-        ScrollWidget {
-            content,
-            viewport,
-            scroll_y: self.scroll_y.clamp(0.0, max_scroll),
-            glide: self.glide.map(|glide| Glide {
-                target: glide.target.clamp(0.0, max_scroll),
-                last: glide.last,
-            }),
-            drag: self.drag,
-            scrollbar: ui.get::<ScrollbarStyle>().copied().unwrap_or_default(),
-            surface: self.surface,
-            _command: PhantomData,
-        }
+            ScrollWidget {
+                content,
+                viewport,
+                scroll_y: self.scroll_y.clamp(0.0, max_scroll),
+                glide: self.glide.map(|glide| Glide {
+                    target: glide.target.clamp(0.0, max_scroll),
+                    last: glide.last,
+                }),
+                drag: self.drag,
+                scrollbar: ui.get::<ScrollbarStyle>().copied().unwrap_or_default(),
+                surface: self.surface,
+                _command: PhantomData,
+            }
+        })
     }
 }
 

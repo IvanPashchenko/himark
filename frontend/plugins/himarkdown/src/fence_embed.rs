@@ -9,7 +9,7 @@ use himark::{
     ResourceType, StyleId, SyntaxLanguages,
 };
 use hisitter::TsTree;
-use imba::{arena::Arena, constraints::Constraints, store::Store, Thunk, UiCtx, View};
+use imba::{arena::Arena, constraints::Constraints, store::Store, UiCtx, View};
 use text::Text;
 
 struct FenceRef {
@@ -49,14 +49,13 @@ impl View for EmbedPending {
     ) {
         match command {}
     }
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         _arena: &'a Arena,
         _store: &'a Store,
         _ui: &'a UiCtx,
-        _constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        imba::leaf::leaf(0.0, 0.0)
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, _constraints: Constraints| imba::leaf::leaf(0.0, 0.0))
     }
 }
 
@@ -107,22 +106,23 @@ impl View for EmbedView {
         self.height = self.live_height(store).unwrap_or(self.height);
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let height = self.live_height(store).unwrap_or(self.height).max(1.0);
-        let width = match constraints.max.width.is_finite() {
-            true => constraints.max.width,
-            false => constraints.min.width,
-        }
-        .max(60.0);
-        let mut pane = imba::container::container(arena, skia_safe::Size::new(width, height));
-        pane.place(0.0, 0.0, self.view.layout(arena, store, ui, constraints));
-        pane
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let height = self.live_height(store).unwrap_or(self.height).max(1.0);
+            let width = match constraints.max.width.is_finite() {
+                true => constraints.max.width,
+                false => constraints.min.width,
+            }
+            .max(60.0);
+            let mut pane = imba::container::container(arena, skia_safe::Size::new(width, height));
+            pane.place(0.0, 0.0, self.view.layout(arena, store, ui, constraints));
+            pane
+        })
     }
 }
 

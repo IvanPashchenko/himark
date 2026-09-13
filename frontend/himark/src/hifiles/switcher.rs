@@ -12,7 +12,7 @@ use imba::{
     leaf::leaf,
     store::Store,
     thunk_ext::ThunkExt,
-    Thunk, UiCtx, View,
+    UiCtx, View,
 };
 use skia_safe::{Paint, Rect, Size};
 
@@ -164,111 +164,110 @@ impl View for SessionSwitcherView {
         }
     }
 
-    fn layout<'a>(
+    fn display<'a>(
         &'a self,
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-        constraints: Constraints,
-    ) -> impl Thunk<'a, Self::Command> + 'a {
-        let size = constraints.max;
-        let mut overlay = container(arena, size);
+    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
+            let size = constraints.max;
+            let mut overlay = container(arena, size);
 
-        let theme = crate::env::Themes::of(store);
-        let chrome = theme.ui().peeker.clone();
-        let row_height = chrome.row_height;
-        let selected = self.selected;
-        let labels = &self.labels;
-        let row_font = crate::fonts::ui_font(ui, chrome.row_size);
-        let panel = {
-            let mut panel = container(arena, Size::new(PANEL_WIDTH, size.height));
-            let chrome_bg = chrome.clone();
-            let backdrop = leaf::<SwitcherCommand>(PANEL_WIDTH, size.height)
-                .paint_instead(move |_arena, canvas, rect| {
-                    let mut paint = Paint::default();
-                    paint.set_color(chrome_bg.background.0);
-                    canvas.draw_rect(rect, &paint);
-                    let mut edge = Paint::default();
-                    edge.set_color(chrome_bg.rule.0);
-                    canvas.draw_rect(
-                        Rect::from_xywh(rect.right - 1.0, rect.top, 1.0, rect.height()),
-                        &edge,
-                    );
-                })
-                .event(|_arena, event, _size| match event {
-                    Event::MouseDown { .. } => EventResult::Handled,
-                    _ => EventResult::Ignored,
-                });
-            panel.place(0.0, 0.0, backdrop);
+            let theme = crate::env::Themes::of(store);
+            let chrome = theme.ui().peeker.clone();
+            let row_height = chrome.row_height;
+            let selected = self.selected;
+            let labels = &self.labels;
+            let row_font = crate::fonts::ui_font(ui, chrome.row_size);
+            let panel = {
+                let mut panel = container(arena, Size::new(PANEL_WIDTH, size.height));
+                let chrome_bg = chrome.clone();
+                let backdrop = leaf::<SwitcherCommand>(PANEL_WIDTH, size.height)
+                    .paint_instead(move |_arena, canvas, rect| {
+                        let mut paint = Paint::default();
+                        paint.set_color(chrome_bg.background.0);
+                        canvas.draw_rect(rect, &paint);
+                        let mut edge = Paint::default();
+                        edge.set_color(chrome_bg.rule.0);
+                        canvas.draw_rect(
+                            Rect::from_xywh(rect.right - 1.0, rect.top, 1.0, rect.height()),
+                            &edge,
+                        );
+                    })
+                    .event(|_arena, event, _size| match event {
+                        Event::MouseDown { .. } => EventResult::Handled,
+                        _ => EventResult::Ignored,
+                    });
+                panel.place(0.0, 0.0, backdrop);
 
-            let list_height = size.height - PANEL_PAD * 2.0;
-            let list = leaf::<SwitcherCommand>(PANEL_WIDTH - 1.0, list_height)
-                .paint_instead(move |_arena, canvas, rect| {
-                    let mut highlight = Paint::default();
-                    highlight.set_anti_alias(true);
-                    highlight.set_color(chrome.highlight.0);
-                    let mut accent = Paint::default();
-                    accent.set_color(chrome.accent.0);
-                    let mut text = Paint::default();
-                    text.set_anti_alias(true);
-                    text.set_color(chrome.text.0);
-                    let mut dim = Paint::default();
-                    dim.set_anti_alias(true);
-                    dim.set_color(chrome.dim_text.0);
-                    for (line, label) in labels.iter().enumerate() {
-                        let top = rect.top + line as f32 * row_height;
-                        if line == selected {
-                            canvas.draw_round_rect(
-                                Rect::from_xywh(
-                                    rect.left + 4.0,
-                                    top,
-                                    rect.width() - 8.0,
-                                    row_height,
-                                ),
-                                chrome.highlight_radius,
-                                chrome.highlight_radius,
-                                &highlight,
-                            );
-                            canvas.draw_rect(
-                                Rect::from_xywh(
-                                    rect.left,
-                                    top + chrome.accent_inset,
-                                    chrome.accent_width,
-                                    row_height - chrome.accent_inset * 2.0,
-                                ),
-                                &accent,
+                let list_height = size.height - PANEL_PAD * 2.0;
+                let list = leaf::<SwitcherCommand>(PANEL_WIDTH - 1.0, list_height)
+                    .paint_instead(move |_arena, canvas, rect| {
+                        let mut highlight = Paint::default();
+                        highlight.set_anti_alias(true);
+                        highlight.set_color(chrome.highlight.0);
+                        let mut accent = Paint::default();
+                        accent.set_color(chrome.accent.0);
+                        let mut text = Paint::default();
+                        text.set_anti_alias(true);
+                        text.set_color(chrome.text.0);
+                        let mut dim = Paint::default();
+                        dim.set_anti_alias(true);
+                        dim.set_color(chrome.dim_text.0);
+                        for (line, label) in labels.iter().enumerate() {
+                            let top = rect.top + line as f32 * row_height;
+                            if line == selected {
+                                canvas.draw_round_rect(
+                                    Rect::from_xywh(
+                                        rect.left + 4.0,
+                                        top,
+                                        rect.width() - 8.0,
+                                        row_height,
+                                    ),
+                                    chrome.highlight_radius,
+                                    chrome.highlight_radius,
+                                    &highlight,
+                                );
+                                canvas.draw_rect(
+                                    Rect::from_xywh(
+                                        rect.left,
+                                        top + chrome.accent_inset,
+                                        chrome.accent_width,
+                                        row_height - chrome.accent_inset * 2.0,
+                                    ),
+                                    &accent,
+                                );
+                            }
+                            let baseline = top + row_height - chrome.row_baseline;
+                            let paint = match line == labels.len() - 1 {
+                                true => &dim,
+                                false => &text,
+                            };
+                            canvas.draw_str(
+                                label,
+                                (rect.left + chrome.row_text_x, baseline),
+                                &row_font,
+                                paint,
                             );
                         }
-                        let baseline = top + row_height - chrome.row_baseline;
-                        let paint = match line == labels.len() - 1 {
-                            true => &dim,
-                            false => &text,
-                        };
-                        canvas.draw_str(
-                            label,
-                            (rect.left + chrome.row_text_x, baseline),
-                            &row_font,
-                            paint,
-                        );
-                    }
-                })
-                .event(move |_arena, event, _size| match event {
-                    Event::MouseDown { point, .. } => {
-                        let row = (point.y / row_height).max(0.0) as usize;
-                        EventResult::Command(SwitcherCommand::Pick(row))
-                    }
-                    _ => EventResult::Ignored,
-                });
-            panel.place(0.0, PANEL_PAD, list);
-            panel
-        };
-        overlay.place(0.0, 0.0, panel);
+                    })
+                    .event(move |_arena, event, _size| match event {
+                        Event::MouseDown { point, .. } => {
+                            let row = (point.y / row_height).max(0.0) as usize;
+                            EventResult::Command(SwitcherCommand::Pick(row))
+                        }
+                        _ => EventResult::Ignored,
+                    });
+                panel.place(0.0, PANEL_PAD, list);
+                panel
+            };
+            overlay.place(0.0, 0.0, panel);
 
-        let row_count = self.rows.len();
-        let selected = self.selected;
-        let keymap =
-            leaf::<SwitcherCommand>(size.width, size.height).event(move |_arena, event, _size| {
-                match event {
+            let row_count = self.rows.len();
+            let selected = self.selected;
+            let keymap = leaf::<SwitcherCommand>(size.width, size.height).event(
+                move |_arena, event, _size| match event {
                     Event::KeyDown {
                         key: InputKey::Escape,
                         ..
@@ -287,11 +286,12 @@ impl View for SessionSwitcherView {
                         EventResult::Command(SwitcherCommand::Pick(selected))
                     }
                     _ => EventResult::Ignored,
-                }
-            });
-        overlay.place(0.0, 0.0, keymap);
+                },
+            );
+            overlay.place(0.0, 0.0, keymap);
 
-        overlay
+            overlay
+        })
     }
 }
 
