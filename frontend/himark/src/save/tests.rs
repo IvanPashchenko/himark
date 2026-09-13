@@ -163,3 +163,77 @@ fn scratch_save_is_unavailable_without_a_picker() {
     land(&mut app, &arriving);
     assert!(writes.lock().unwrap().is_empty());
 }
+
+#[test]
+fn save_all_stores_every_modified_file_and_the_title_drops_its_mark() {
+    let (mut app, runner, arriving, writes) = setup(true);
+    app.register_command(Arc::new(SaveAll));
+    let window = app.sole_window();
+
+    let named = |name: &str| {
+        ResourceLocation::new(
+            crate::ResourceType::document(),
+            crate::Authority::new("local"),
+            vec![name.to_owned()],
+        )
+    };
+    let open = |app: &mut Application, name: &str| -> crate::DocumentId {
+        app.perform_command(crate::AppCommand::Opened(
+            app.sole_window(),
+            crate::OpenedDocument {
+                name: name.to_owned(),
+                document: plain_document("original"),
+                location: Some(named(name)),
+                primary: true,
+                target: None,
+            },
+        ));
+        let mut surface = skia_safe::surfaces::raster_n32_premul((800, 600)).unwrap();
+        crate::Window::draw(app.sole_window(), app, surface.canvas());
+        OpenDocuments::by_location(app.store(), &named(name)).unwrap()
+    };
+    let title = |app: &Application| {
+        crate::Windows::window_ref(app.store(), window)
+            .expect("the window")
+            .workbench()
+            .root
+            .focused_pane()
+            .title(app.store())
+    };
+
+    let first = open(&mut app, "notes.md");
+    assert!(test_driver::type_text(&mut app, "one "));
+    let second = open(&mut app, "other.md");
+    assert_eq!(title(&app), "other.md", "clean files carry no mark");
+    assert!(test_driver::type_text(&mut app, "two "));
+    assert_eq!(
+        title(&app),
+        "other.md*",
+        "the omnibox marks the unsaved file"
+    );
+
+    assert!(app.perform_registered(window, "file.save-all"));
+    runner.run();
+    land(&mut app, &arriving);
+
+    let mut stored: Vec<(String, String)> = writes
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(location, text)| (location.name().to_owned(), text.clone()))
+        .collect();
+    stored.sort();
+    assert_eq!(
+        stored,
+        [
+            ("notes.md".to_owned(), "one original".to_owned()),
+            ("other.md".to_owned(), "two original".to_owned()),
+        ],
+        "every modified file stored; the scratch stayed home"
+    );
+    for id in [first, second] {
+        let entity = OpenDocuments::entity(app.store(), id).unwrap();
+        assert!(!entity.modified(), "the landing marked the save");
+    }
+    assert_eq!(title(&app), "other.md", "the mark leaves with the save");
+}

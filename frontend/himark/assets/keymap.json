@@ -2,6 +2,7 @@
     "cmd-p": "peeker.toggle",
     "cmd-s": "file.save",
     "ctrl-s": "file.save",
+    "cmd-alt-s": "file.save-all",
     "cmd-shift-p": "palette.toggle",
     "cmd-z": "editor.undo",
     "cmd-shift-z": "editor.redo",

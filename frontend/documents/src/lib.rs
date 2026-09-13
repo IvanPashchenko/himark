@@ -166,6 +166,11 @@ impl OpenDocument {
         self.saved_revision
     }
 
+    /// Whether edits stand that no store has landed for.
+    pub fn modified(&self) -> bool {
+        self.document.revision() != self.saved_revision
+    }
+
     pub fn baseline(&self) -> &editor::Text {
         &self.baseline
     }
@@ -609,7 +614,7 @@ impl OpenDocuments {
         if entity.document.editor_ids().next().is_some() {
             return;
         }
-        if entity.document.revision() != entity.saved_revision {
+        if entity.modified() {
             return;
         }
         if spare_scratch && entity.location.as_ref().is_some_and(is_scratch) {

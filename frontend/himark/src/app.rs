@@ -111,6 +111,14 @@ pub enum AppCommand {
         target_revision: u64,
     },
 
+    /// A Save All store came home for one document.
+    DocumentStored {
+        document: DocumentId,
+        revision: u64,
+        snapshot: ::editor::Text,
+        stored: bool,
+    },
+
     FileChanged(crate::watch::Subscription),
 
     Watched(DocumentId, Option<crate::watch::Subscription>),
@@ -447,6 +455,7 @@ impl Application {
             | AppCommand::BaseLocated { document, .. }
             | AppCommand::BaseFetched { document, .. }
             | AppCommand::BaseBuilt { document, .. }
+            | AppCommand::DocumentStored { document, .. }
             | AppCommand::Watched(document, _)
             | AppCommand::Refetched { document, .. }
             | AppCommand::RefetchDiffed { document, .. } => {
@@ -1106,6 +1115,7 @@ fn command_label(command: &AppCommand) -> &'static str {
         AppCommand::BaseFetched { .. } => "base fetched",
         AppCommand::BaseBuilt { .. } => "base built",
         AppCommand::DiffNormalized { .. } => "diff normalized",
+        AppCommand::DocumentStored { .. } => "document stored",
         AppCommand::FileChanged(..) => "file changed",
         AppCommand::Watched(..) => "watched",
         AppCommand::Refetched { .. } => "refetched",
@@ -1404,6 +1414,15 @@ impl Application {
                     self.pending_diff_events.push(diff);
                 }
             }
+            AppCommand::DocumentStored {
+                document,
+                revision,
+                snapshot,
+                stored,
+            } => match stored {
+                true => crate::OpenDocuments::mark_saved(store, document, revision, snapshot),
+                false => eprintln!("[himark] store failed for an open document"),
+            },
             AppCommand::FileChanged(subscription) => {
                 crate::watch::refetch_watched(store, subscription, fx);
 

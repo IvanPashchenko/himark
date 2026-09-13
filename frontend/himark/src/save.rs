@@ -132,6 +132,64 @@ impl SaveDocument {
     }
 }
 
+/// Stores every open, modified, file-backed document — each through
+/// its own lane (superseding that document's in-flight save), landing
+/// one `AppCommand::DocumentStored` per store.
+pub struct SaveAll;
+
+impl DynamicCommand for SaveAll {
+    fn id(&self) -> &'static str {
+        "file.save-all"
+    }
+    fn name(&self) -> String {
+        "Save All".to_owned()
+    }
+    fn perform(
+        &self,
+        _app: &mut crate::Application,
+        store: &mut Store,
+        _window: crate::WindowId,
+        fx: &mut AppFx<'_>,
+    ) {
+        save_all(store, fx);
+    }
+}
+
+pub(crate) fn save_all(store: &mut Store, fx: &mut AppFx<'_>) {
+    let owed: Vec<(crate::DocumentId, ResourceLocation)> = crate::OpenDocuments::list(store)
+        .into_iter()
+        .filter(|(_, entity)| entity.modified())
+        .filter_map(|(id, entity)| {
+            let location = entity.location()?.clone();
+            (!crate::is_synthetic(&location) && !crate::hichanges::scoped(&location))
+                .then_some((id, location))
+        })
+        .collect();
+    for (id, location) in owed {
+        let Some(entity) = crate::OpenDocuments::entity(store, id) else {
+            continue;
+        };
+        let document = entity.document();
+        let revision = document.revision();
+        let end = document.text().byte_count().min(u32::MAX as usize) as u32;
+        let text = document.text().view().substring(0..end);
+        let snapshot = document.text().clone();
+        let previous = entity.save_token();
+        let token = fx.push(AnyEffect::new(StoreDocumentEffect { location, text }).map(
+            move |stored| crate::AppCommand::DocumentStored {
+                document: id,
+                revision,
+                snapshot,
+                stored,
+            },
+        ));
+        if let Some(previous) = previous {
+            fx.cancel(previous);
+        }
+        crate::OpenDocuments::set_save_token(store, id, Some(token));
+    }
+}
+
 struct SyncWatches;
 
 impl DynamicCommand for SyncWatches {

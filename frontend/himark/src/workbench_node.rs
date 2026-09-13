@@ -270,8 +270,18 @@ impl Panel {
 
     pub(crate) fn title(&self, store: &Store) -> String {
         match self {
-            Self::Editor(pane) => crate::OpenDocuments::name(store, pane.content().document())
-                .unwrap_or_else(|| "untitled".to_owned()),
+            Self::Editor(pane) => {
+                let document = pane.content().document();
+                let name = crate::OpenDocuments::name(store, document)
+                    .unwrap_or_else(|| "untitled".to_owned());
+                // The unsaved mark rides the omnibox title.
+                match crate::OpenDocuments::entity(store, document)
+                    .is_some_and(|entity| entity.modified())
+                {
+                    true => format!("{name}*"),
+                    false => name,
+                }
+            }
             Self::Plugin(view) => view.title(store),
         }
     }

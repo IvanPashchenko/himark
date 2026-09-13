@@ -96,7 +96,7 @@ pub use navigation::{
 pub use rows::{
     paint_panel_chrome, panel_inset, selection_style, LabelRow, RowList, RowListCommand,
 };
-pub use save::SaveDocument;
+pub use save::{SaveAll, SaveDocument};
 pub use sheet::{composer_button, FloatingChat};
 pub use state::{AppState, Gathered};
 pub use stats::Stats;

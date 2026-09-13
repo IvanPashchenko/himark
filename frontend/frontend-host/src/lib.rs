@@ -949,6 +949,7 @@ impl HimarkEngine {
         if capabilities.store_document && !installed.store_document {
             self.app
                 .register_editor_command(Arc::new(himark::SaveDocument::with_save_as()));
+            self.app.register_command(Arc::new(himark::SaveAll));
 
             self.app
                 .register_editor_command(Arc::new(hiscript::RunScript));
