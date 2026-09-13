@@ -6551,3 +6551,53 @@ fn hover_rest_mounts_a_markdown_popup_over_the_word() {
         "no card mounts beneath a covering modal"
     );
 }
+
+#[test]
+fn the_two_call_cut_protocol_cuts_once_and_fills_the_pasteboard() {
+    // The apple host asks twice — a sizing probe, then the fill
+    // (`sizedString`). Cut deletes the selection, so a naive second
+    // run finds nothing and the pasteboard stays empty; the probe
+    // must cut once and the fill must drain the stash.
+    let mut engine = HimarkEngine::with_fonts(AppFonts::embedded());
+    let window = engine.add_window();
+    let mut surface = skia_safe::surfaces::raster_n32_premul((900, 700)).expect("surface");
+    let _ = engine.draw(window, surface.canvas(), 900.0, 700.0, 1.0);
+
+    // The fresh scratch pane holds text focus: type, then cmd-a.
+    let body = "the text about to be cut";
+    assert!(engine.text_input(window, body));
+    assert!(
+        engine.key_down(window, u32::from('a'), crate::HIMARK_MOD_COMMAND),
+        "cmd-a selects all"
+    );
+
+    let two_call_cut = |engine: &mut HimarkEngine| -> Option<String> {
+        let engine: *mut HimarkEngine = engine;
+        let needed = unsafe { crate::himark_cut(engine, window, std::ptr::null_mut(), 0) };
+        if needed == 0 {
+            return None;
+        }
+        let mut buffer = vec![0i8; needed];
+        let written =
+            unsafe { crate::himark_cut(engine, window, buffer.as_mut_ptr(), buffer.len()) };
+        assert_eq!(written, needed, "the fill answers what the probe sized");
+        let bytes: Vec<u8> = buffer.iter().map(|byte| *byte as u8).collect();
+        Some(String::from_utf8(bytes).expect("utf8"))
+    };
+
+    assert_eq!(
+        two_call_cut(&mut engine).as_deref(),
+        Some(body),
+        "the pasteboard gets the selection"
+    );
+    assert_eq!(
+        engine.clipboard_copy(window),
+        None,
+        "the selection was consumed by the cut"
+    );
+    assert_eq!(
+        two_call_cut(&mut engine),
+        None,
+        "a second cut with nothing selected sizes to zero"
+    );
+}

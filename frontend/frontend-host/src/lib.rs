@@ -76,6 +76,12 @@ pub struct HimarkEngine {
 
     clicks: ClickCounter,
 
+    /// The cut text between the host's two sized-string calls
+    /// (`himark_cut`): the sizing probe performs the cut — it deletes
+    /// the selection, so it must run exactly once — and the fill call
+    /// drains this stash.
+    pending_cut: Option<String>,
+
     runtime: tokio::runtime::Runtime,
 }
 
@@ -539,6 +545,7 @@ impl HimarkEngine {
             drain_chunk: Self::DRAIN_CHUNK,
             drain_budget: Self::DRAIN_BUDGET,
             clicks: ClickCounter::default(),
+            pending_cut: None,
             host: None,
             agent_host_filesystem: AgentHostFilesystemCapabilities::default(),
             seats,
@@ -1413,7 +1420,16 @@ pub unsafe extern "C" fn himark_cut(
     cap: usize,
 ) -> usize {
     engine.as_mut().map_or(0, |engine| {
-        copy_optional_utf8(engine.clipboard_cut(window), out, cap)
+        // The sized-string protocol calls twice. Cut is
+        // side-effecting — the first run deletes the selection — so
+        // it runs ONLY on the sizing probe; the fill call copies the
+        // stashed text instead of cutting again (which would find no
+        // selection and hand the pasteboard nothing).
+        if out.is_null() {
+            engine.pending_cut = engine.clipboard_cut(window);
+            return engine.pending_cut.as_ref().map_or(0, String::len);
+        }
+        copy_optional_utf8(engine.pending_cut.take(), out, cap)
     })
 }
 
