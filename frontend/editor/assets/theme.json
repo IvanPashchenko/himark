@@ -54,7 +54,8 @@
       "background_height": "tight"
     },
     "match": {
-      "background": "#c8353d54"
+      "background": "#c8353d54",
+      "stripe": "#e08a93c8"
     },
     "header1": {
       "bold": true,
@@ -154,12 +155,15 @@
       "color": "#e0af68"
     },
     "diff-added": {
+      "stripe": "#cc4fb069",
       "background": "#243fb950"
     },
     "diff-deleted": {
+      "stripe": "#ccc75c5c",
       "background": "#24f85149"
     },
     "diff-modified": {
+      "stripe": "#cc4f8ab0",
       "background": "#24d29a2e"
     },
     "diff-added-word": {

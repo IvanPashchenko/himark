@@ -39,6 +39,10 @@ pub struct DiffState {
     left_marks: crate::markup::MarkupId,
     right_marks: crate::markup::MarkupId,
 
+    /// THE diff markup (`Diff.markup`) — read-only from the pane's
+    /// side; the diff machinery maintains it.
+    hunks: crate::markup::MarkupId,
+
     unified_layout: crate::unified_diff::DiffLayout,
     inline_editor: Option<crate::editor::EditorId>,
 
@@ -64,6 +68,7 @@ impl DiffState {
         left: &crate::Document,
         right: &crate::Document,
         left_marks: crate::markup::MarkupId,
+        right_marks: crate::markup::MarkupId,
         seeded: Option<Range<u32>>,
     ) -> Option<Self> {
         let mut entry = right.diff(id)?.clone();
@@ -79,7 +84,8 @@ impl DiffState {
             left_revision: left.revision(),
             right_revision: right.revision(),
             left_marks,
-            right_marks: entry.markup(),
+            right_marks,
+            hunks: entry.markup(),
 
             align_pending: Some(0..left.text().byte_count() as u32),
             unified_layout: crate::unified_diff::DiffLayout::Split,
@@ -121,9 +127,21 @@ impl DiffState {
         self.right_marks
     }
 
+    /// THE diff markup on the target document (docs/scroll-stripe.md
+    /// §7) — the hunk washes the halves show; maintained by the diff
+    /// machinery, never by this pane.
+    pub(crate) fn hunk_markup(&self) -> crate::markup::MarkupId {
+        self.hunks
+    }
+
     #[doc(hidden)]
     pub fn right_marks_oracle(&self) -> crate::markup::MarkupId {
         self.right_marks
+    }
+
+    #[doc(hidden)]
+    pub fn hunk_markup_oracle(&self) -> crate::markup::MarkupId {
+        self.hunks
     }
 
     pub fn diff_id(&self) -> crate::diff::DiffId {
@@ -696,21 +714,22 @@ fn derive_wash_markups(
     let mut left_markup = crate::markup::Markup::new();
     let mut right_markup = crate::markup::Markup::new();
 
+    // The RIGHT half's line washes are THE diff markup's now
+    // (docs/scroll-stripe.md §7 — maintained by the diff machinery,
+    // whole-document); this pane derives only what stays its own:
+    // the base side's washes and the windowed word tints.
     for fragment in crate::diff::fragments_at(diff, left_text, window.start).take(MARK_FRAGMENT_CAP)
     {
         if fragment.left.start > window.end {
             break;
         }
         match fragment.kind {
-            FragmentKind::Added => {
-                right_markup.push_styled(fragment.right.clone(), StyleId::DiffAdded);
-            }
+            FragmentKind::Added => {}
             FragmentKind::Deleted => {
                 left_markup.push_styled(fragment.left.clone(), StyleId::DiffDeleted);
             }
             FragmentKind::Modified => {
                 left_markup.push_styled(fragment.left.clone(), StyleId::DiffDeleted);
-                right_markup.push_styled(fragment.right.clone(), StyleId::DiffAdded);
                 for (left, right) in &fragment.words {
                     if left.start < left.end {
                         left_markup.push_styled(left.clone(), StyleId::DiffDeletedWord);
@@ -765,46 +784,6 @@ pub fn prepare_marks(diff: &Operation, left_text: &Text) -> PreparedMarks {
         right,
         window,
     }
-}
-
-fn markup_set_diff(
-    old: Option<&crate::markup::Markup>,
-    new: &crate::markup::Markup,
-) -> Vec<Range<u32>> {
-    use intervals::{IntervalQuery, Order};
-    let mut counts: std::collections::HashMap<(u32, u32, u64), i32> =
-        std::collections::HashMap::new();
-    let mut always: Vec<Range<u32>> = Vec::new();
-    let empty = crate::markup::Markup::empty();
-    for (markup, sign) in [(old.unwrap_or(empty), 1i32), (new, -1i32)] {
-        for entry in markup.query(0..u32::MAX, Order::Ascending) {
-            let fingerprint = match &entry.value {
-                crate::markup::Decoration::Inlay(_) => {
-                    use std::hash::{Hash, Hasher};
-                    let mut hasher = std::hash::DefaultHasher::new();
-                    4u8.hash(&mut hasher);
-                    entry.key.hash(&mut hasher);
-                    Some(hasher.finish())
-                }
-                value => value.fingerprint(),
-            };
-            match fingerprint {
-                Some(fingerprint) => {
-                    *counts
-                        .entry((entry.range.start, entry.range.end, fingerprint))
-                        .or_insert(0) += sign;
-                }
-                None => always.push(entry.range.clone()),
-            }
-        }
-    }
-    let mut changed: Vec<Range<u32>> = counts
-        .into_iter()
-        .filter(|(_, count)| *count != 0)
-        .map(|((start, end, _), _)| start..end)
-        .collect();
-    changed.extend(always);
-    changed
 }
 
 impl View for SplitDiffView {
@@ -1162,13 +1141,13 @@ impl imba::effect::EffectHandler<RepairDiffEffect> for RepairDiffHandler {
                     right_markup
                         .query(0..u32::MAX, intervals::Order::Ascending)
                         .count(),
-                    markup_set_diff(job.left_current.as_ref(), &left_markup).len(),
-                    markup_set_diff(job.right_current.as_ref(), &right_markup).len(),
+                    crate::markup::set_diff(job.left_current.as_ref(), &left_markup).len(),
+                    crate::markup::set_diff(job.right_current.as_ref(), &right_markup).len(),
                 )
             });
             MarksLanding {
-                left_changed: markup_set_diff(job.left_current.as_ref(), &left_markup),
-                right_changed: markup_set_diff(job.right_current.as_ref(), &right_markup),
+                left_changed: crate::markup::set_diff(job.left_current.as_ref(), &left_markup),
+                right_changed: crate::markup::set_diff(job.right_current.as_ref(), &right_markup),
                 window: job.window,
                 left_markup,
                 right_markup,

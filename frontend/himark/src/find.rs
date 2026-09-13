@@ -258,6 +258,7 @@ impl FindBar {
             None => {
                 let markup = document.add_markup();
                 document.show_markup(editor, markup);
+                document.mark_scroll_stripes(editor, markup);
                 self.installed = Some((document_id, editor, markup));
                 markup
             }

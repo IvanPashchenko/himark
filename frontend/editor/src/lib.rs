@@ -24,6 +24,7 @@ mod markup;
 mod popup;
 mod repair;
 mod reparse;
+pub mod scroll_stripe;
 mod shape_cache;
 mod shaped_line;
 mod split_diff;
@@ -57,7 +58,7 @@ pub use enrich::{
 };
 pub use env::Workshop;
 pub use markup::{
-    inlay_anchors_line, inlay_repair_span, BlockStyle, Inlay, InlayCommand, InlayEditing,
+    inlay_anchors_line, inlay_repair_span, set_diff, BlockStyle, Inlay, InlayCommand, InlayEditing,
     InlayInterval, InlayKey, InlayMode, InsteadKind, IntervalId, Markup, MarkupBuilder, MarkupId,
     MarkupLayer, OutlineItem, OverlaidMarkup, PopupSpec, StyleId, Syntax, SyntaxId, TextAlignment,
     TextAttributes, TextDecorationInterval,

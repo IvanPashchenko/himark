@@ -77,6 +77,8 @@ pub struct Editor {
     pub(crate) pair_managed: bool,
 
     pub(crate) placeholder: Option<EditorPlaceholder>,
+
+    pub(crate) scroll_stripes: crate::scroll_stripe::StripeSlot,
 }
 
 impl Editor {
@@ -163,6 +165,7 @@ impl Editor {
             drag: None,
             pair_managed: false,
             placeholder: None,
+            scroll_stripes: crate::scroll_stripe::StripeSlot::default(),
         }
     }
 }

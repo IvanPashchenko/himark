@@ -244,7 +244,8 @@ fn the_edit_door_keeps_live_diffs_valid() {
     let theme = crate::theme::Theme::embedded();
     let base = "one\ntwo\nthree\n";
     let mut target = crate::test_document::plain_document("one\nTWO\nthree\n");
-    let id = target.add_diff(diff(&text(base), target.text()), 0);
+    let operation = diff(&text(base), target.text());
+    let id = target.add_diff(operation, 0);
 
     let edits = [
         Operation::insert_at(0, "head\n"),
@@ -277,7 +278,8 @@ fn apply_base_edits_brings_the_old_side_current_idempotently() {
     let theme = crate::theme::Theme::embedded();
     let mut base = crate::test_document::plain_document("one\ntwo\nthree\n");
     let mut target = crate::test_document::plain_document("one\nTWO\nthree\n");
-    let id = target.add_diff(diff(base.text(), target.text()), base.revision());
+    let operation = diff(base.text(), target.text());
+    let id = target.add_diff(operation, base.revision());
 
     base.edit(&Operation::insert_at(4, "1.5\n"), &fonts, &theme, fx!());
     target.edit(&Operation::insert_at(0, "zero\n"), &fonts, &theme, fx!());
@@ -300,7 +302,8 @@ fn apply_base_edits_brings_the_old_side_current_idempotently() {
 fn install_normalized_diff_bumps_the_generation_and_guards_lengths() {
     let base = crate::test_document::plain_document("a\nb\nc\n");
     let mut target = crate::test_document::plain_document("a\nB\nc\n");
-    let id = target.add_diff(diff(base.text(), target.text()), base.revision());
+    let operation = diff(base.text(), target.text());
+    let id = target.add_diff(operation, base.revision());
     assert_eq!(target.diff(id).expect("tracked").generation(), 0);
 
     let minimal = diff(base.text(), target.text());
@@ -333,7 +336,8 @@ fn remove_diff_takes_its_markup_with_it() {
     let mut target = crate::test_document::plain_document("b\n");
     let fonts = crate::embedded_fonts::collection();
     let theme = crate::theme::Theme::embedded();
-    let id = target.add_diff(diff(base.text(), target.text()), 0);
+    let operation = diff(base.text(), target.text());
+    let id = target.add_diff(operation, 0);
     let markup = target.diff(id).expect("tracked").markup();
     assert!(target.feature_markup(markup).is_some());
     target.remove_diff(id, &[], &fonts, &theme, fx!());

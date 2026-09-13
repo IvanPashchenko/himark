@@ -827,6 +827,10 @@ fn washes_follow_the_scroll_into_deep_documents() {
         let start = right_body.find("added right line 480").unwrap() as u32;
         start..start + "added right line 480".len() as u32
     };
+    // Line washes are THE diff markup's now — whole-document from
+    // birth, no window to chase (docs/scroll-stripe.md §7). The deep
+    // change is washed before any scroll; the scroll still proves the
+    // pair aligns all the way down.
     let right_marks = |app: &Application| -> Vec<std::ops::Range<u32>> {
         let info = himark::OpenDocuments::list(app.store())
             .into_iter()
@@ -840,18 +844,18 @@ fn washes_follow_the_scroll_into_deep_documents() {
             let Some(state) = panel.diff_state(app.store()) else {
                 return;
             };
-            let (_, right_markup) = state.mark_markups();
             ranges = himark::OpenDocuments::document_ref(app.store(), info.0)
                 .expect("document")
-                .markup_styled_ranges(right_markup);
+                .markup_styled_ranges(state.hunk_markup_oracle());
         });
         ranges
     };
     assert!(
-        !right_marks(&app)
+        right_marks(&app)
             .iter()
             .any(|range| range.start < deep_range.end && deep_range.start < range.end),
-        "sanity: the head window does not reach the deep change"
+        "the deep change is washed from birth: {:?}",
+        right_marks(&app)
     );
 
     for _ in 0..400 {
@@ -861,19 +865,13 @@ fn washes_follow_the_scroll_into_deep_documents() {
         while let Ok(command) = arriving.try_recv() {
             app.perform_batch(vec![command]);
         }
-        let covered = right_marks(&app)
-            .iter()
-            .any(|range| range.start < deep_range.end && deep_range.start < range.end);
-        if covered {
-            break;
-        }
     }
     settle(&mut app, &mut surface, 6);
     assert!(
         right_marks(&app)
             .iter()
             .any(|range| range.start < deep_range.end && deep_range.start < range.end),
-        "scrolling to the deep change derives its wash: {:?}",
+        "the wash stands after the deep scroll: {:?}",
         right_marks(&app)
     );
     assert_pair_aligned(&app);
@@ -1486,7 +1484,21 @@ fn dismantle_retracts_editors_and_removes_the_editorless_side() {
     let diff = himark::OpenDocuments::track_diff(&mut store, old_doc, new_doc, false, None)
         .expect("both sides registered");
     let handle = himark::OpenDocuments::diff_handle(&store, diff).expect("tracked");
-    let mut panel = DiffPanelView::new(&mut store, old_entity, new_entity, handle, None);
+    let right_extras = {
+        let mut document =
+            himark::OpenDocuments::document(&mut store, new_doc).expect("registered");
+        let id = document.add_owned_markup(new_entity.editor());
+        himark::OpenDocuments::put_document(&mut store, new_doc, document);
+        id
+    };
+    let mut panel = DiffPanelView::new(
+        &mut store,
+        old_entity,
+        new_entity,
+        handle,
+        right_extras,
+        None,
+    );
     himark::PanelView::dismantle(&mut panel, &mut store);
 
     assert!(

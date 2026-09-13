@@ -448,7 +448,8 @@ impl View for Panel {
                 arena,
                 pane.layout(arena, store, ui, constraints)
                     .map(PanelCommand::Editor)
-                    .overlay_host(editor::sticky::HOST),
+                    .overlay_host(editor::sticky::HOST)
+                    .overlay_host(editor::scroll_stripe::HOST),
             ),
             Self::Plugin(view) => imba::ThunkBox::new(
                 arena,

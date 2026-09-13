@@ -184,6 +184,8 @@ impl<'a> Widget<'a, EditorCommand> for GatheredPane<'a> {
             self.constraints.max.width,
             self.viewport,
         ));
+
+        overlays.extend(view.scroll_stripe_overlays(self.arena, self.store, self.viewport));
         for overlay in &mut overlays {
             overlay.translate(self.content_pad, 0.0);
         }

@@ -100,7 +100,9 @@ fn track(left: &mut crate::Document, right: &mut crate::Document) -> DiffState {
     let operation = crate::diff::diff(left.text(), right.text());
     let id = right.add_diff(operation, left.revision());
     let left_marks = left.add_markup();
-    DiffState::attach(id, left, right, left_marks, None).expect("the entry was just installed")
+    let right_marks = right.add_markup();
+    DiffState::attach(id, left, right, left_marks, right_marks, None)
+        .expect("the entry was just installed")
 }
 
 fn normalize(view: &mut SplitDiffView) {
@@ -516,7 +518,12 @@ fn scrolling_derives_marks_for_the_revealed_window_only_once() {
     for i in 0..1600 {
         left_source.push_str(&format!("paragraph number {i} with some length to it\n"));
     }
-    let right_source = format!("{left_source}appended tail line\n");
+    // The tail line CHANGES (not appends): line washes are THE diff
+    // markup's now (whole-document from birth); what the pane's own
+    // windowed derivation still owes the revealed window is the WORD
+    // tints, and a modified word is what mints them.
+    let right_source =
+        left_source.replace("paragraph number 1599 with", "paragraph number 1599 WITH");
     let mut view = pair(&left_source, &right_source, 240.0);
     let mut store = Store::new();
     let ui = UiCtx::new();
@@ -1295,7 +1302,8 @@ fn a_seeded_attach_starts_settled_and_owes_no_marks_job() {
         left_document.revision()
     ));
     let left_marks = left_document.add_markup();
-    let right_marks = right_document.diff(id).expect("just installed").markup();
+    let right_marks = right_document.add_markup();
+    let hunks = right_document.diff(id).expect("just installed").markup();
     let prepared = prepare_marks(&operation, left_document.text());
     let mut throwaway = imba::effect::Batch::new();
     left_document.replace_markup(
@@ -1328,7 +1336,7 @@ fn a_seeded_attach_starts_settled_and_owes_no_marks_job() {
         400.0,
         None,
         crate::document::EditorBuild::Complete,
-        &[right_marks],
+        &[hunks, right_marks],
         &f,
         &theme,
         &mut imba::effect::Batch::new().effects(),
@@ -1352,6 +1360,7 @@ fn a_seeded_attach_starts_settled_and_owes_no_marks_job() {
         &left_document,
         &right_document,
         left_marks,
+        right_marks,
         Some(prepared.window.clone()),
     )
     .expect("the entry stands");

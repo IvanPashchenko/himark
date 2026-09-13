@@ -58,6 +58,11 @@ pub struct Document {
     markup_generation: u64,
     markup_changes: rpds::QueueSync<MarkupChange>,
 
+    /// Bumped by every FLAGGED-entry lifecycle event (the flag set, a
+    /// flagged entry's replace/remove, a pick joining) — the stripe
+    /// sweep's whole input from the markup side (docs/scroll-stripe.md).
+    scroll_stripe_generation: u64,
+
     markups: rpds::HashTrieMapSync<MarkupId, Markup>,
 
     fragments:
@@ -127,6 +132,7 @@ impl Document {
             undo: crate::undo::UndoHistory::default(),
             markup_generation: 0,
             markup_changes: rpds::QueueSync::new_sync(),
+            scroll_stripe_generation: 0,
             markups,
             fragments: rpds::HashTrieMapSync::new_sync(),
             diffs: rpds::HashTrieMapSync::new_sync(),
@@ -1452,6 +1458,7 @@ impl Document {
             EditorCommand::ApplyEnrichment(outcome) => {
                 self.apply_enrichment(outcome, store, &fonts, theme, fx)
             }
+            EditorCommand::ApplyScrollStripes(outcome) => self.apply_scroll_stripes(outcome),
             EditorCommand::InsertTextReplacing { text, replacement } => {
                 let mut view = self.text.view();
                 let repl = view.utf16_to_byte(replacement.0)
@@ -2434,7 +2441,16 @@ impl Document {
             "a live diff's new side must cover this document's text"
         );
         let id = crate::diff::DiffId::mint();
-        let markup = self.add_markup();
+        // THE diff markup, derived FROM the operation
+        // (`diff::hunk_markup` — the presentation stage, where
+        // whitespace/word preferences will parameterize): View-scoped
+        // (pane halves pick it — an ordinary editor's text stays
+        // untinted) and projected onto the scroll track; the
+        // normalize lane refreshes it from then on.
+        let markup = MarkupId::mint();
+        self.markups
+            .insert_mut(markup, crate::diff::hunk_markup(&operation, &self.text));
+        self.scroll_stripe_generation += 1;
         self.diffs.insert_mut(
             id,
             crate::diff::Diff {
@@ -2445,6 +2461,40 @@ impl Document {
             },
         );
         id
+    }
+
+    /// Lands a normalize run's freshly derived diff markup
+    /// (docs/scroll-stripe.md §7): the worker derived it against
+    /// `derived_at`; edits since then shift it home, and the swap
+    /// damages exactly old ∪ new — the pane halves showing it repair,
+    /// nobody else notices, and the flagged-entry bump wakes the
+    /// scroll track.
+    pub fn install_diff_markup(
+        &mut self,
+        id: crate::diff::DiffId,
+        fresh: Markup,
+        changed: Vec<Range<u32>>,
+        derived_at: u64,
+        fonts: &FontCollection,
+        theme: &crate::theme::Theme,
+        fx: &mut EditorEffects<'_>,
+    ) {
+        let Some(diff) = self.diffs.get(&id) else {
+            return;
+        };
+        let markup = diff.markup;
+        let mut fresh = fresh;
+        let mut changed = changed;
+        if let Some(since) = self.log.compose_since(derived_at) {
+            let mut view = self.text.view();
+            fresh.edit(&since, &mut view, 0);
+            for range in &mut changed {
+                *range = EditLog::transform_range(range.clone(), &since);
+            }
+        }
+        changed.retain(|range| range.start < range.end);
+        EditLog::coalesce(&mut changed);
+        self.replace_markup(markup, fresh, &changed, fonts, theme, fx);
     }
 
     pub fn remove_diff(
@@ -2512,6 +2562,18 @@ impl Document {
         id
     }
 
+    /// Allocates a View-scoped entry OWNED by the editor: shown on it,
+    /// removed with it (the fold-markup recipe) — no dismantle
+    /// bookkeeping owed anywhere else.
+    pub fn add_owned_markup(&mut self, editor: EditorId) -> MarkupId {
+        let id = self.add_markup();
+        self.show_markup(editor, id);
+        if let Some(state) = self.editors.get_mut(&editor) {
+            state.owned_markups.push(id);
+        }
+        id
+    }
+
     pub fn replace_markup(
         &mut self,
         id: MarkupId,
@@ -2527,6 +2589,9 @@ impl Document {
 
         let mut replacement = replacement;
         replacement.set_scope(standing.scope());
+        if self.stripes_markup(id) {
+            self.scroll_stripe_generation += 1;
+        }
         self.markups.insert_mut(id, replacement);
 
         if changed.is_empty() {
@@ -2549,12 +2614,16 @@ impl Document {
         if !changed.is_empty() {
             self.reshape_markup_change(id, changed, fonts, theme, fx);
         }
+        if self.stripes_markup(id) {
+            self.scroll_stripe_generation += 1;
+        }
         self.markups.remove_mut(&id);
         for editor in self.editors.keys().copied().collect::<Vec<_>>() {
             let Some(state) = self.editors.get_mut(&editor) else {
                 continue;
             };
             state.markups.retain(|markup| *markup != id);
+            state.scroll_stripes.markups.retain(|markup| *markup != id);
         }
 
         self.note_markup_change(None);
@@ -2571,6 +2640,150 @@ impl Document {
         if shown {
             self.note_markup_change(None);
         }
+    }
+
+    pub fn scroll_stripe_generation(&self) -> u64 {
+        self.scroll_stripe_generation
+    }
+
+    /// Registers a feature entry as a scroll-stripe contributor for
+    /// ONE editor's track (docs/scroll-stripe.md) — the find-bar
+    /// shape: beside the feature's own `show_markup` pick. Diff
+    /// markups never register; the diffs map enumerates them.
+    pub fn mark_scroll_stripes(&mut self, editor: EditorId, id: MarkupId) {
+        if !self.markups.contains_key(&id) {
+            return;
+        }
+        let Some(state) = self.editors.get_mut(&editor) else {
+            return;
+        };
+        if !state.scroll_stripes.markups.contains(&id) {
+            state.scroll_stripes.markups.push(id);
+            self.scroll_stripe_generation += 1;
+        }
+    }
+
+    /// Whether an entry projects onto any scroll track — a diff's
+    /// hunk markup, or a feature entry some editor registered. Bounded
+    /// by the handful of diffs and editors, never by the document.
+    fn stripes_markup(&self, id: MarkupId) -> bool {
+        self.diffs.values().any(|diff| diff.markup == id)
+            || self
+                .editors
+                .values()
+                .any(|state| state.scroll_stripes.markups.contains(&id))
+    }
+
+    /// Opts an editor into the stripe track — pane editors only; value
+    /// inputs, rows and fragments never derive and never mint.
+    pub fn enable_scroll_stripes(&mut self, editor: EditorId) {
+        if let Some(state) = self.editors.get_mut(&editor) {
+            state.scroll_stripes.enabled = true;
+        }
+    }
+
+    /// The sweep's early-out: something to project, and someone
+    /// showing a track.
+    pub fn wants_scroll_stripes(&self) -> bool {
+        (!self.diffs.is_empty()
+            || self
+                .editors
+                .values()
+                .any(|state| !state.scroll_stripes.markups.is_empty()))
+            && self
+                .editors
+                .values()
+                .any(|state| state.scroll_stripes.enabled)
+    }
+
+    pub fn scroll_stripes(
+        &self,
+        editor: EditorId,
+    ) -> Option<std::sync::Arc<crate::scroll_stripe::ScrollStripes>> {
+        self.editors
+            .get(&editor)
+            .and_then(|state| state.scroll_stripes.landed.clone())
+    }
+
+    /// The batch-tail sweep's per-document half: compare each enabled
+    /// editor's fingerprint against its last launch and answer the
+    /// owed relaunches. The caller pushes them through `fx.relaunch`
+    /// and hands the fresh tokens back (`note_scroll_stripe_token`).
+    pub fn scroll_stripe_launches(
+        &mut self,
+        theme: &crate::theme::Theme,
+    ) -> Vec<crate::scroll_stripe::StripeLaunch> {
+        let editors: Vec<EditorId> = self
+            .editors
+            .iter()
+            .filter(|(_, state)| state.scroll_stripes.enabled)
+            .map(|(id, _)| *id)
+            .collect();
+        // Every diff's hunk markup marks every track of its document;
+        // feature entries mark the tracks that registered them.
+        let diff_markups: Vec<MarkupId> = self.diffs.values().map(|diff| diff.markup).collect();
+        let mut launches = Vec::new();
+        for editor in editors {
+            let Some(state) = self.editors.get(&editor) else {
+                continue;
+            };
+            let stamp = crate::scroll_stripe::StripeStamp {
+                revision: self.log.revision(),
+                generation: self.scroll_stripe_generation,
+                height_bits: state.layout.height().to_bits(),
+                theme: theme.name_shared(),
+            };
+            if state.scroll_stripes.stamp.as_ref() == Some(&stamp) {
+                continue;
+            }
+            let markups: Vec<Markup> = diff_markups
+                .iter()
+                .chain(state.scroll_stripes.markups.iter())
+                .filter_map(|id| self.markups.get(id).cloned())
+                .collect();
+            let layout = state.layout.clone();
+            let Some(state) = self.editors.get_mut(&editor) else {
+                continue;
+            };
+            state.scroll_stripes.serial += 1;
+            state.scroll_stripes.stamp = Some(stamp);
+            let work = crate::scroll_stripe::StripeWork {
+                token: self.token,
+                editor,
+                serial: state.scroll_stripes.serial,
+                markups,
+                layout,
+            };
+            launches.push(crate::scroll_stripe::StripeLaunch {
+                editor,
+                effect: crate::scroll_stripe::ScrollStripeEffect { work },
+                supersedes: state.scroll_stripes.token.take(),
+            });
+        }
+        launches
+    }
+
+    pub fn note_scroll_stripe_token(
+        &mut self,
+        editor: EditorId,
+        token: Option<imba::effect::CancellationToken>,
+    ) {
+        if let Some(state) = self.editors.get_mut(&editor) {
+            state.scroll_stripes.token = token;
+        }
+    }
+
+    pub(crate) fn apply_scroll_stripes(&mut self, outcome: crate::scroll_stripe::StripeOutcome) {
+        if outcome.token != self.token {
+            return;
+        }
+        let Some(state) = self.editors.get_mut(&outcome.editor) else {
+            return;
+        };
+        if outcome.serial != state.scroll_stripes.serial {
+            return;
+        }
+        state.scroll_stripes.landed = Some(outcome.stripes);
     }
 
     pub fn prebuild_row_layouts(

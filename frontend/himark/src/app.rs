@@ -105,6 +105,8 @@ pub enum AppCommand {
     DiffNormalized {
         diff: ::editor::diff::DiffId,
         operation: operation::Operation,
+        markup: ::editor::Markup,
+        changed: Vec<std::ops::Range<u32>>,
         base_revision: u64,
         target_revision: u64,
     },
@@ -223,6 +225,7 @@ pub(crate) fn fresh_workbench_root(store: &mut Store, fx: &mut AppFx<'_>) -> Wor
     let editor_id = entity_scope(scratch_id, fx, |fx| {
         mount_editor(store, &mut scratch, width, None, fx)
     });
+    scratch.enable_scroll_stripes(editor_id);
     OpenDocuments::put_document(store, scratch_id, scratch);
     WorkbenchNode::editor_leaf(ScrollView::new(
         EditorIdView::new(scratch_id, editor_id).with_gutter(),
@@ -853,6 +856,11 @@ impl Application {
         {
             let mut fx = batch.effects();
             crate::diffs::sync_diff_lanes(&mut store, &mut fx);
+            documents::scroll_stripes::sync_scroll_stripe_lanes(
+                &mut store,
+                &mut fx,
+                |document, command| AppCommand::Entity(document, command),
+            );
         }
         let probe_perform = probe.elapsed();
         self.commit(store);
@@ -1369,6 +1377,8 @@ impl Application {
             AppCommand::DiffNormalized {
                 diff,
                 operation,
+                markup,
+                changed,
                 base_revision,
                 target_revision,
             } => {
@@ -1379,6 +1389,18 @@ impl Application {
                     base_revision,
                     target_revision,
                 ) {
+                    if let Some(handle) = crate::OpenDocuments::diff_handle(store, diff) {
+                        entity_scope(handle.target, fx, |fx| {
+                            documents::diffs::land_diff_markup(
+                                store,
+                                diff,
+                                markup,
+                                changed,
+                                target_revision,
+                                fx,
+                            )
+                        });
+                    }
                     self.pending_diff_events.push(diff);
                 }
             }

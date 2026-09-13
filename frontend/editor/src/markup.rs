@@ -686,6 +686,28 @@ impl Markup {
         self.scope = scope;
     }
 
+    /// Seeds plain styled intervals (zero-length markers kept — the
+    /// change map's deletion points ride them).
+    pub(crate) fn seed_styled(&mut self, hits: impl IntoIterator<Item = (Range<u32>, StyleId)>) {
+        let mut next = self.next_key;
+        let seeded: Vec<Interval<IntervalId, Decoration>> = hits
+            .into_iter()
+            .map(|(range, id)| {
+                let key = IntervalId(next);
+                next = next.wrapping_add(1);
+                Interval {
+                    range,
+                    greedy_left: false,
+                    greedy_right: false,
+                    key,
+                    value: Decoration::Styled(id),
+                }
+            })
+            .collect();
+        self.next_key = next;
+        self.intervals.insert(seeded);
+    }
+
     pub fn builder() -> MarkupBuilder {
         MarkupBuilder::new()
     }
@@ -744,6 +766,48 @@ impl Default for Markup {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// The set difference of two markups as damage ranges — entries
+/// present on one side only (position + payload fingerprint; inlays
+/// fingerprint by KEY so a carried widget is "unchanged"). The
+/// producer-brings-the-change-set primitive: the marks landing and
+/// the normalize worker both derive their `changed` through it.
+pub fn set_diff(old: Option<&Markup>, new: &Markup) -> Vec<Range<u32>> {
+    use intervals::{IntervalQuery, Order};
+    let mut counts: std::collections::HashMap<(u32, u32, u64), i32> =
+        std::collections::HashMap::new();
+    let mut always: Vec<Range<u32>> = Vec::new();
+    let empty = Markup::empty();
+    for (markup, sign) in [(old.unwrap_or(empty), 1i32), (new, -1i32)] {
+        for entry in markup.query(0..u32::MAX, Order::Ascending) {
+            let fingerprint = match &entry.value {
+                Decoration::Inlay(_) => {
+                    use std::hash::{Hash, Hasher};
+                    let mut hasher = std::hash::DefaultHasher::new();
+                    4u8.hash(&mut hasher);
+                    entry.key.hash(&mut hasher);
+                    Some(hasher.finish())
+                }
+                value => value.fingerprint(),
+            };
+            match fingerprint {
+                Some(fingerprint) => {
+                    *counts
+                        .entry((entry.range.start, entry.range.end, fingerprint))
+                        .or_insert(0) += sign;
+                }
+                None => always.push(entry.range.clone()),
+            }
+        }
+    }
+    let mut changed: Vec<Range<u32>> = counts
+        .into_iter()
+        .filter(|(_, count)| *count != 0)
+        .map(|((start, end, _), _)| start..end)
+        .collect();
+    changed.extend(always);
+    changed
 }
 
 #[derive(Clone, Copy)]

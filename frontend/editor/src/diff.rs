@@ -23,6 +23,12 @@ impl DiffId {
 pub struct Diff {
     pub(crate) operation: Operation,
     pub(crate) base_revision: u64,
+    /// THE diff markup (docs/scroll-stripe.md §7): one styled interval
+    /// per hunk over the whole document, target coordinates — the
+    /// split pane's washes, the gutter's classification and the
+    /// scroll track's marks all read this one entry. Seeded at birth,
+    /// refreshed by every normalize landing, shifted at the edit door
+    /// in between.
     pub(crate) markup: crate::markup::MarkupId,
     pub(crate) generation: u64,
 }
@@ -375,6 +381,61 @@ impl Iterator for Fragments {
 
 fn empty(at: u32) -> Range<u32> {
     at..at
+}
+
+/// Derives THE diff markup FROM an operation — deliberately a
+/// separate stage from `diff()`: the operation is the diff's truth,
+/// the markup its presentation, and presentation-level preferences
+/// (whitespace handling, word granularity) parameterize HERE when
+/// they arrive, without touching the diff itself. One hunk per
+/// maximal non-retain run, grouped like the fragment walk (a retain
+/// without a newline stays inside its hunk — probed on the TARGET
+/// text, where retained content is identical to the base's), in
+/// target coordinates: `DiffAdded`/`DiffModified` spans plus
+/// zero-length `DiffDeleted` markers at pure deletions. O(ops +
+/// probes) — the normalize worker's job, and a track's birth beside
+/// the synchronous first diff.
+pub fn hunk_markup(operation: &Operation, right: &Text) -> crate::markup::Markup {
+    use crate::theme::StyleId;
+    let mut view = right.view();
+    let mut hunks: Vec<(Range<u32>, StyleId)> = Vec::new();
+    let mut right_at = 0u32;
+    // An open hunk: (target start, committed target end, base bytes).
+    let mut run: Option<(u32, u32, u32)> = None;
+    let mut flush = |run: &mut Option<(u32, u32, u32)>| {
+        if let Some((start, end, left_len)) = run.take() {
+            let style = match (left_len > 0, end > start) {
+                (false, true) => StyleId::DiffAdded,
+                (true, false) => StyleId::DiffDeleted,
+                _ => StyleId::DiffModified,
+            };
+            hunks.push((start..end, style));
+        }
+    };
+    for op in operation.iter() {
+        match op {
+            Op::Retain(len) => {
+                if run.is_none() || retain_has_newline(&mut view, right_at, len) {
+                    flush(&mut run);
+                }
+                right_at += len;
+            }
+            Op::Delete(text) => {
+                let (_, end, left_len) = run.get_or_insert((right_at, right_at, 0));
+                *end = right_at;
+                *left_len += text.len() as u32;
+            }
+            Op::Insert(text) => {
+                right_at += text.len() as u32;
+                let (_, end, _) = run.get_or_insert((right_at - text.len() as u32, right_at, 0));
+                *end = right_at;
+            }
+        }
+    }
+    flush(&mut run);
+    let mut markup = crate::markup::Markup::new();
+    markup.seed_styled(hunks);
+    markup
 }
 
 #[cfg(test)]

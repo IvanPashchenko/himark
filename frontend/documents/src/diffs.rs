@@ -44,6 +44,11 @@ pub struct DiffView {
     pub left: crate::EditorIdView,
     pub right: crate::EditorIdView,
     pub diff: DiffId,
+    /// The pane's own right-half extras entry (word tints + fold
+    /// strips) — editor-owned, dying with the right half's editor.
+    /// THE diff markup (hunk washes) is the entry's own
+    /// (`Diff::markup`), never the pane's to write.
+    pub right_extras: editor::MarkupId,
     pub state: Option<editor::DiffState>,
 }
 
@@ -224,12 +229,13 @@ impl OpenDocuments {
                 debug_assert_eq!(operation.old_len() as usize, base_text.byte_count());
             }
             let operation = match prepared.clone() {
-                Some(operation) => operation,
+                Some(prepared) => prepared,
                 None => editor::diff::diff(&base_text, target_entity.document.text()),
             };
+            let normalized_at_birth = prepared.is_some();
             let mut target_document = target_entity.document.clone();
-            let id = target_document.add_diff(operation, base_revision);
-            if let Some(operation) = prepared.clone() {
+            let id = target_document.add_diff(operation.clone(), base_revision);
+            if normalized_at_birth {
                 target_document.install_normalized_diff(id, operation, base_revision);
             }
             let mut entity = target_entity.clone();
@@ -413,6 +419,11 @@ pub fn sync_diff_lanes<R: 'static>(
                     diff: id,
                     base_text: base_text.clone(),
                     target_text: target_entity.document.text().clone(),
+                    previous: target_entity
+                        .document
+                        .diff(id)
+                        .and_then(|entry| target_entity.document.feature_markup(entry.markup()))
+                        .cloned(),
                     base_revision,
                     target_revision,
                 };
@@ -467,6 +478,32 @@ pub fn land_normalized(
         eprintln!("[diffs] normalization landed={landed} for {id:?}");
     }
     landed
+}
+
+/// Lands a normalize run's freshly derived diff markup on the target
+/// document — through the entity's own effects scope, so the swap's
+/// repair tails route home like any landing's.
+pub fn land_diff_markup(
+    store: &mut Store,
+    id: DiffId,
+    markup: editor::Markup,
+    changed: Vec<std::ops::Range<u32>>,
+    derived_at: u64,
+    fx: &mut editor::EditorEffects<'_>,
+) {
+    let Some(record) = store
+        .get::<OpenDocuments>()
+        .and_then(|docs| docs.diffs.record(id).cloned())
+    else {
+        return;
+    };
+    let fonts = editor::env::Fonts::of(store)();
+    let theme = editor::env::Themes::of(store);
+    let Some(mut document) = OpenDocuments::document(store, record.target) else {
+        return;
+    };
+    document.install_diff_markup(id, markup, changed, derived_at, &fonts, &theme, fx);
+    OpenDocuments::put_document(store, record.target, document);
 }
 
 pub struct DiffChanged {
@@ -605,6 +642,11 @@ pub struct DiffNormalizeEffect {
     pub(crate) diff: DiffId,
     pub(crate) base_text: editor::Text,
     pub(crate) target_text: editor::Text,
+    /// The standing diff markup at capture (O(1) persistent clone) —
+    /// the worker set-diffs the fresh derivation against it, so the
+    /// changed set is the producer's and the landing never walks a
+    /// markup (docs/scroll-stripe.md §7).
+    pub(crate) previous: Option<editor::Markup>,
     pub(crate) base_revision: u64,
     pub(crate) target_revision: u64,
 }
@@ -612,6 +654,14 @@ pub struct DiffNormalizeEffect {
 pub struct Normalized {
     pub diff: DiffId,
     pub operation: Operation,
+    /// THE diff markup, derived FROM the fresh operation
+    /// (`diff::hunk_markup`) — hunks against
+    /// `target_text`@`target_revision`; the landing shifts it home
+    /// (docs/scroll-stripe.md §7).
+    pub markup: editor::Markup,
+    /// The damage the swap owes, worker-computed: the set difference
+    /// against the markup standing at capture.
+    pub changed: Vec<std::ops::Range<u32>>,
     pub base_revision: u64,
     pub target_revision: u64,
 }
@@ -624,9 +674,14 @@ pub struct DiffNormalizeHandler;
 
 impl EffectHandler<DiffNormalizeEffect> for DiffNormalizeHandler {
     async fn handle(&self, effect: DiffNormalizeEffect) -> Normalized {
+        let operation = editor::diff::diff(&effect.base_text, &effect.target_text);
+        let markup = editor::diff::hunk_markup(&operation, &effect.target_text);
+        let changed = editor::set_diff(effect.previous.as_ref(), &markup);
         Normalized {
             diff: effect.diff,
-            operation: editor::diff::diff(&effect.base_text, &effect.target_text),
+            operation,
+            markup,
+            changed,
             base_revision: effect.base_revision,
             target_revision: effect.target_revision,
         }
@@ -778,12 +833,12 @@ mod tests {
             "target".to_owned(),
             0,
         );
-        let operation = {
+        let prepared = {
             let base = OpenDocuments::document_ref(&store, base_id).expect("registered");
             let target = OpenDocuments::document_ref(&store, target_id).expect("registered");
             editor::diff::diff(base.text(), target.text())
         };
-        let id = OpenDocuments::track_diff(&mut store, base_id, target_id, false, Some(operation))
+        let id = OpenDocuments::track_diff(&mut store, base_id, target_id, false, Some(prepared))
             .expect("both registered");
 
         let generation = OpenDocuments::document_ref(&store, target_id)

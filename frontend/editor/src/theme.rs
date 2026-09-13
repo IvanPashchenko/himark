@@ -8,7 +8,7 @@ use std::sync::Arc;
 use serde::Deserialize;
 use skia_safe::Color;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum StyleId {
     Emphasis,
     Strong,
@@ -274,6 +274,11 @@ pub struct TextAttributes {
     pub block_height: Option<f32>,
 
     pub alignment: Option<TextAlignment>,
+
+    /// The scroll-bar stripe color (docs/scroll-stripe.md): a style
+    /// with one contributes marks to the scroll track; a style whose
+    /// ONLY policy is a stripe color paints nothing in the text.
+    pub stripe: Option<Color>,
 }
 
 #[derive(Clone)]
@@ -394,6 +399,9 @@ impl TextAttributes {
         if over.alignment.is_some() {
             self.alignment = over.alignment;
         }
+        if over.stripe.is_some() {
+            self.stripe = over.stripe;
+        }
     }
 }
 
@@ -439,6 +447,8 @@ struct RawEntry {
     block_height: Option<f32>,
     #[serde(default)]
     alignment: Option<String>,
+    #[serde(default)]
+    stripe: Option<String>,
 }
 
 impl RawEntry {
@@ -486,6 +496,7 @@ impl RawEntry {
             block_gap: self.block_gap,
             inset: self.inset,
             block_height: self.block_height,
+            stripe: self.stripe.as_deref().map(parse_color).transpose()?,
         })
     }
 }
@@ -547,6 +558,31 @@ pub struct UiTheme {
 
     #[serde(default)]
     pub sheet: SheetChrome,
+
+    #[serde(default)]
+    pub scroll_stripe: ScrollStripeChrome,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(default)]
+pub struct ScrollStripeChrome {
+    pub width: f32,
+
+    /// The lane's gap LEFT of the scrollbar's own lane — the marks
+    /// and the knob never contend.
+    pub inset: f32,
+
+    pub min_height: f32,
+}
+
+impl Default for ScrollStripeChrome {
+    fn default() -> Self {
+        Self {
+            width: 8.0,
+            inset: 6.0,
+            min_height: 6.0,
+        }
+    }
 }
 
 #[derive(Clone, Deserialize)]

@@ -3496,10 +3496,8 @@ mod gutter_stripes {
             &test_theme(),
             fx!(),
         );
-        let id = document.add_diff(
-            crate::diff::diff(&text::Text::from_string_exact(base), document.text()),
-            0,
-        );
+        let operation = crate::diff::diff(&text::Text::from_string_exact(base), document.text());
+        let id = document.add_diff(operation, 0);
 
         let viewport = build(&document, editor, Some(id));
         assert_eq!(kind_at(&viewport, source, "one"), None, "retained");
@@ -3523,8 +3521,9 @@ mod gutter_stripes {
     }
 
     #[test]
-    fn stripes_follow_typing_with_no_landing_in_the_loop() {
-        let source = "alpha\nbeta\ngamma\n";
+    fn standing_stripes_shift_with_typing_and_fresh_hunks_land_with_the_normalize() {
+        let base = "alpha\nbeta\ngamma\n";
+        let source = "alpha\nBETA\ngamma\n";
         let mut document = plain_document(source);
         let editor = document.add_editor(
             600.0,
@@ -3535,29 +3534,51 @@ mod gutter_stripes {
             &test_theme(),
             fx!(),
         );
-        let id = document.add_diff(
-            crate::diff::diff(&text::Text::from_string_exact(source), document.text()),
-            0,
-        );
-        let viewport = build(&document, editor, Some(id));
-        assert!(
-            viewport.lines.iter().all(|line| line.diff.is_none()),
-            "an identity diff stripes nothing"
-        );
+        let operation = crate::diff::diff(&text::Text::from_string_exact(base), document.text());
+        let id = document.add_diff(operation, 0);
 
-        let at = source.find("beta").unwrap() as u32;
+        // Typing ABOVE the standing hunk shifts its stripe the same
+        // frame — the markup rides the edit door.
         document.edit(
-            &Operation::insert_at(at, "X"),
+            &Operation::insert_at(0, "zero\n"),
             &test_fonts(),
             &test_theme(),
             fx!(),
         );
         let viewport = build(&document, editor, Some(id));
-        let source_now = "alpha\nXbeta\ngamma\n";
+        let source_now = "zero\nalpha\nBETA\ngamma\n";
         assert_eq!(
-            kind_at(&viewport, source_now, "Xbeta"),
+            kind_at(&viewport, source_now, "BETA"),
             Some(DiffLineKind::Modified),
-            "the typed row stripes the same frame"
+            "the standing hunk moved with the edit"
+        );
+        // The typed line's OWN hunk is one normalize landing behind —
+        // the colors contract.
+        assert_eq!(kind_at(&viewport, source_now, "zero"), None);
+
+        // The landing installs the fresh derivation and the typed
+        // line stripes.
+        let minimal = crate::diff::diff(&text::Text::from_string_exact(base), document.text());
+        let fresh = crate::diff::hunk_markup(&minimal, document.text());
+        assert!(document.install_normalized_diff(id, minimal, 0));
+        document.install_diff_markup(
+            id,
+            fresh,
+            vec![0..u32::MAX],
+            document.revision(),
+            &test_fonts(),
+            &test_theme(),
+            fx!(),
+        );
+        let viewport = build(&document, editor, Some(id));
+        assert_eq!(
+            kind_at(&viewport, source_now, "zero"),
+            Some(DiffLineKind::Added),
+            "the fresh hunk landed"
+        );
+        assert_eq!(
+            kind_at(&viewport, source_now, "BETA"),
+            Some(DiffLineKind::Modified)
         );
         assert_eq!(kind_at(&viewport, source_now, "alpha"), None);
         assert_eq!(kind_at(&viewport, source_now, "gamma"), None);
@@ -3576,10 +3597,8 @@ mod gutter_stripes {
             &test_theme(),
             fx!(),
         );
-        let id = document.add_diff(
-            crate::diff::diff(&text::Text::from_string_exact("one\n"), document.text()),
-            0,
-        );
+        let operation = crate::diff::diff(&text::Text::from_string_exact("one\n"), document.text());
+        let id = document.add_diff(operation, 0);
         let unjoined = build(&document, editor, None);
         assert!(unjoined.lines.iter().all(|line| line.diff.is_none()));
 
@@ -3621,10 +3640,8 @@ mod before_inlay {
             fx!(),
         );
         let base_document = plain_document(BASE);
-        let id = document.add_diff(
-            crate::diff::diff(base_document.text(), document.text()),
-            base_document.revision(),
-        );
+        let operation = crate::diff::diff(base_document.text(), document.text());
+        let id = document.add_diff(operation, base_document.revision());
         crate::EditorView {
             document,
             editor,
@@ -3766,10 +3783,8 @@ mod before_inlay {
             fx!(),
         );
         let base_document = plain_document(base);
-        let id = document.add_diff(
-            crate::diff::diff(base_document.text(), document.text()),
-            base_document.revision(),
-        );
+        let operation = crate::diff::diff(base_document.text(), document.text());
+        let id = document.add_diff(operation, base_document.revision());
         let mut view = crate::EditorView {
             document,
             editor,
@@ -3818,10 +3833,8 @@ mod before_inlay_presentation {
             fx!(),
         );
         let base_document = plain_document(BASE);
-        let id = document.add_diff(
-            crate::diff::diff(base_document.text(), document.text()),
-            base_document.revision(),
-        );
+        let operation = crate::diff::diff(base_document.text(), document.text());
+        let id = document.add_diff(operation, base_document.revision());
         crate::EditorView {
             document,
             editor,

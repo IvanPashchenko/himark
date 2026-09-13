@@ -8,6 +8,7 @@ pub mod change;
 pub mod diffs;
 mod entity_view;
 mod lifecycle;
+pub mod scroll_stripes;
 pub mod sync;
 pub mod watch;
 

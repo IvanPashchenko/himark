@@ -160,6 +160,8 @@ pub enum EditorCommand {
 
     ApplyEnrichment(crate::enrich::EnrichOutcome),
 
+    ApplyScrollStripes(crate::scroll_stripe::StripeOutcome),
+
     InsertTextReplacing {
         text: String,
         replacement: (u32, u32),
@@ -984,6 +986,24 @@ impl EditorView {
             origin_x,
             gutter,
             max_width,
+        )
+    }
+
+    pub fn scroll_stripe_overlays<'a>(
+        &self,
+        arena: &'a imba::arena::Arena,
+        store: &'a Store,
+        viewport: Rect,
+    ) -> Vec<imba::overlay::Overlay<'a, EditorCommand>> {
+        if self.gutter_width <= 0.0 {
+            return Vec::new();
+        }
+        crate::scroll_stripe::scroll_stripe_overlays(
+            &self.document,
+            self.editor,
+            &crate::env::Themes::of(store),
+            arena,
+            viewport,
         )
     }
 

@@ -15,6 +15,8 @@ pub(crate) fn sync_diff_lanes(store: &mut Store, fx: &mut AppFx<'_>) {
     documents::diffs::sync_diff_lanes(store, fx, |normalized| AppCommand::DiffNormalized {
         diff: normalized.diff,
         operation: normalized.operation,
+        markup: normalized.markup,
+        changed: normalized.changed,
         base_revision: normalized.base_revision,
         target_revision: normalized.target_revision,
     });

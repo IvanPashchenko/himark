@@ -85,7 +85,10 @@ impl UnifiedDiffView {
                 .document
                 .layout_width(self.split.right.editor)
                 .max(200.0);
-            let shown = [self.split.state.right_marks()];
+            let shown = [
+                self.split.state.hunk_markup(),
+                self.split.state.right_marks(),
+            ];
             let diff = self.split.state.diff_id();
             let base = self.split.left.document.clone();
             let right = &mut self.split.right.document;

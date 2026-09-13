@@ -120,6 +120,9 @@ pub(crate) fn register_builtins(handlers: &Arc<Handlers>, workshop: &Arc<::edito
     }
     handlers
         .register::<::editor::RepairDiffEffect>(::editor::RepairDiffHandler(Arc::clone(workshop)));
+    handlers.register::<::editor::scroll_stripe::ScrollStripeEffect>(
+        ::editor::scroll_stripe::ScrollStripeHandler(Arc::clone(workshop)),
+    );
     handlers.register::<crate::diffs::DiffNormalizeEffect>(crate::diffs::DiffNormalizeHandler);
     handlers.register::<crate::toc::OutlineEffect>(crate::toc::OutlineHandler);
     handlers.register::<crate::find::FindScanEffect>(crate::find::FindScanHandler);

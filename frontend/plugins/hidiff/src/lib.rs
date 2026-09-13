@@ -46,6 +46,7 @@ fn gathered(pair: &himark::DiffView, store: &Store) -> Option<UnifiedDiffView> {
                 &left_view.document,
                 &right_view.document,
                 OpenDocuments::diff_handle(store, pair.diff)?.base_markup,
+                pair.right_extras,
                 None,
             )?,
         };
@@ -292,6 +293,7 @@ impl DiffPanelView {
         left: EditorIdView,
         right: EditorIdView,
         handle: himark::DiffHandle,
+        right_extras: himark::MarkupId,
         state: Option<DiffState>,
     ) -> Self {
         let id = himark::DiffViewId::mint();
@@ -302,6 +304,7 @@ impl DiffPanelView {
                 left,
                 right,
                 diff: handle.id,
+                right_extras,
                 state,
             },
         );
@@ -461,24 +464,36 @@ pub fn diff_panel(
     let target_markup = OpenDocuments::document_ref(store, right)
         .and_then(|document| document.diff(diff).map(|entry| entry.markup()))?;
 
-    let mut seed =
-        |document_id: himark::DocumentId, marks: himark::MarkupId, markup: &himark::Markup| {
-            let Some(mut document) = OpenDocuments::document(store, document_id) else {
-                return;
-            };
-            document.replace_markup(
-                marks,
-                markup.clone(),
-                &[],
-                &fonts,
-                &theme,
-                &mut imba::effect::Batch::new().effects(),
-            );
-            OpenDocuments::put_document(store, document_id, document);
+    fn seed(
+        store: &mut Store,
+        fonts: &skia_safe::textlayout::FontCollection,
+        theme: &himark::Theme,
+        document_id: himark::DocumentId,
+        marks: himark::MarkupId,
+        markup: &himark::Markup,
+    ) {
+        let Some(mut document) = OpenDocuments::document(store, document_id) else {
+            return;
         };
+        document.replace_markup(
+            marks,
+            markup.clone(),
+            &[],
+            fonts,
+            theme,
+            &mut imba::effect::Batch::new().effects(),
+        );
+        OpenDocuments::put_document(store, document_id, document);
+    }
     if let Some(prep) = &prep {
-        seed(left, handle.base_markup, &prep.marks.left);
-        seed(right, target_markup, &prep.marks.right);
+        seed(
+            store,
+            &fonts,
+            &theme,
+            left,
+            handle.base_markup,
+            &prep.marks.left,
+        );
     }
     let mut open =
         |document_id: himark::DocumentId, marks: himark::MarkupId| -> Option<EditorIdView> {
@@ -504,6 +519,25 @@ pub fn diff_panel(
     else {
         return None;
     };
+    // The pane's own right-half extras (word tints + fold strips) —
+    // editor-owned, dying with the half. THE diff markup
+    // (`target_markup`, the hunk washes) stays the diff machinery's.
+    let right_extras = {
+        let mut document = OpenDocuments::document(store, right)?;
+        let id = document.add_owned_markup(right_view.editor());
+        OpenDocuments::put_document(store, right, document);
+        id
+    };
+    if let Some(prep) = &prep {
+        seed(
+            store,
+            &fonts,
+            &theme,
+            right,
+            right_extras,
+            &prep.marks.right,
+        );
+    }
 
     let state = {
         let left_document = OpenDocuments::document_ref(store, left)?;
@@ -513,11 +547,17 @@ pub fn diff_panel(
             left_document,
             right_document,
             handle.base_markup,
+            right_extras,
             prep.map(|prep| prep.marks.window),
         )
     };
     Some(DiffPanelView::new(
-        store, left_view, right_view, handle, state,
+        store,
+        left_view,
+        right_view,
+        handle,
+        right_extras,
+        state,
     ))
 }
 

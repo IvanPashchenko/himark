@@ -403,29 +403,41 @@ pub fn handle_effect<R: 'static>(
                         async move { handler.handle(*effect).await },
                     )))
                 }
-                Err(value) => match value.downcast::<::editor::RepairDiffEffect>() {
+                Err(value) => match value.downcast::<::editor::scroll_stripe::ScrollStripeEffect>()
+                {
                     Ok(effect) => {
-                        let handler = ::editor::RepairDiffHandler(std::sync::Arc::clone(workshop));
+                        let handler = ::editor::scroll_stripe::ScrollStripeHandler(
+                            std::sync::Arc::clone(workshop),
+                        );
                         Box::new(block_on(Box::pin(
                             async move { handler.handle(*effect).await },
                         )))
                     }
-                    Err(value) => match value.downcast::<crate::diffs::DiffNormalizeEffect>() {
+                    Err(value) => match value.downcast::<::editor::RepairDiffEffect>() {
                         Ok(effect) => {
-                            let handler = crate::diffs::DiffNormalizeHandler;
+                            let handler =
+                                ::editor::RepairDiffHandler(std::sync::Arc::clone(workshop));
                             Box::new(block_on(Box::pin(
                                 async move { handler.handle(*effect).await },
                             )))
                         }
-                        Err(value) => match value.downcast::<crate::app::OpenEffect>() {
+                        Err(value) => match value.downcast::<crate::diffs::DiffNormalizeEffect>() {
                             Ok(effect) => {
-                                let handler =
-                                    crate::app::OpenHandler(std::sync::Arc::clone(workshop));
+                                let handler = crate::diffs::DiffNormalizeHandler;
                                 Box::new(block_on(Box::pin(async move {
                                     handler.handle(*effect).await
                                 })))
                             }
-                            Err(_) => panic!("handle_effect: unknown effect type"),
+                            Err(value) => match value.downcast::<crate::app::OpenEffect>() {
+                                Ok(effect) => {
+                                    let handler =
+                                        crate::app::OpenHandler(std::sync::Arc::clone(workshop));
+                                    Box::new(block_on(Box::pin(async move {
+                                        handler.handle(*effect).await
+                                    })))
+                                }
+                                Err(_) => panic!("handle_effect: unknown effect type"),
+                            },
                         },
                     },
                 },

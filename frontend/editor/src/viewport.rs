@@ -50,71 +50,89 @@ pub(crate) enum DiffLineKind {
     DeletedAbove,
 }
 
-struct StripeWalk {
-    ops: operation::Iter,
+/// Classifies visible rows against THE diff markup — the hunk entry
+/// every tracked diff maintains (docs/scroll-stripe.md §7): one
+/// `Diff*`-styled interval per hunk, target coordinates, shifted at
+/// the edit door. The pane's washes and the scroll track read the
+/// same entry; the three faces can never disagree.
+struct StripeWalk<'a> {
+    iter: crate::markup::RecursiveQuery<'a>,
 
-    pending: Option<operation::Op>,
+    peeked: Option<(Range<u32>, crate::markup::StyleId)>,
 
-    new_at: u32,
+    active: Vec<(Range<u32>, crate::markup::StyleId)>,
 }
 
-impl StripeWalk {
-    fn new(operation: &operation::Operation, from_new: u32) -> Self {
-        let from = operation.ops_from_new(from_new);
+impl<'a> StripeWalk<'a> {
+    fn new(markup: &'a crate::markup::Markup, from: u32) -> Self {
+        use intervals::IntervalQuery;
+        let mut iter = markup.query(from..u32::MAX, intervals::Order::Ascending);
+        let peeked = Self::pull(&mut iter);
         Self {
-            ops: from.ops,
-            pending: None,
-            new_at: from.new_start,
+            iter,
+            peeked,
+            active: Vec::new(),
         }
     }
 
+    fn pull(
+        iter: &mut crate::markup::RecursiveQuery<'a>,
+    ) -> Option<(Range<u32>, crate::markup::StyleId)> {
+        iter.find_map(|hit| match hit.value {
+            crate::markup::Decoration::Styled(id) => Some((hit.range.clone(), *id)),
+            _ => None,
+        })
+    }
+
     fn classify(&mut self, range: Range<u32>) -> Option<DiffLineKind> {
-        use operation::Op;
-        let mut insert_overlap = 0u32;
-        let mut deleted_at_start = false;
-        let mut deleted_inside = false;
-        loop {
-            let op = match self.pending.take() {
-                Some(op) => op,
-                None => match self.ops.next() {
-                    Some(op) => op,
-                    None => break,
-                },
-            };
-            let start = self.new_at;
-            let len = op.new_len();
-            if start >= range.end {
-                self.pending = Some(op);
+        use crate::markup::StyleId;
+        while let Some((peeked, _)) = &self.peeked {
+            if peeked.start >= range.end {
                 break;
             }
-            match &op {
-                Op::Retain(_) => {}
-                Op::Insert(_) => {
-                    let overlap_start = start.max(range.start);
-                    let overlap_end = start.saturating_add(len).min(range.end);
-                    insert_overlap += overlap_end.saturating_sub(overlap_start);
+            let entered = self.peeked.take().expect("peeked");
+            self.active.push(entered);
+            self.peeked = Self::pull(&mut self.iter);
+        }
+        // A zero-length interval is a deletion MARKER at its point;
+        // it belongs to the row whose start it sits at.
+        self.active.retain(|(hit, _)| {
+            hit.end > range.start || (hit.start == hit.end && hit.start >= range.start)
+        });
+
+        let mut added_overlap = 0u32;
+        let mut modified = false;
+        let mut deleted_at_start = false;
+        let mut deleted_inside = false;
+        for (hit, style) in &self.active {
+            match style {
+                StyleId::DiffAdded => {
+                    let overlap_start = hit.start.max(range.start);
+                    let overlap_end = hit.end.min(range.end);
+                    added_overlap += overlap_end.saturating_sub(overlap_start);
                 }
-                Op::Delete(_) => {
-                    if start == range.start {
+                StyleId::DiffModified => {
+                    if hit.start < range.end && hit.end > range.start {
+                        modified = true;
+                    }
+                }
+                StyleId::DiffDeleted => {
+                    if hit.start == range.start {
                         deleted_at_start = true;
-                    } else if start > range.start {
+                    } else if hit.start > range.start && hit.start < range.end {
                         deleted_inside = true;
                     }
                 }
+                _ => {}
             }
-            if start.saturating_add(len) > range.end {
-                self.pending = Some(op);
-                break;
-            }
-            self.new_at = start.saturating_add(len);
         }
         let row = range.end.saturating_sub(range.start);
-        if row > 0 && insert_overlap >= row {
+        if row > 0 && added_overlap >= row {
             Some(match deleted_at_start {
                 true => DiffLineKind::Modified,
                 false => DiffLineKind::Added,
             })
-        } else if insert_overlap > 0 || deleted_inside {
+        } else if added_overlap > 0 || modified || deleted_inside {
             Some(DiffLineKind::Modified)
         } else if deleted_at_start {
             Some(DiffLineKind::DeletedAbove)
@@ -215,7 +233,8 @@ impl EditorViewport {
             .then_some(stripes)
             .flatten()
             .and_then(|id| document.diff(id))
-            .map(|entry| StripeWalk::new(entry.operation(), byte_start));
+            .and_then(|entry| document.feature_markup(entry.markup()))
+            .map(|markup| StripeWalk::new(markup, byte_start));
         let mut inline_scratch = Vec::new();
         let mut hidden_scratch = Vec::new();
 

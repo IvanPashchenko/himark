@@ -72,6 +72,7 @@ pub fn deliver(
             Some(anchor) => anchor,
             None => return,
         },
+        EditorCommand::ApplyScrollStripes(outcome) => outcome.editor(),
         _ => return,
     };
     let Some(mut document) = OpenDocuments::document(store, document_id) else {
