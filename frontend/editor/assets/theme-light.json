@@ -206,11 +206,7 @@
       "fold_background": "#ffffff",
       "fold_rule": "#2e1c2126",
       "fold_text": "#c24a5258",
-      "fold_button": "#d63d464d",
-      "card_surface": "#f0f2f4f0",
-      "card_border": "#553d6b72",
-      "card_radius": 10.0,
-      "card_pad": 12.0
+      "fold_button": "#d63d464d"
     },
     "window": {
       "background": "#ffffff",

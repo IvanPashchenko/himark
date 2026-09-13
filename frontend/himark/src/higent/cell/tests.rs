@@ -195,6 +195,7 @@ fn expanded_before_cards_grow_to_their_content() {
         grown > born + 20.0,
         "the deleted-code cards grew: born {born}, grown {grown}"
     );
+    paint_cell(&cell, &store, &ui, 640.0, "cell_with_cards.png");
     let CellBody::Diff { view, .. } = &cell.body else {
         panic!("the resolve lands the diff face");
     };

@@ -405,6 +405,18 @@ pub(crate) struct InlayPlaceholder {
 /// shared.
 pub const INLAY_HOST: imba::overlay::OverlayHost = imba::overlay::OverlayHost("editor.inlays");
 
+/// How a projected inlay sits inside its host.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InlayProjection {
+    /// Edge to edge of the host (the fold strip — in a split it runs
+    /// across both panes regardless of which pane minted it).
+    Span,
+
+    /// At the minting editor's left edge, host-wide to the right (the
+    /// deleted-code card, whose own gutter lines up with the host's).
+    Aligned,
+}
+
 #[derive(Clone)]
 pub struct Inlay {
     pub(crate) mode: InlayMode,
@@ -415,7 +427,7 @@ pub struct Inlay {
     /// but renders through the named overlay host instead of inline —
     /// the fold strip that spans the whole pane (and, hosted above a
     /// split, both panes at once) while still scrolling with its line.
-    pub(crate) overlay: Option<imba::overlay::OverlayHost>,
+    pub(crate) overlay: Option<(imba::overlay::OverlayHost, InlayProjection)>,
 }
 
 pub(crate) trait InlayView: Send + Sync {
@@ -1937,10 +1949,18 @@ impl Inlay {
         }
     }
 
-    /// Render through the given overlay host instead of inline; the
-    /// inlay still reserves its space in the text flow.
+    /// Render through the given overlay host instead of inline,
+    /// spanning it edge to edge; the inlay still reserves its space
+    /// in the text flow.
     pub fn over(mut self, host: imba::overlay::OverlayHost) -> Self {
-        self.overlay = Some(host);
+        self.overlay = Some((host, InlayProjection::Span));
+        self
+    }
+
+    /// Like `over`, but anchored at the minting editor's left edge —
+    /// the projected widget lines up with the editor's own columns.
+    pub fn over_aligned(mut self, host: imba::overlay::OverlayHost) -> Self {
+        self.overlay = Some((host, InlayProjection::Aligned));
         self
     }
 

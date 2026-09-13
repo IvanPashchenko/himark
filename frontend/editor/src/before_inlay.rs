@@ -140,7 +140,10 @@ impl Document {
             editor: before_editor,
             reports_geometry: false,
             location: None,
-            gutter_width: 0.0,
+            // The fragment renders its own gutter — the BASE
+            // document's line numbers, aligned with the host's
+            // columns (cards only exist where the host shows one).
+            gutter_width: theme.ui().editor_gutter.width,
             base: None,
         };
         card.blur();
@@ -152,7 +155,7 @@ impl Document {
             markup_id,
             anchor,
             Inlay::new(InlayMode::Above, BeforeInlay::appearing(card, base_lines))
-                .over(crate::markup::INLAY_HOST),
+                .over_aligned(crate::markup::INLAY_HOST),
             fonts,
             theme,
             fx,
@@ -344,9 +347,9 @@ impl BeforeInlay {
         self.view.focus()
     }
 
-    fn card_size(&self, chrome: &crate::theme::DiffChrome, constraints: Constraints) -> Size {
+    fn card_size(&self, constraints: Constraints) -> Size {
         let width = constraints.max.width.max(120.0);
-        let natural = self.view.content_height() + chrome.card_pad * 2.0;
+        let natural = self.view.content_height();
         Size::new(
             width,
             (natural * self.grow.value().clamp(0.0, 1.0)).max(1.0),
@@ -403,35 +406,30 @@ impl imba::View for BeforeInlay {
         imba::laid(
             move |_arena: &'a imba::arena::Arena, constraints: imba::constraints::Constraints| {
                 use imba::thunk_ext::ThunkExt;
-                let chrome = crate::env::Themes::of(store).ui().diff.clone();
-                let size = self.card_size(&chrome, constraints);
+                let size = self.card_size(constraints);
                 let appearing = self.grow.running();
-                let pad = chrome.card_pad;
-                let want = (size.width - pad * 2.0).max(120.0);
-
+                // The fragment sits FLUSH — no frame, no pads: its
+                // own gutter carries the base document's numbers and
+                // its columns line up with the host editor's. The
+                // animated height clips the reveal.
+                let want = (size.width - self.view.gutter_width).max(120.0);
                 let mut container = imba::container::container(arena, size);
-
-                if !appearing {
-                    let editor = self
-                        .view
-                        .layout(
-                            arena,
-                            store,
-                            ui,
-                            Constraints {
-                                min: Size::new(want, 0.0),
-                                max: Size::new(want, f32::MAX),
-                            },
-                        )
-                        .map(BeforeCommand::Editor);
-                    container.place(pad, pad, editor);
-                }
-                let frame = chrome.clone();
-                let framed = container
-                    .paint_below(move |_arena, canvas, rect| paint_card(&frame, canvas, rect));
+                let editor = self
+                    .view
+                    .layout(
+                        arena,
+                        store,
+                        ui,
+                        Constraints {
+                            min: Size::new(size.width, 0.0),
+                            max: Size::new(size.width, f32::MAX),
+                        },
+                    )
+                    .map(BeforeCommand::Editor);
+                container.place(0.0, 0.0, editor);
 
                 let stale = !appearing && (self.view.layout_width() - want).abs() > 1.0;
-                framed.wrap(move |inner| CardWidget {
+                container.wrap(move |inner| CardWidget {
                     stale,
                     want,
                     animating: appearing,
@@ -440,22 +438,6 @@ impl imba::View for BeforeInlay {
             },
         )
     }
-}
-
-fn paint_card(
-    chrome: &crate::theme::DiffChrome,
-    canvas: &skia_safe::Canvas,
-    rect: skia_safe::Rect,
-) {
-    let mut paint = skia_safe::Paint::default();
-    paint.set_anti_alias(true);
-    paint.set_color(chrome.card_surface.0);
-    let inset = rect.with_inset((0.5, 0.5));
-    canvas.draw_round_rect(inset, chrome.card_radius, chrome.card_radius, &paint);
-    paint.set_stroke(true);
-    paint.set_stroke_width(1.0);
-    paint.set_color(chrome.card_border.0);
-    canvas.draw_round_rect(inset, chrome.card_radius, chrome.card_radius, &paint);
 }
 
 struct CardWidget<Inner> {

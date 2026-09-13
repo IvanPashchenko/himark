@@ -125,24 +125,32 @@ pub(crate) fn projected_overlays<'a>(
                 }
                 _ => content_top + (content_height - size.height).max(0.0) * 0.5,
             };
-            let Some(host) = interval.inlay.overlay else {
+            let Some((host, projection)) = interval.inlay.overlay else {
                 continue;
             };
             let key = interval.key;
             let inlay = interval.inlay.clone();
             overlays.push(imba::overlay::Overlay {
                 host,
-                anchor: Rect::from_xywh(origin.x, origin.y + y, width, size.height.max(1.0)),
+                // The anchor's left edge is the MINTING EDITOR's left
+                // edge (0 here; translations on the way up carry it
+                // into host coordinates).
+                anchor: Rect::from_xywh(0.0, origin.y + y, width, size.height.max(1.0)),
                 content: Box::new(move |host_size: Size, anchor: Rect| {
+                    use crate::markup::InlayProjection;
+                    let left = match projection {
+                        InlayProjection::Span => 0.0,
+                        InlayProjection::Aligned => anchor.left.max(0.0),
+                    };
                     let widget = PopupWidget {
                         inlay,
                         store,
                         ui,
                         arena,
-                        size: Size::new(host_size.width.max(1.0), anchor.height()),
+                        size: Size::new((host_size.width - left).max(1.0), anchor.height()),
                     };
                     vec![(
-                        Point::new(0.0, anchor.top),
+                        Point::new(left, anchor.top),
                         imba::ThunkBox::new(
                             arena,
                             imba::eager(widget)

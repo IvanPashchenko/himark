@@ -900,11 +900,6 @@ pub struct DiffChrome {
 
     pub fold_button: Rgba,
     pub fold_button_size: f32,
-
-    pub card_surface: Rgba,
-    pub card_border: Rgba,
-    pub card_radius: f32,
-    pub card_pad: f32,
 }
 
 impl Default for DiffChrome {
@@ -918,10 +913,6 @@ impl Default for DiffChrome {
             fold_text_size: 22.0,
             fold_button: Rgba(Color::new(0xccb6c2cc)),
             fold_button_size: 28.0,
-            card_surface: Rgba(Color::new(0xf016191f)),
-            card_border: Rgba(Color::new(0x505c96a2)),
-            card_radius: 10.0,
-            card_pad: 12.0,
         }
     }
 }
