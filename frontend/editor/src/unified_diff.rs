@@ -36,6 +36,7 @@ pub enum UnifiedDiffCommand {
 
 pub type UnifiedDiffEffects<'a> = imba::effect::Effects<'a, UnifiedDiffCommand>;
 
+#[derive(Clone)]
 pub struct UnifiedDiffView {
     pub split: SplitDiffView,
     pub layout: DiffLayout,

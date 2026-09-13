@@ -157,6 +157,7 @@ impl DiffState {
     }
 }
 
+#[derive(Clone)]
 pub struct SplitDiffView {
     pub left: EditorView,
     pub right: EditorView,

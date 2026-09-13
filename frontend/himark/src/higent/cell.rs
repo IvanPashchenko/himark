@@ -40,6 +40,8 @@ pub enum CellCommand {
 
     ResolveDiff(Result<crate::higent::FileEditContents, String>),
 
+    Diff(crate::UnifiedDiffCommand),
+
     Tool(ToolUpdate),
 
     ToolRows(ToolRowsCommand),
@@ -69,9 +71,14 @@ enum CellBody {
         width: f32,
     },
 
+    /// A proper INLINE diff face over the edit — the editor crate's
+    /// unified view: hunk washes, word tints, deleted lines as
+    /// before-inlays and unchanged context collapsed behind FOLD
+    /// strips. Seeded settled (`prepare_marks` over the whole texts —
+    /// chat edits are small), so no marks lane is owed at birth.
     Diff {
         header: DiffHeader,
-        editor: EditorView,
+        view: crate::UnifiedDiffView,
     },
 
     Tools(ToolGroup),
@@ -259,41 +266,124 @@ impl Cell {
                 let after_text =
                     crate::Text::from_string_exact(contents.after.as_deref().unwrap_or(""));
                 let extension = header.title.rsplit('.').next().unwrap_or("").to_lowercase();
-                let before_doc =
+                let mut before_doc =
                     side_document(before_text.clone(), &extension, store, &fonts, &theme);
                 let mut after_doc = side_document(after_text, &extension, store, &fonts, &theme);
 
+                // The seeded pair road (the hidiff recipe, cell-owned
+                // documents): operation, THE diff markup, and the
+                // prepared marks — washes, word tints, fold strips —
+                // all settled before the first frame.
                 let operation = crate::diff::diff(&before_text, after_doc.text());
-                let diff_id = after_doc.add_diff(operation, before_doc.revision());
+                let diff_id = after_doc.add_diff(operation.clone(), before_doc.revision());
+                after_doc.install_normalized_diff(
+                    diff_id,
+                    operation.clone(),
+                    before_doc.revision(),
+                );
+                let hunks = after_doc.diff(diff_id).expect("just added").markup();
+                let prepared = crate::prepare_marks(&operation, before_doc.text());
+
                 let gutter = theme.ui().editor_gutter.width;
                 let editor_width = (width - chrome.pad * 2.0 - gutter).max(120.0);
-                let editor = fx.scope(CellCommand::Editor, |fx| {
-                    let editor = after_doc.add_editor(
-                        editor_width,
-                        None,
-                        ::editor::EditorBuild::Bounded,
-                        &[],
-                        &fonts,
-                        &theme,
-                        fx,
-                    );
+                let mut throwaway = imba::effect::Batch::new();
+                let quiet = &mut throwaway.effects();
 
-                    if let Some(parsers) = env::Parsers::of(store) {
-                        after_doc.launch_reparse(parsers, fx);
-                    }
-                    editor
-                });
-                self.body = CellBody::Diff {
-                    header,
-                    editor: EditorView {
-                        document: after_doc,
-                        editor,
-                        reports_geometry: false,
-                        location: None,
-                        gutter_width: gutter,
-                        base: Some((before_doc, diff_id)),
-                    },
+                let left_marks = before_doc.add_markup();
+                before_doc.replace_markup(
+                    left_marks,
+                    prepared.left.clone(),
+                    &[],
+                    &fonts,
+                    &theme,
+                    quiet,
+                );
+                let left_editor = before_doc.add_editor(
+                    editor_width,
+                    None,
+                    ::editor::EditorBuild::Bounded,
+                    &[left_marks],
+                    &fonts,
+                    &theme,
+                    quiet,
+                );
+                before_doc.manage_repairs_in_pair(left_editor);
+
+                let right_editor = after_doc.add_editor(
+                    editor_width,
+                    None,
+                    ::editor::EditorBuild::Bounded,
+                    &[hunks],
+                    &fonts,
+                    &theme,
+                    quiet,
+                );
+                after_doc.manage_repairs_in_pair(right_editor);
+                let right_extras = after_doc.add_owned_markup(right_editor);
+                after_doc.replace_markup(
+                    right_extras,
+                    prepared.right.clone(),
+                    &[],
+                    &fonts,
+                    &theme,
+                    quiet,
+                );
+
+                if let Some(parsers) = env::Parsers::of(store) {
+                    fx.scope(
+                        |command: EditorCommand| {
+                            CellCommand::Diff(crate::UnifiedDiffCommand::Split(
+                                crate::SplitDiffCommand::Left(command),
+                            ))
+                        },
+                        |fx| before_doc.launch_reparse(parsers.clone(), fx),
+                    );
+                    fx.scope(
+                        |command: EditorCommand| {
+                            CellCommand::Diff(crate::UnifiedDiffCommand::Split(
+                                crate::SplitDiffCommand::Right(command),
+                            ))
+                        },
+                        |fx| after_doc.launch_reparse(parsers, fx),
+                    );
+                }
+
+                let state = crate::DiffState::attach(
+                    diff_id,
+                    &before_doc,
+                    &after_doc,
+                    left_marks,
+                    right_extras,
+                    Some(prepared.window),
+                )
+                .expect("the entry was just installed");
+                let left = EditorView {
+                    document: before_doc,
+                    editor: left_editor,
+                    reports_geometry: false,
+                    location: None,
+                    gutter_width: 0.0,
+                    base: None,
                 };
+                let right = EditorView {
+                    document: after_doc,
+                    editor: right_editor,
+                    reports_geometry: false,
+                    location: None,
+                    gutter_width: 0.0,
+                    base: None,
+                };
+                let mut view =
+                    crate::UnifiedDiffView::new(crate::SplitDiffView::new(left, right, state));
+                fx.scope(CellCommand::Diff, |fx| {
+                    view.perform(
+                        store,
+                        ui,
+                        crate::UnifiedDiffCommand::SetLayout(crate::DiffLayout::Inline),
+                        fx,
+                    )
+                });
+                self.body = CellBody::Diff { header, view };
             }
         }
     }
@@ -305,14 +395,14 @@ impl Cell {
             CellBody::PendingDiff { header, .. } => {
                 (kind, format!("[diff {} pending]", header.title))
             }
-            CellBody::Diff { header, editor } => (
+            CellBody::Diff { header, view } => (
                 kind,
                 format!(
                     "[diff {} +{} -{}]\n{}",
                     header.title,
                     header.added.unwrap_or(0),
                     header.removed.unwrap_or(0),
-                    document_text(&editor.document)
+                    document_text(&view.split.right.document)
                 ),
             ),
             CellBody::Tools(group) => (kind, group.oracle().join("\n")),
@@ -322,8 +412,7 @@ impl Cell {
     fn editor_view_mut(&mut self) -> Option<&mut EditorView> {
         match &mut self.body {
             CellBody::Markdown(editor) => Some(editor),
-            CellBody::Diff { editor, .. } => Some(editor),
-            CellBody::PendingDiff { .. } | CellBody::Tools(_) => None,
+            CellBody::Diff { .. } | CellBody::PendingDiff { .. } | CellBody::Tools(_) => None,
         }
     }
 
@@ -345,6 +434,10 @@ impl View for Cell {
     fn destroy(&mut self, store: &mut Store, fx: &mut Effects<'_, Self::Command>) {
         if let CellBody::Tools(group) = &mut self.body {
             group.destroy(store, fx);
+            return;
+        }
+        if let CellBody::Diff { view, .. } = &mut self.body {
+            fx.scope(CellCommand::Diff, |fx| view.destroy(store, fx));
             return;
         }
         if let Some(editor) = self.editor_view_mut() {
@@ -399,9 +492,79 @@ impl View for Cell {
                     }
                 });
             }
+            CellCommand::Diff(command) => {
+                let CellBody::Diff { view, .. } = &mut self.body else {
+                    return;
+                };
+                fx.scope(CellCommand::Diff, |fx| view.perform(store, ui, command, fx));
+            }
             CellCommand::Rewrap(width) => {
                 let fonts = env::ui_collection(store, ui);
                 let theme = env::Themes::of(store);
+                if let CellBody::Diff { view, .. } = &mut self.body {
+                    // All three faces resize together: the halves stay
+                    // width-matched (the pair lane insists) and the
+                    // inline editor mirrors them.
+                    let left_editor = view.split.left.editor;
+                    let right_editor = view.split.right.editor;
+                    let inline = view.inline_editor;
+                    fx.scope(
+                        |command: EditorCommand| {
+                            CellCommand::Diff(crate::UnifiedDiffCommand::Split(
+                                crate::SplitDiffCommand::Left(command),
+                            ))
+                        },
+                        |fx| {
+                            view.split.left.document.resize(
+                                left_editor,
+                                width,
+                                0,
+                                &fonts,
+                                &theme,
+                                fx,
+                            )
+                        },
+                    );
+                    fx.scope(
+                        |command: EditorCommand| {
+                            CellCommand::Diff(crate::UnifiedDiffCommand::Split(
+                                crate::SplitDiffCommand::Right(command),
+                            ))
+                        },
+                        |fx| {
+                            view.split.right.document.resize(
+                                right_editor,
+                                width,
+                                0,
+                                &fonts,
+                                &theme,
+                                fx,
+                            )
+                        },
+                    );
+                    if let Some(inline) = inline {
+                        fx.scope(
+                            |command: EditorCommand| {
+                                CellCommand::Diff(crate::UnifiedDiffCommand::Inline(command))
+                            },
+                            |fx| {
+                                view.split
+                                    .right
+                                    .document
+                                    .resize(inline, width, 0, &fonts, &theme, fx)
+                            },
+                        );
+                    }
+                    fx.scope(CellCommand::Diff, |fx| {
+                        view.perform(
+                            store,
+                            ui,
+                            crate::UnifiedDiffCommand::Split(crate::SplitDiffCommand::Resync),
+                            fx,
+                        )
+                    });
+                    return;
+                }
                 let Some(editor) = self.editor_view_mut() else {
                     return;
                 };
@@ -497,18 +660,19 @@ impl View for Cell {
             None
         };
 
-        let (header, editor, header_h) = match &self.body {
-            CellBody::Markdown(editor) => (None, Some(editor), 0.0),
+        let (header, editor, diff, header_h) = match &self.body {
+            CellBody::Markdown(editor) => (None, Some(editor), None, 0.0),
             CellBody::PendingDiff { header, .. } => {
-                (Some((header, true)), None, Self::header_band(&chrome))
+                (Some((header, true)), None, None, Self::header_band(&chrome))
             }
-            CellBody::Diff { header, editor } => (
+            CellBody::Diff { header, view } => (
                 Some((header, false)),
-                Some(editor),
+                None,
+                Some(view),
                 Self::header_band(&chrome),
             ),
 
-            CellBody::Tools(_) => (None, None, 0.0),
+            CellBody::Tools(_) => (None, None, None, 0.0),
         };
 
         let editor_target = match &self.body {
@@ -522,8 +686,25 @@ impl View for Cell {
             CellKind::User => Self::header_band(&chrome),
             _ => header_h,
         };
+        let diff_thunk = diff.map(|view| {
+            view.layout(
+                arena,
+                store,
+                ui,
+                Constraints {
+                    min: Size::new(editor_target, 0.0),
+                    max: Size::new(editor_target + chrome_gutter(store), f32::MAX),
+                },
+            )
+            .map(CellCommand::Diff)
+        });
         let editor_height = editor
             .map(|editor| editor.content_height().max(chrome.min_cell_height))
+            .or_else(|| {
+                diff_thunk
+                    .as_ref()
+                    .map(|thunk| thunk.size().height.max(chrome.min_cell_height))
+            })
             .unwrap_or(0.0);
         let card_height = header_h + editor_height + chrome.pad * 2.0;
         let height = card_height + chrome.gap;
@@ -616,10 +797,24 @@ impl View for Cell {
                         .map(CellCommand::Editor),
                 );
             }
+            if let Some(thunk) = diff_thunk {
+                card.place(card_x + chrome.pad, header_h + chrome.pad, thunk);
+            }
         }
-        let rewrap = editor.and_then(|editor| {
-            ((editor.layout_width() - editor_target).abs() > 1.0).then_some(editor_target)
-        });
+        let rewrap = match &self.body {
+            CellBody::Markdown(editor) => {
+                ((editor.layout_width() - editor_target).abs() > 1.0).then_some(editor_target)
+            }
+            CellBody::Diff { view, .. } => {
+                let laid = view
+                    .split
+                    .right
+                    .document
+                    .layout_width(view.split.right.editor);
+                ((laid - editor_target).abs() > 1.0).then_some(editor_target)
+            }
+            _ => None,
+        };
         card.wrap(move |inner| CellWidget { inner, rewrap })
     }
 }
@@ -705,3 +900,6 @@ impl<'a, Inner: Widget<'a, CellCommand>> Widget<'a, CellCommand> for CellWidget<
         self.inner.focus_data()
     }
 }
+
+#[cfg(test)]
+mod tests;
