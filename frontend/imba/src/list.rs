@@ -1670,7 +1670,13 @@ where
                 }
                 let rect = self.row_rect(&cursor);
                 let child_viewport = viewport_for_child(viewport, rect).unwrap_or_default();
-                self.route(&cursor, arena, event, child_viewport)
+                // Into ROW coordinates, like the hit-tested arm above —
+                // a drag routed to the focused row with list-level
+                // points lands past the row's content (selects to the
+                // end of a chat cell); point-less events pass through
+                // `translated` untouched.
+                let local = event.translated(-rect.left, -rect.top);
+                self.route(&cursor, arena, &local, child_viewport)
             }
         }
     }
