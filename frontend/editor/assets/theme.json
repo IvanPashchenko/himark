@@ -440,7 +440,6 @@
       "gap": 12.0,
       "radius": 10.0,
       "min_cell_height": 40.0,
-      "max_content_width": 1760.0,
       "user_width_ratio": 0.78,
       "user_surface": "#ff151c2c",
       "user_border": "#ff2a2d3d",

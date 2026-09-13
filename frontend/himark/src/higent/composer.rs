@@ -1,7 +1,7 @@
 // Copyright © 2026 JetBrains s.r.o.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{env, fonts::ui_text_font, EditorCommand, EditorView};
+use crate::{env, EditorCommand, EditorView};
 use imba::{
     anim::{Animation, AnimationClock, Easing, Motion},
     arena::Arena,
@@ -12,7 +12,7 @@ use imba::{
     scroll::{ScrollCommand, ScrollView},
     store::Store,
     thunk_ext::ThunkExt,
-    Layout as _, LayoutExt as _, UiCtx, View, Widget,
+    UiCtx, View, Widget,
 };
 use skia_safe::{Rect, Size};
 
@@ -35,8 +35,6 @@ pub enum ComposerCommand {
 }
 
 pub(crate) struct ComposerProps {
-    pub status: String,
-
     pub focused: bool,
 }
 
@@ -225,40 +223,9 @@ impl Composer {
         let band_h = self.band_height(&chrome, panel_height);
         let editor_h = self.editor_height(&chrome, panel_height);
 
-        let hint_reserve = chrome.title_size * 9.0;
-        let editor_w = (width - pad * 2.0 - hint_reserve).max(120.0);
+        let editor_w = (width - pad * 2.0).max(120.0);
         let mut band = container(arena, Size::new(width, band_h));
-
-        let status = props.status;
-        let hint_font = ui_text_font(ui, chrome.title_size * 0.65);
-        let status_color = chrome.notice_color.0;
         let focused = props.focused;
-        let line = if status.is_empty() {
-            "⌘⏎ send   ⎋ chat".to_owned()
-        } else {
-            status
-        };
-        // The status/hint label as a `Text` at exact baseline parity:
-        // the old painter drew its baseline at top + box_pad +
-        // font.size(), right-aligned `pad` from the edge; `Text`
-        // paints its baseline at top + ascent, so it pads down by the
-        // difference. The shield keeps the band eating presses, like
-        // the old leaf's event closure did.
-        let hint_ascent = -hint_font.metrics().1.ascent;
-        let hint = imba::text(line, hint_font.clone(), status_color)
-            .pad_insets(imba::Insets {
-                left: 0.0,
-                top: (box_pad + hint_font.size() - hint_ascent).max(0.0),
-                right: pad,
-                bottom: 0.0,
-            })
-            .align(imba::Alignment::TopEnd)
-            .shield();
-        band.place_boxed(
-            0.0,
-            0.0,
-            hint.layout(arena, Constraints::tight(Size::new(width, band_h))),
-        );
 
         band.place(
             pad,

@@ -1172,15 +1172,7 @@ impl Window {
         let chrome = ::editor::env::Themes::of(store).ui().sheet.clone();
         let toolbar = ::editor::env::Themes::of(store).ui().toolbar.height;
 
-        let revealed = self
-            .content
-            .workbench
-            .dock()
-            .map_or(0.0, crate::dock::Dock::revealed);
-        let below = skia_safe::Size::new(
-            (size.width - revealed).max(1.0),
-            (size.height - toolbar).max(1.0),
-        );
+        let below = skia_safe::Size::new(size.width.max(1.0), (size.height - toolbar).max(1.0));
 
         self.content.workbench.shown_bottom().map(|sheet| {
             let mut rect = sheet.rect(&chrome, store, below);
@@ -1960,7 +1952,7 @@ impl<'a> imba::Layout<'a, WindowCommand> for WindowFrame<'a> {
             let bottom_rect = layers.workbench.shown_bottom().map(|bottom| {
                 let chrome = ::editor::env::Themes::of(store).ui().sheet.clone();
 
-                let mut rect = bottom.rect(&chrome, store, base_below.max);
+                let mut rect = bottom.rect(&chrome, store, below.max);
                 rect.offset((0.0, toolbar_height));
                 rect
             });
@@ -2011,7 +2003,7 @@ impl<'a> imba::Layout<'a, WindowCommand> for WindowFrame<'a> {
                         arena,
                         size,
                         toolbar_height,
-                        imba::DynView::layout_dyn(bottom, arena, store, ui, base_below),
+                        imba::DynView::layout_dyn(bottom, arena, store, ui, below),
                     )
                 }),
                 modal: layers.modal.as_ref().map(|modal| {

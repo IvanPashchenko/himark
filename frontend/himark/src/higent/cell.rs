@@ -249,7 +249,7 @@ impl Cell {
         };
         let fonts = env::ui_collection(store, ui);
         let theme = env::Themes::of(store);
-        let chrome = theme.ui().chat.clone();
+        let _chrome = theme.ui().chat.clone();
         match result {
             Err(error) => {
                 let markdown = format!("**{}** — contents unavailable: {error}", header.title);
@@ -283,7 +283,9 @@ impl Cell {
                 let prepared = crate::prepare_marks(&operation, before_doc.text());
 
                 let gutter = theme.ui().editor_gutter.width;
-                let editor_width = (width - chrome.pad * 2.0 - gutter).max(120.0);
+                // Diff bodies run edge-to-edge — the fold strips and
+                // washes bump the chat's edges exactly.
+                let editor_width = (width - gutter).max(120.0);
                 let mut throwaway = imba::effect::Batch::new();
                 let quiet = &mut throwaway.effects();
 
@@ -775,9 +777,7 @@ impl<'a> imba::Layout<'a, CellCommand> for CardFrame<'a> {
             CellBody::Tools(_) => unreachable!("handled above"),
         };
         let editor_target = match &cell.body {
-            CellBody::Diff { .. } => {
-                (card_width - chrome.pad * 2.0 - chrome_gutter(store)).max(120.0)
-            }
+            CellBody::Diff { .. } => (card_width - chrome_gutter(store)).max(120.0),
             _ => Cell::editor_width(cell.kind, &chrome, width),
         };
         let header_h = match cell.kind {
@@ -846,8 +846,14 @@ impl<'a> imba::Layout<'a, CellCommand> for CardFrame<'a> {
             .map(|thunk| imba::ThunkBox::new(arena, thunk))
             .or(diff_thunk.map(|thunk| imba::ThunkBox::new(arena, thunk)));
         if let Some(content) = content {
+            // Normal messages keep their padding; diff bodies own the
+            // full card width.
+            let body_pad = match &cell.body {
+                CellBody::Diff { .. } => 0.0,
+                _ => chrome.pad,
+            };
             card = card.child(imba::fixed(content).pad_insets(imba::Insets {
-                left: chrome.pad,
+                left: body_pad,
                 top: header_h + chrome.pad,
                 right: 0.0,
                 bottom: 0.0,

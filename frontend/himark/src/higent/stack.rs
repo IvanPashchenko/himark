@@ -214,7 +214,7 @@ impl WidgetStack {
         let box_pad = pad * 0.75;
         let line = Self::line(chrome);
         let radius = chrome.radius;
-        let box_w = TurnView::content_width(chrome, (width - pad * 2.0).max(1.0));
+        let box_w = TurnView::content_width((width - pad * 2.0).max(1.0));
         let box_x = ((width - box_w) / 2.0).max(pad);
         let ask_h = self.ask_height(chrome);
         let mut stack = container(arena, Size::new(width, self.height(chrome)));

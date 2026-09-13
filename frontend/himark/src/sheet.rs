@@ -156,7 +156,13 @@ impl Sheet {
         store: &Store,
         size: Size,
     ) -> skia_safe::Rect {
-        let width = chrome.width.min(size.width - 2.0 * chrome.margin).max(1.0);
+        // The golden section's larger part of the window — wide
+        // enough to read, framed enough to still float. The themed
+        // width is the floor so small windows keep a usable sheet.
+        let width = (size.width * 0.618)
+            .max(chrome.width)
+            .min(size.width - 2.0 * chrome.margin)
+            .max(1.0);
         let expanded = (size.height - 2.0 * chrome.margin).max(1.0);
         let collapsed = self
             .pane

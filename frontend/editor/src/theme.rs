@@ -670,8 +670,6 @@ pub struct ChatChrome {
 
     pub min_cell_height: f32,
 
-    pub max_content_width: f32,
-
     pub user_width_ratio: f32,
     pub user_surface: Rgba,
     pub user_border: Rgba,
@@ -716,7 +714,6 @@ impl Default for ChatChrome {
             gap: 12.0,
             radius: 10.0,
             min_cell_height: 40.0,
-            max_content_width: 1760.0,
             user_width_ratio: 0.78,
             user_surface: Rgba(Color::from_argb(0xff, 0x24, 0x2c, 0x42)),
             user_border: Rgba(Color::from_argb(0x50, 0x56, 0x5f, 0x89)),

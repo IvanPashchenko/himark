@@ -6024,7 +6024,7 @@ fn an_existing_session_row_pick_switches_and_remounts_the_chat() {
 }
 
 #[test]
-fn the_sheet_clears_the_dock_band() {
+fn the_sheet_centers_on_the_window_over_the_dock() {
     std::env::set_var("HIMARK_AGENT_LATENCY_MS", "0");
     std::env::set_var("HIMARK_AHP_URL", "ws://127.0.0.1:9/unreachable");
     let dir = tempfile::tempdir().expect("tempdir");
@@ -6121,13 +6121,15 @@ fn the_sheet_clears_the_dock_band() {
     let band = entity()
         .bottom_rect(engine.app.store(), skia_safe::Size::new(900.0, 700.0))
         .expect("the sheet's rectangle");
-    let dock_left = 900.0 - entity().dock_target_width();
+    // The sheet centers on the WHOLE window — the dock does not push
+    // it aside; the sheet floats over the dock's band instead.
     assert!(
-        band.right <= dock_left + 0.5,
-        "the sheet lies over the dock: band {band:?}, dock at {dock_left}"
+        (band.center_x() - 450.0).abs() <= 0.5,
+        "the sheet drifted off the window's center: band {band:?}"
     );
 
-    let _ = himark::test_driver::click(&mut engine.app, dock_x(90.0), 650.0, 900.0, 700.0);
+    // The dock still takes presses above the sheet's band.
+    let _ = himark::test_driver::click(&mut engine.app, dock_x(90.0), 200.0, 900.0, 700.0);
     pump(&mut engine, &mut surface);
     assert_eq!(
         himark::Windows::window_ref(engine.app.store(), engine.app.sole_window())

@@ -588,8 +588,7 @@ impl ChatPanel {
         cells: Vec<CellSpec>,
         fx: &mut Effects<'_, ChatPanelCommand>,
     ) -> (TurnView, f32) {
-        let chrome = env::Themes::of(store).ui().chat.clone();
-        let content_width = TurnView::content_width(&chrome, self.panel_width());
+        let content_width = TurnView::content_width(self.panel_width());
         let mut rows = Vec::with_capacity(cells.len());
         let mut total = 0.0;
         for (index, spec) in cells.into_iter().enumerate() {
@@ -1197,8 +1196,7 @@ impl ChatPanel {
             return Some(group);
         }
         let range = self.rows.content().row_range(&active.turn)?;
-        let chrome = env::Themes::of(store).ui().chat.clone();
-        let content_width = TurnView::content_width(&chrome, self.panel_width());
+        let content_width = TurnView::content_width(self.panel_width());
         let index = active.cells;
         let opens_run = matches!(spec, CellSpec::Tools(_));
         let (cell, height) =
@@ -1789,7 +1787,6 @@ impl View for ChatPanel {
                         size.width,
                         size.height,
                         ComposerProps {
-                            status,
                             focused: self.focus == ChatArea::Composer,
                         },
                     )
@@ -1806,7 +1803,7 @@ impl View for ChatPanel {
                 );
             }
 
-            self.toolbar.place(
+            let toolbar_cells_right = self.toolbar.place(
                 arena,
                 &mut panel,
                 store,
@@ -1939,6 +1936,31 @@ impl View for ChatPanel {
                     size.height - toolbar_h + 1.0,
                     cell.layout(arena, Constraints::tight(Size::new(cell_width, cell_h))),
                 );
+
+                // The shortcut legend (or the link's status) sits on
+                // the toolbar, right against the SEND cell. The ⌘⏎
+                // hint already lives on the cell itself.
+                let legend = match status.is_empty() {
+                    true => "⎋ chat".to_owned(),
+                    false => status.clone(),
+                };
+                let legend_w = key_font.measure_str(&legend, None).0;
+                let legend_x = size.width - cell_width - gap - legend_w;
+                // Squeezed out by the combo cells? The legend yields.
+                if legend_x >= toolbar_cells_right + gap {
+                    panel.place_boxed(
+                        legend_x,
+                        size.height - toolbar_h + 1.0,
+                        imba::text(legend, key_font.clone(), accent_soft)
+                            .pad_insets(imba::Insets {
+                                left: 0.0,
+                                top: (mid + key_font.size() * 0.35 - key_ascent).max(0.0),
+                                right: 0.0,
+                                bottom: 0.0,
+                            })
+                            .layout(arena, Constraints::tight(Size::new(legend_w, cell_h))),
+                    );
+                }
             }
             let strip_origin = std::sync::Arc::clone(&self.toolbar.strip_origin);
             let toolbar_stale =

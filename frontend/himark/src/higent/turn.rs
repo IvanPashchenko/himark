@@ -15,13 +15,10 @@ use imba::{
 };
 use skia_safe::Size;
 
-use crate::env;
 use crate::higent::cell::{Cell, CellCommand, CellKind, DiffHeader};
 use crate::higent::tool_group::{ToolCallSpec, ToolFace};
 use crate::higent::FileEditRefs;
 use ahp_types::common::Uri;
-
-type ChatChrome = crate::theme::ChatChrome;
 
 pub type TurnCommand = ListCommand<CellCommand>;
 
@@ -71,8 +68,8 @@ impl TurnView {
         &self.id
     }
 
-    pub(crate) fn content_width(chrome: &ChatChrome, width: f32) -> f32 {
-        width.min(chrome.max_content_width).max(1.0)
+    pub(crate) fn content_width(width: f32) -> f32 {
+        width.max(1.0)
     }
 
     pub(crate) fn cells_oracle(&self) -> Vec<(String, String)> {
@@ -109,9 +106,8 @@ impl View for TurnView {
         ui: &'a UiCtx,
     ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
-            let chrome = env::Themes::of(store).ui().chat.clone();
             let width = constraints.max.width.max(1.0);
-            let content_width = Self::content_width(&chrome, width);
+            let content_width = Self::content_width(width);
             let inner = self.cells.layout(
                 arena,
                 store,
