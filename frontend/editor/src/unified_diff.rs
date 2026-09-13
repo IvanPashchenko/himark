@@ -185,17 +185,45 @@ impl imba::View for UnifiedDiffView {
         imba::laid(
             move |_arena: &'a imba::arena::Arena, constraints: Constraints| {
                 let face: imba::ThunkBox<'a, UnifiedDiffCommand> = match self.inline_face(store) {
-                    Some(view) if self.layout == DiffLayout::Inline => imba::ThunkBox::new(
-                        arena,
-                        imba::eager(InlinePane {
-                            ui,
-                            store,
+                    Some(view) if self.layout == DiffLayout::Inline => {
+                        // The inline face is fully laid (the outer
+                        // list scrolls it), so derive its viewport
+                        // over the whole extent and mint the
+                        // projected inlays here; the pane hosts them
+                        // itself.
+                        let data = crate::viewport::EditorViewport::build(
+                            &view.document,
+                            view.editor,
+                            0.0..view.content_height().max(1.0),
+                            false,
+                            false,
+                            None,
+                            &crate::env::ui_collection(store, ui),
+                            &crate::env::Themes::of(store),
+                        );
+                        let projected = crate::popup::projected_overlays(
+                            &view.document,
+                            view.editor,
                             arena,
-                            view,
-                            constraints,
-                        })
-                        .map(UnifiedDiffCommand::Inline),
-                    ),
+                            store,
+                            ui,
+                            &data,
+                            skia_safe::Point::new(0.0, 0.0),
+                        );
+                        imba::ThunkBox::new(
+                            arena,
+                            imba::eager(InlinePane {
+                                ui,
+                                store,
+                                arena,
+                                view,
+                                constraints,
+                                projected,
+                            })
+                            .map(UnifiedDiffCommand::Inline)
+                            .overlay_host(crate::markup::INLAY_HOST),
+                        )
+                    }
 
                     _ => imba::ThunkBox::new(
                         arena,
@@ -216,6 +244,11 @@ struct InlinePane<'a> {
     arena: &'a imba::arena::Arena,
     view: EditorView,
     constraints: Constraints,
+
+    /// Host-targeting inlays, minted at display time — the per-event
+    /// relayouts below cannot answer `overlays()` with the pane's
+    /// lifetime.
+    projected: Vec<imba::overlay::Overlay<'a, EditorCommand>>,
 }
 
 impl<'a> imba::Widget<'a, EditorCommand> for InlinePane<'a> {
@@ -236,6 +269,10 @@ impl<'a> imba::Widget<'a, EditorCommand> for InlinePane<'a> {
             .layout(arena, self.store, self.ui, self.constraints)
             .realize(arena, viewport)
             .handle_event(arena, event, viewport)
+    }
+
+    fn overlays(&mut self) -> Vec<imba::overlay::Overlay<'a, EditorCommand>> {
+        std::mem::take(&mut self.projected)
     }
 
     fn focus_data<'w>(&'w mut self) -> imba::focus::FocusData<'w, EditorCommand>

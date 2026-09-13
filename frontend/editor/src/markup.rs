@@ -398,11 +398,24 @@ pub(crate) struct InlayPlaceholder {
     pub(crate) align: InlayAlignment,
 }
 
+/// The host for `Inlay::over` inlays: a pane declares it between its
+/// vertical scroll and the gutter/horizontal-scroll container, so a
+/// projected strip spans the pane edge to edge and still scrolls with
+/// its line. A split declares it ONCE above both panes — the strip is
+/// shared.
+pub const INLAY_HOST: imba::overlay::OverlayHost = imba::overlay::OverlayHost("editor.inlays");
+
 #[derive(Clone)]
 pub struct Inlay {
     pub(crate) mode: InlayMode,
 
     view: Arc<dyn InlayView>,
+
+    /// A PROJECTED inlay keeps reserving its space in the text flow,
+    /// but renders through the named overlay host instead of inline —
+    /// the fold strip that spans the whole pane (and, hosted above a
+    /// split, both panes at once) while still scrolling with its line.
+    pub(crate) overlay: Option<imba::overlay::OverlayHost>,
 }
 
 pub(crate) trait InlayView: Send + Sync {
@@ -1905,6 +1918,7 @@ impl Inlay {
         Self {
             mode,
             view: Arc::new(PlainInlayView(view)),
+            overlay: None,
         }
     }
 
@@ -1919,7 +1933,15 @@ impl Inlay {
                 view,
                 carry_live: true,
             }),
+            overlay: None,
         }
+    }
+
+    /// Render through the given overlay host instead of inline; the
+    /// inlay still reserves its space in the text flow.
+    pub fn over(mut self, host: imba::overlay::OverlayHost) -> Self {
+        self.overlay = Some(host);
+        self
     }
 
     pub fn view_as<V: 'static>(&self) -> Option<&V> {
@@ -1981,6 +2003,7 @@ impl Inlay {
             Self {
                 mode: self.mode,
                 view: Arc::from(view),
+                overlay: self.overlay,
             },
             edit,
         )

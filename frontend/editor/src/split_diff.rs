@@ -585,23 +585,28 @@ impl SplitDiffView {
 
         if end > start {
             let lines = scan.count_lines(start, end);
-            let inlay = crate::markup::Inlay::new(
+            let spacer = crate::markup::Inlay::new(
+                crate::markup::InlayMode::Instead(crate::markup::InsteadKind::FullLine),
+                fold::FoldStrip::spacer(lines),
+            );
+            let strip = crate::markup::Inlay::new(
                 crate::markup::InlayMode::Instead(crate::markup::InsteadKind::FullLine),
                 fold::FoldStrip::new(lines),
-            );
+            )
+            .over(crate::markup::INLAY_HOST);
             let offset = start - spec.left.start;
             let right_start = spec.right.start + offset;
             let right_range = right_start..right_start + (end - start);
             let left = &mut self.left;
             Self::half_scope(fx, SplitDiffCommand::Left, |fx| {
                 left.document
-                    .replace_inlay(left_key, start..end, inlay.clone(), &fonts, &theme, fx)
+                    .replace_inlay(left_key, start..end, spacer, &fonts, &theme, fx)
             });
             let right = &mut self.right;
             Self::half_scope(fx, SplitDiffCommand::Right, |fx| {
                 right
                     .document
-                    .replace_inlay(right_key, right_range, inlay, &fonts, &theme, fx)
+                    .replace_inlay(right_key, right_range, strip, &fonts, &theme, fx)
             });
         } else {
             let left = &mut self.left;
@@ -755,11 +760,19 @@ fn mint_fold_strips(
     let specs = fold::derive_folds(diff, left_text, 0..len, fold::FOLD_CONTEXT);
     for (n, spec) in specs.iter().enumerate() {
         let key = crate::markup::IntervalId(u32::MAX - n as u32);
+        // The left pane carries a silent spacer for aligned heights;
+        // the right pane's strip is the shared, interactive face,
+        // projected onto the pane-wide (split-wide) overlay host.
+        let spacer = crate::markup::Inlay::new(
+            crate::markup::InlayMode::Instead(crate::markup::InsteadKind::FullLine),
+            fold::FoldStrip::spacer(spec.lines),
+        );
         let strip = crate::markup::Inlay::new(
             crate::markup::InlayMode::Instead(crate::markup::InsteadKind::FullLine),
             fold::FoldStrip::new(spec.lines),
-        );
-        left_markup.replace_inlay(key, spec.left.clone(), strip.clone());
+        )
+        .over(crate::markup::INLAY_HOST);
+        left_markup.replace_inlay(key, spec.left.clone(), spacer);
         right_markup.replace_inlay(key, spec.right.clone(), strip);
     }
 }
@@ -986,6 +999,10 @@ impl View for SplitDiffView {
                     &paint,
                 );
             })
+            // The pair hosts the projected inlays ONCE, above both
+            // panes: the right pane's fold strip lands here and spans
+            // the whole split, gutters included.
+            .overlay_host(crate::markup::INLAY_HOST)
         })
     }
 }

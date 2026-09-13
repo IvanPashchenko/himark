@@ -81,11 +81,11 @@ fn paint_cell(
 fn edited_sources() -> (String, String) {
     let mut before = String::new();
     let mut after = String::new();
-    for line in 0..12 {
+    for line in 0..30 {
         let text = format!("line {line:02} of the quiet unchanged context\n");
         before.push_str(&text);
-        if line == 5 {
-            after.push_str("line 05 was rewritten in place\n");
+        if line == 2 {
+            after.push_str("line 02 was rewritten in place\n");
         } else {
             after.push_str(&text);
         }
@@ -120,6 +120,90 @@ fn a_diff_cell_lays_out_sane_heights_and_settles_its_rewrap() {
             .iter()
             .any(|command| matches!(command, CellCommand::Rewrap(_))),
         "the rewrap settled after one round"
+    );
+}
+
+#[test]
+fn expanded_before_cards_grow_to_their_content() {
+    // The deleted-code cards are born 1px tall and GROW on animation
+    // ticks — the ticks must reach them through the overlay host they
+    // render on.
+    use imba::anim::AnimationClock;
+
+    let mut store = Store::new();
+    let ui = UiCtx::new();
+    let (before, after) = edited_sources();
+    let mut cell = resolved(&before, &after);
+
+    let height_of = |cell: &Cell, store: &Store, ui: &UiCtx| {
+        let arena = Arena::default();
+        let thunk = imba::View::layout(
+            cell,
+            &arena,
+            store,
+            ui,
+            Constraints {
+                min: Size::default(),
+                max: Size::new(640.0, f32::MAX),
+            },
+        );
+        let height = imba::Thunk::size(&thunk).height;
+        drop(thunk);
+        height
+    };
+    let born = height_of(&cell, &store, &ui);
+
+    // The app's frame loop: lay, realize, tick the clock, perform
+    // whatever the widgets ask.
+    for tick in 0..40u32 {
+        let commands = {
+            let arena = Arena::default();
+            let thunk = imba::View::layout(
+                &cell,
+                &arena,
+                &store,
+                &ui,
+                Constraints {
+                    min: Size::default(),
+                    max: Size::new(640.0, f32::MAX),
+                },
+            );
+            let height = imba::Thunk::size(&thunk).height;
+            let viewport = Rect::from_wh(640.0, height);
+            let widget = imba::Thunk::realize(thunk, &arena, viewport);
+            match imba::Widget::handle_event(
+                &widget,
+                &arena,
+                &Event::AnimationClock {
+                    now: AnimationClock::from_millis(tick as f64 * 16.0),
+                },
+                viewport,
+            ) {
+                EventResult::Command(command) => vec![command],
+                EventResult::Commands(commands) => commands,
+                _ => Vec::new(),
+            }
+        };
+        let mut batch = imba::effect::Batch::new();
+        for command in commands {
+            cell.perform(&mut store, &ui, command, &mut batch.effects());
+        }
+    }
+
+    let grown = height_of(&cell, &store, &ui);
+    assert!(
+        grown > born + 20.0,
+        "the deleted-code cards grew: born {born}, grown {grown}"
+    );
+    let CellBody::Diff { view, .. } = &cell.body else {
+        panic!("the resolve lands the diff face");
+    };
+    let inline = view.inline_editor.expect("the inline face is minted");
+    let cards = view.split.right.document.before_inlay_views(inline);
+    assert!(!cards.is_empty(), "the deleted lines ride before-cards");
+    assert!(
+        cards.iter().all(|(_, card)| !card.is_appearing()),
+        "the grow settled"
     );
 }
 

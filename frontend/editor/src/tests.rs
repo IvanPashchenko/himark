@@ -1606,6 +1606,74 @@ fn spacer_at(layout: &crate::document_layout::DocumentLayout, byte: u32) -> f32 
 }
 
 #[test]
+fn popup_overlays_carry_projected_inlays() {
+    // The aggregated overlay path (list rows, the workbench pane —
+    // everything riding `EditorView::popup_overlays` instead of the
+    // editor chain) must emit host-targeting inlays too, or a
+    // deleted-code card expanded from the gutter stripes never
+    // renders.
+    let fonts = test_fonts();
+    let theme = crate::theme::Theme::embedded();
+    let source = "alpha line\nbeta line\ngamma line\ndelta line\n";
+    let mut document = crate::test_document::plain_document(source);
+    let markup = crate::markup::MarkupId::mint();
+    document.ensure_document_markup(markup);
+    document.push_inlay(
+        markup,
+        11..12,
+        crate::markup::Inlay::new(
+            crate::markup::InlayMode::Above,
+            FixedInlay {
+                width: 60.0,
+                height: 40.0,
+            },
+        )
+        .over(crate::markup::INLAY_HOST),
+        &fonts,
+        &theme,
+        &mut imba::effect::Batch::new().effects(),
+    );
+    let editor = document.add_editor(
+        240.0,
+        None,
+        crate::document::EditorBuild::Complete,
+        &[],
+        &fonts,
+        &theme,
+        &mut imba::effect::Batch::new().effects(),
+    );
+    let view = crate::EditorView {
+        document,
+        editor,
+        reports_geometry: false,
+        location: None,
+        gutter_width: 0.0,
+        base: None,
+    };
+    let store = imba::Store::new();
+    let ui = imba::UiCtx::new();
+    ui.set(crate::env::UiFonts(test_fonts()));
+    let arena = imba::arena::Arena::default();
+    let overlays = view.popup_overlays(
+        &arena,
+        &store,
+        &ui,
+        240.0,
+        skia_safe::Rect::from_wh(240.0, 400.0),
+    );
+    let projected: Vec<_> = overlays
+        .iter()
+        .filter(|overlay| overlay.host == crate::markup::INLAY_HOST)
+        .collect();
+    assert_eq!(projected.len(), 1, "the projected inlay rides the path");
+    assert!(
+        (projected[0].anchor.height() - 40.0).abs() < 0.5,
+        "anchored at its reserved slot: {:?}",
+        projected[0].anchor
+    );
+}
+
+#[test]
 fn paired_layouts_absorb_one_sided_inlays() {
     let fonts = test_fonts();
     let theme = crate::theme::Theme::embedded();

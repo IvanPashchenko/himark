@@ -61,7 +61,7 @@ pub use markup::{
     inlay_anchors_line, inlay_repair_span, set_diff, BlockStyle, Inlay, InlayCommand, InlayEditing,
     InlayInterval, InlayKey, InlayMode, InsteadKind, IntervalId, Markup, MarkupBuilder, MarkupId,
     MarkupLayer, OutlineItem, OverlaidMarkup, PopupSpec, StyleId, Syntax, SyntaxId, TextAlignment,
-    TextAttributes, TextDecorationInterval,
+    TextAttributes, TextDecorationInterval, INLAY_HOST,
 };
 pub use operation::Operation;
 pub use repair::{RepairEffect, RepairHandler, RepairedLayout};

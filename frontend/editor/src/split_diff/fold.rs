@@ -285,11 +285,27 @@ pub enum FoldCommand {
 #[derive(Clone)]
 pub struct FoldStrip {
     pub lines: u32,
+
+    /// The split's LEFT pane mounts the fold as a silent spacer: it
+    /// reserves the aligned height, while the right pane's strip —
+    /// projected onto the pair-wide overlay host — is the one shared,
+    /// interactive face.
+    silent: bool,
 }
 
 impl FoldStrip {
     pub(crate) fn new(lines: u32) -> Self {
-        Self { lines }
+        Self {
+            lines,
+            silent: false,
+        }
+    }
+
+    pub(crate) fn spacer(lines: u32) -> Self {
+        Self {
+            lines,
+            silent: true,
+        }
     }
 }
 
@@ -322,6 +338,7 @@ impl imba::View for FoldStrip {
         FoldStripLayout {
             chrome: crate::env::Themes::of(store).ui().diff.clone(),
             lines: self.lines,
+            silent: self.silent,
         }
     }
 }
@@ -335,6 +352,7 @@ impl imba::View for FoldStrip {
 struct FoldStripLayout {
     chrome: crate::theme::DiffChrome,
     lines: u32,
+    silent: bool,
 }
 
 impl imba::LayoutValue for FoldStripLayout {}
@@ -352,6 +370,11 @@ impl<'a> imba::Layout<'a, FoldCommand> for FoldStripLayout {
         let chrome = self.chrome;
         let width = constraints.max.width.max(1.0);
         let height = chrome.fold_height;
+        if self.silent {
+            // The spacer face: same reserved height, nothing painted,
+            // nothing answered — the shared strip renders elsewhere.
+            return imba::ThunkBox::new(arena, imba::leaf::leaf::<FoldCommand>(width, height));
+        }
         let size = chrome.fold_button_size;
         let gap = size * 0.35;
         let button_top = (height - size) * 0.5;

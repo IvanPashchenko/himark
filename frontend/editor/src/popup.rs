@@ -62,6 +62,100 @@ pub(crate) fn visible_popups<'a>(
     overlays
 }
 
+/// Inlays that target an overlay host (`Inlay::over`) — fold strips,
+/// before-cards — emitted exactly like popups: fully interactive,
+/// anchored at the slot they reserve in the flow, and laid by the
+/// HOST at its width, so a strip spans the whole pane (or, hosted
+/// above a split, both panes at once). The editor's own container
+/// keeps holes in their places. Line geometry comes from the frame's
+/// `EditorViewport` — derived once, queried here.
+pub(crate) fn projected_overlays<'a>(
+    document: &Document,
+    editor: EditorId,
+    arena: &'a Arena,
+    store: &'a Store,
+    ui: &'a UiCtx,
+    data: &crate::viewport::EditorViewport,
+    origin: Point,
+) -> Vec<imba::overlay::Overlay<'a, EditorCommand>> {
+    use crate::markup::{inlay_anchors_line, InlayMode, OverlaidMarkup};
+
+    let extras = document.extras_keyed(editor);
+    let markups = OverlaidMarkup::new(document.markup(), &extras);
+    if !markups.has_inlays() {
+        return Vec::new();
+    }
+    let width = data.layout_width.max(1.0);
+    let constraints = Constraints {
+        min: Size::default(),
+        max: Size::new(width, f32::MAX),
+    };
+    let mut overlays = Vec::new();
+    for line in &data.lines {
+        let line_range = line.byte_start..line.byte_end;
+        let hits = markups.all_inlays_in(line_range.clone());
+        if !hits.iter().any(|interval| interval.inlay.overlay.is_some()) {
+            continue;
+        }
+        let content_top = line.text_top;
+        let content_height = line.inlays.content_height_from_total(line.height);
+        // The slot walk mirrors the container pass, counting EVERY
+        // inlay so projected and inline neighbours keep their
+        // stacking order.
+        let mut above_y = line.top;
+        let mut under_y = content_top + content_height;
+        for interval in &hits {
+            if !inlay_anchors_line(interval.inlay.mode, &interval.range, &line_range) {
+                continue;
+            }
+            if matches!(interval.inlay.mode, InlayMode::Popup(_)) {
+                continue;
+            }
+            let size = interval.inlay.layout(arena, store, ui, constraints).size();
+            let y = match interval.inlay.mode {
+                InlayMode::Above => {
+                    let y = above_y;
+                    above_y += size.height;
+                    y
+                }
+                InlayMode::Under => {
+                    let y = under_y;
+                    under_y += size.height;
+                    y
+                }
+                _ => content_top + (content_height - size.height).max(0.0) * 0.5,
+            };
+            let Some(host) = interval.inlay.overlay else {
+                continue;
+            };
+            let key = interval.key;
+            let inlay = interval.inlay.clone();
+            overlays.push(imba::overlay::Overlay {
+                host,
+                anchor: Rect::from_xywh(origin.x, origin.y + y, width, size.height.max(1.0)),
+                content: Box::new(move |host_size: Size, anchor: Rect| {
+                    let widget = PopupWidget {
+                        inlay,
+                        store,
+                        ui,
+                        arena,
+                        size: Size::new(host_size.width.max(1.0), anchor.height()),
+                    };
+                    vec![(
+                        Point::new(0.0, anchor.top),
+                        imba::ThunkBox::new(
+                            arena,
+                            imba::eager(widget)
+                                .map(move |command| EditorCommand::Inlay { key, command }),
+                        ),
+                    )]
+                }),
+            });
+        }
+    }
+    overlays
+}
+
 pub(crate) struct PopupSeed<'a> {
     pub inlay: Inlay,
     pub key: InlayKey,

@@ -122,16 +122,24 @@ impl View for EditorIdView {
                     constraints.max.height,
                 ),
             };
-            GatheredPane {
-                ui,
-                view: self.gathered(store),
-                store,
-                arena,
-                constraints,
-                content_pad: ::editor::env::Themes::of(store).ui().window.content_pad,
+            // The bare-editor host for projected inlays (deleted-code
+            // cards from the gutter stripes): every list row and
+            // workbench pane rides through here, and none of them is
+            // a split pane, so the split's shared host stays in
+            // charge there.
+            imba::thunk_ext::ThunkExt::overlay_host(
+                GatheredPane {
+                    ui,
+                    view: self.gathered(store),
+                    store,
+                    arena,
+                    constraints,
+                    content_pad: ::editor::env::Themes::of(store).ui().window.content_pad,
 
-                viewport: skia_safe::Rect::new_empty(),
-            }
+                    viewport: skia_safe::Rect::new_empty(),
+                },
+                ::editor::INLAY_HOST,
+            )
         })
     }
 }

@@ -151,7 +151,8 @@ impl Document {
         self.push_inlay(
             markup_id,
             anchor,
-            Inlay::new(InlayMode::Above, BeforeInlay::appearing(card, base_lines)),
+            Inlay::new(InlayMode::Above, BeforeInlay::appearing(card, base_lines))
+                .over(crate::markup::INLAY_HOST),
             fonts,
             theme,
             fx,
