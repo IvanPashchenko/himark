@@ -189,7 +189,7 @@ impl View for Dock {
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
             let size = constraints.max;
             let revealed = self.revealed();

@@ -126,28 +126,30 @@ enum ChildCross {
     Baseline,
 }
 
-struct StackChild<'a, Command> {
+struct FlexChild<'a, Command> {
     layout: LayoutBox<'a, Command>,
     weight: Option<f32>,
     cross: ChildCross,
 }
 
-/// The one flex algorithm, parameterized by axis (Column = vertical).
+/// The one FLEX algorithm, parameterized by axis (Column =
+/// vertical). (Not to be confused with `imba::stack::Stack`, the
+/// base+modal VIEW compositor.)
 /// Unweighted children measure first, in order, against the space
 /// still free on the main axis; weighted children then split the
 /// leftover proportionally with TIGHT main-axis constraints —
 /// weights need a bounded main axis to mean anything (an unbounded
 /// stack gives them zero, like Compose forbids). The cross extent is
 /// the widest child, clamped into the incoming constraints.
-struct Stack<'a, Command> {
+struct Flex<'a, Command> {
     arena: &'a Arena,
-    children: Vec<StackChild<'a, Command>>,
+    children: Vec<FlexChild<'a, Command>>,
     gap: f32,
     cross: CrossAlign,
     horizontal: bool,
 }
 
-impl<'a, Command: 'a> Stack<'a, Command> {
+impl<'a, Command: 'a> Flex<'a, Command> {
     fn lay(self, arena: &'a Arena, constraints: Constraints) -> ThunkBox<'a, Command> {
         let (main_max, cross_max) = match self.horizontal {
             true => (constraints.max.width, constraints.max.height),
@@ -302,13 +304,13 @@ impl<'a, Command: 'a> LayoutBox<'a, Command> {
 /// `Arrangement.spacedBy`; `weight` children split the leftover
 /// height; `align_items` is `horizontalAlignment`.
 pub struct Column<'a, Command> {
-    stack: Stack<'a, Command>,
+    flex: Flex<'a, Command>,
 }
 
 impl<'a, Command: 'a> Column<'a, Command> {
     pub fn new(arena: &'a Arena) -> Self {
         Self {
-            stack: Stack {
+            flex: Flex {
                 arena,
                 children: Vec::new(),
                 gap: 0.0,
@@ -319,18 +321,18 @@ impl<'a, Command: 'a> Column<'a, Command> {
     }
 
     pub fn gap(mut self, gap: f32) -> Self {
-        self.stack.gap = gap;
+        self.flex.gap = gap;
         self
     }
 
     pub fn align_items(mut self, cross: CrossAlign) -> Self {
-        self.stack.cross = cross;
+        self.flex.cross = cross;
         self
     }
 
     pub fn child(mut self, child: impl Layout<'a, Command> + 'a) -> Self {
-        self.stack.children.push(StackChild {
-            layout: LayoutBox::new(self.stack.arena, child),
+        self.flex.children.push(FlexChild {
+            layout: LayoutBox::new(self.flex.arena, child),
             weight: None,
             cross: ChildCross::Inherit,
         });
@@ -338,8 +340,8 @@ impl<'a, Command: 'a> Column<'a, Command> {
     }
 
     pub fn weighted(mut self, weight: f32, child: impl Layout<'a, Command> + 'a) -> Self {
-        self.stack.children.push(StackChild {
-            layout: LayoutBox::new(self.stack.arena, child),
+        self.flex.children.push(FlexChild {
+            layout: LayoutBox::new(self.flex.arena, child),
             weight: Some(weight.max(0.0)),
             cross: ChildCross::Inherit,
         });
@@ -349,20 +351,20 @@ impl<'a, Command: 'a> Column<'a, Command> {
 
 impl<'a, Command: 'a> Layout<'a, Command> for Column<'a, Command> {
     fn layout(self, arena: &'a Arena, constraints: Constraints) -> ThunkBox<'a, Command> {
-        self.stack.lay(arena, constraints)
+        self.flex.lay(arena, constraints)
     }
 }
 
 /// Compose's `Row`: left-to-right; `align_items` is
 /// `verticalAlignment`.
 pub struct Row<'a, Command> {
-    stack: Stack<'a, Command>,
+    flex: Flex<'a, Command>,
 }
 
 impl<'a, Command: 'a> Row<'a, Command> {
     pub fn new(arena: &'a Arena) -> Self {
         Self {
-            stack: Stack {
+            flex: Flex {
                 arena,
                 children: Vec::new(),
                 gap: 0.0,
@@ -373,18 +375,18 @@ impl<'a, Command: 'a> Row<'a, Command> {
     }
 
     pub fn gap(mut self, gap: f32) -> Self {
-        self.stack.gap = gap;
+        self.flex.gap = gap;
         self
     }
 
     pub fn align_items(mut self, cross: CrossAlign) -> Self {
-        self.stack.cross = cross;
+        self.flex.cross = cross;
         self
     }
 
     pub fn child(mut self, child: impl Layout<'a, Command> + 'a) -> Self {
-        self.stack.children.push(StackChild {
-            layout: LayoutBox::new(self.stack.arena, child),
+        self.flex.children.push(FlexChild {
+            layout: LayoutBox::new(self.flex.arena, child),
             weight: None,
             cross: ChildCross::Inherit,
         });
@@ -392,8 +394,8 @@ impl<'a, Command: 'a> Row<'a, Command> {
     }
 
     pub fn weighted(mut self, weight: f32, child: impl Layout<'a, Command> + 'a) -> Self {
-        self.stack.children.push(StackChild {
-            layout: LayoutBox::new(self.stack.arena, child),
+        self.flex.children.push(FlexChild {
+            layout: LayoutBox::new(self.flex.arena, child),
             weight: Some(weight.max(0.0)),
             cross: ChildCross::Inherit,
         });
@@ -409,8 +411,8 @@ impl<'a, Command: 'a> Row<'a, Command> {
         cross: CrossAlign,
         child: impl Layout<'a, Command> + 'a,
     ) -> Self {
-        self.stack.children.push(StackChild {
-            layout: LayoutBox::new(self.stack.arena, child),
+        self.flex.children.push(FlexChild {
+            layout: LayoutBox::new(self.flex.arena, child),
             weight: None,
             cross: ChildCross::Align(cross),
         });
@@ -421,8 +423,8 @@ impl<'a, Command: 'a> Row<'a, Command> {
     /// row's baseline group (falls back to `align_items` when its
     /// thunk answers no line).
     pub fn child_by_baseline(mut self, child: impl Layout<'a, Command> + 'a) -> Self {
-        self.stack.children.push(StackChild {
-            layout: LayoutBox::new(self.stack.arena, child),
+        self.flex.children.push(FlexChild {
+            layout: LayoutBox::new(self.flex.arena, child),
             weight: None,
             cross: ChildCross::Baseline,
         });
@@ -432,7 +434,7 @@ impl<'a, Command: 'a> Row<'a, Command> {
 
 impl<'a, Command: 'a> Layout<'a, Command> for Row<'a, Command> {
     fn layout(self, arena: &'a Arena, constraints: Constraints) -> ThunkBox<'a, Command> {
-        self.stack.lay(arena, constraints)
+        self.flex.lay(arena, constraints)
     }
 }
 
@@ -651,8 +653,31 @@ where
 }
 
 /// The modifier surface (Compose's `Modifier`, curried onto the
-/// layout value itself).
-pub trait LayoutExt<'a, Command: 'a>: Layout<'a, Command> + Sized + 'a {
+/// layout value itself). Unconditioned on purpose: the modifiers
+/// only WRAP — every bound lives on the wrapper's own `Layout`
+/// impl, so `Text` (a layout for every command type) modifies
+/// without inference ceremony.
+/// The Command-free marker that admits a type to the modifier
+/// surface — every layout struct declares it (one line), which keeps
+/// `LayoutExt` off unrelated types' method namespaces while leaving
+/// the modifiers free of command-type inference.
+pub trait LayoutValue {}
+
+impl<F> LayoutValue for Laid<F> {}
+impl<'a, Command> LayoutValue for LayoutBox<'a, Command> {}
+impl<'a, Command> LayoutValue for Column<'a, Command> {}
+impl<'a, Command> LayoutValue for Row<'a, Command> {}
+impl<L> LayoutValue for Pad<L> {}
+impl<L> LayoutValue for Align<L> {}
+impl<L> LayoutValue for SizedBox<L> {}
+impl<L, F, Child> LayoutValue for MapLayout<L, F, Child> {}
+impl<L, H> LayoutValue for OnEvent<L, H> {}
+impl<T> LayoutValue for Fixed<T> {}
+impl<Command> LayoutValue for Fill<Command> {}
+impl<'a, Command, F> LayoutValue for Button<'a, Command, F> {}
+impl LayoutValue for Text {}
+
+pub trait LayoutExt: LayoutValue + Sized {
     fn pad(self, all: f32) -> Pad<Self> {
         self.pad_insets(Insets::all(all))
     }
@@ -699,10 +724,39 @@ pub trait LayoutExt<'a, Command: 'a>: Layout<'a, Command> + Sized + 'a {
         }
     }
 
-    fn map_layout<Parent, F>(self, wrap: F) -> MapLayout<Self, F, Command>
-    where
-        F: Fn(Command) -> Parent + Clone + 'a,
-    {
+    /// `Modifier.clickable`: any layout becomes a press target; the
+    /// lambda mints the command per press, like Compose's `onClick`.
+    fn on_click<F>(self, mint: F) -> OnEvent<Self, OnClick<F>> {
+        OnEvent {
+            inner: self,
+            handler: OnClick(mint),
+        }
+    }
+
+    /// `Modifier.background`, painter-shaped.
+    fn backdrop<F>(self, painter: F) -> Backdrop<Self, F> {
+        Backdrop {
+            inner: self,
+            painter,
+        }
+    }
+
+    /// Presses stop here instead of falling through.
+    fn shield(self) -> OnEvent<Self, Shield> {
+        OnEvent {
+            inner: self,
+            handler: Shield,
+        }
+    }
+
+    fn on_event<H>(self, handler: H) -> OnEvent<Self, H> {
+        OnEvent {
+            inner: self,
+            handler,
+        }
+    }
+
+    fn map_layout<Child, F>(self, wrap: F) -> MapLayout<Self, F, Child> {
         MapLayout {
             inner: self,
             wrap,
@@ -711,7 +765,7 @@ pub trait LayoutExt<'a, Command: 'a>: Layout<'a, Command> + Sized + 'a {
     }
 }
 
-impl<'a, Command: 'a, L: Layout<'a, Command> + Sized + 'a> LayoutExt<'a, Command> for L {}
+impl<T: LayoutValue + Sized> LayoutExt for T {}
 
 /// A thunk carrying its `FirstBaseline` line — the provider side of
 /// baseline alignment. `Text` wraps itself in one; any custom thunk
@@ -821,7 +875,7 @@ mod tests {
     use super::*;
     use crate::leaf::leaf;
 
-    fn sized(width: f32, height: f32) -> impl for<'a> Layout<'a, ()> {
+    fn sized(width: f32, height: f32) -> impl for<'a> Layout<'a, ()> + LayoutValue {
         SizedProbe { width, height }
     }
 
@@ -829,6 +883,8 @@ mod tests {
         width: f32,
         height: f32,
     }
+
+    impl LayoutValue for SizedProbe {}
 
     impl<'a> Layout<'a, ()> for SizedProbe {
         fn layout(self, arena: &'a Arena, _constraints: Constraints) -> ThunkBox<'a, ()> {
@@ -977,6 +1033,8 @@ mod baseline_tests {
         baseline: f32,
     }
 
+    impl LayoutValue for Lined {}
+
     impl<'a> Layout<'a, ()> for Lined {
         fn layout(self, arena: &'a Arena, _constraints: Constraints) -> ThunkBox<'a, ()> {
             ThunkBox::new(
@@ -1067,5 +1125,380 @@ mod baseline_tests {
         let (_, metrics) = font.metrics();
         assert_eq!(thunk.first_baseline(), Some(-metrics.ascent));
         assert!(thunk.size().width > 0.0, "a real face measures");
+    }
+}
+
+/// Compose's `Modifier.clickable` / the event escape hatch: attaches
+/// a raw event handler to whatever the layout produces. The handler
+/// is an EVENT closure, not layout logic — the structure stays
+/// reified.
+pub struct OnEvent<L, H> {
+    inner: L,
+    handler: H,
+}
+
+/// What `OnEvent` runs — closures via the blanket impl, plus the
+/// reified handlers (`OnClick`).
+pub trait EventHandler<Command> {
+    fn handle(
+        &self,
+        arena: &Arena,
+        event: &crate::event::Event<'_>,
+        size: Size,
+    ) -> crate::event::EventResult<Command>;
+}
+
+impl<Command, F> EventHandler<Command> for F
+where
+    F: for<'event> Fn(
+        &Arena,
+        &crate::event::Event<'event>,
+        Size,
+    ) -> crate::event::EventResult<Command>,
+{
+    fn handle(
+        &self,
+        arena: &Arena,
+        event: &crate::event::Event<'_>,
+        size: Size,
+    ) -> crate::event::EventResult<Command> {
+        self(arena, event, size)
+    }
+}
+
+/// The reified press handler behind `LayoutExt::on_click`: a
+/// `MouseDown` mints the command (a lambda, like Compose's
+/// `onClick`), everything else passes.
+#[derive(Clone)]
+pub struct OnClick<F>(pub F);
+
+impl<Command, F: Fn() -> Command> EventHandler<Command> for OnClick<F> {
+    fn handle(
+        &self,
+        _arena: &Arena,
+        event: &crate::event::Event<'_>,
+        _size: Size,
+    ) -> crate::event::EventResult<Command> {
+        match event {
+            crate::event::Event::MouseDown { .. } => crate::event::EventResult::Command((self.0)()),
+            _ => crate::event::EventResult::Ignored,
+        }
+    }
+}
+
+impl<'a, Command: 'a, L, H> Layout<'a, Command> for OnEvent<L, H>
+where
+    L: Layout<'a, Command> + 'a,
+    H: EventHandler<Command> + 'a,
+{
+    fn layout(self, arena: &'a Arena, constraints: Constraints) -> ThunkBox<'a, Command> {
+        let handler = self.handler;
+        ThunkBox::new(
+            arena,
+            self.inner
+                .layout(arena, constraints)
+                .event(move |arena, event, size| handler.handle(arena, event, size)),
+        )
+    }
+}
+
+/// Compose's `Button(onClick) { content }`: a click surface with a
+/// CONTENT SLOT — fill, stroke, radius and padding are the button's
+/// chrome; the content is any layout (a `Text`, a `Row` of texts),
+/// centered in the padded surface. Replaces the ad-hoc
+/// paint-a-round-rect-then-draw_str-then-event chips.
+pub struct Button<'a, Command, F> {
+    content: LayoutBox<'a, Command>,
+    on_click: F,
+    insets: Insets,
+    fill: Option<skia_safe::Color>,
+    stroke: Option<skia_safe::Color>,
+    radius: f32,
+    min_width: f32,
+    enabled: bool,
+}
+
+impl<'a, Command: 'a, F: Fn() -> Command + 'a> Button<'a, Command, F> {
+    pub fn new(arena: &'a Arena, content: impl Layout<'a, Command> + 'a, on_click: F) -> Self {
+        Self {
+            content: LayoutBox::new(arena, content),
+            on_click,
+            insets: Insets::xy(10.0, 4.0),
+            fill: None,
+            stroke: None,
+            radius: 4.0,
+            min_width: 0.0,
+            enabled: true,
+        }
+    }
+
+    pub fn fill(mut self, color: skia_safe::Color) -> Self {
+        self.fill = Some(color);
+        self
+    }
+
+    pub fn stroke(mut self, color: skia_safe::Color) -> Self {
+        self.stroke = Some(color);
+        self
+    }
+
+    pub fn radius(mut self, radius: f32) -> Self {
+        self.radius = radius;
+        self
+    }
+
+    pub fn pad_content(mut self, insets: Insets) -> Self {
+        self.insets = insets;
+        self
+    }
+
+    pub fn min_width(mut self, min_width: f32) -> Self {
+        self.min_width = min_width;
+        self
+    }
+
+    /// A disabled button swallows its presses (the caller dims its
+    /// own colors).
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+}
+
+impl<'a, Command: 'a, F: Fn() -> Command + 'a> Layout<'a, Command> for Button<'a, Command, F> {
+    fn layout(self, arena: &'a Arena, constraints: Constraints) -> ThunkBox<'a, Command> {
+        let x = self.insets.left + self.insets.right;
+        let y = self.insets.top + self.insets.bottom;
+        let inner = Constraints {
+            min: Size::default(),
+            max: Size::new(
+                (constraints.max.width - x).max(0.0),
+                (constraints.max.height - y).max(0.0),
+            ),
+        };
+        let content = self.content.layout(arena, inner);
+        let label = content.size();
+        let size = Size::new(
+            (label.width + x)
+                .max(self.min_width)
+                .min(constraints.max.width),
+            (label.height + y).min(constraints.max.height),
+        );
+        let mut surface = container(arena, size);
+        surface.place_boxed(
+            ((size.width - label.width) * 0.5).max(0.0),
+            ((size.height - label.height) * 0.5).max(0.0),
+            content,
+        );
+        let Button {
+            fill,
+            stroke,
+            radius,
+            on_click,
+            enabled,
+            ..
+        } = self;
+        let chrome = surface.paint_below(move |_arena, canvas, rect| {
+            let mut paint = skia_safe::Paint::default();
+            paint.set_anti_alias(true);
+            if let Some(fill) = fill {
+                paint.set_color(fill);
+                canvas.draw_round_rect(rect, radius, radius, &paint);
+            }
+            if let Some(stroke) = stroke {
+                paint.set_stroke(true);
+                paint.set_stroke_width(1.0);
+                paint.set_color(stroke);
+                canvas.draw_round_rect(rect.with_inset((0.5, 0.5)), radius, radius, &paint);
+            }
+        });
+        let armed = chrome.event(move |_arena, event, _size| match event {
+            crate::event::Event::MouseDown { .. } if enabled => {
+                crate::event::EventResult::Command(on_click())
+            }
+            crate::event::Event::MouseDown { .. } => crate::event::EventResult::Handled,
+            _ => crate::event::EventResult::Ignored,
+        });
+        ThunkBox::new(arena, armed)
+    }
+}
+
+#[cfg(test)]
+mod button_tests {
+    use super::*;
+    use crate::event::{Event, EventResult, MouseButton};
+    use crate::leaf::leaf;
+    use crate::Widget as _;
+
+    #[test]
+    fn a_button_wraps_its_content_and_a_press_mints_the_command() {
+        let arena = Arena::default();
+        let thunk = Button::new(&arena, fixed(leaf::<u32>(40.0, 10.0)), || 7u32)
+            .pad_content(Insets::xy(10.0, 4.0))
+            .min_width(0.0)
+            .layout(
+                &arena,
+                Constraints {
+                    min: Size::default(),
+                    max: Size::new(400.0, 400.0),
+                },
+            );
+        let size = thunk.size();
+        assert_eq!((size.width, size.height), (60.0, 18.0));
+
+        let viewport = skia_safe::Rect::from_wh(60.0, 18.0);
+        let widget = thunk.realize(&arena, viewport);
+        let result = widget.handle_event(
+            &arena,
+            &Event::MouseDown {
+                point: skia_safe::Point::new(5.0, 5.0),
+                button: MouseButton::Left,
+                mods: Default::default(),
+                count: 1,
+            },
+            viewport,
+        );
+        assert!(matches!(result, EventResult::Command(7)));
+    }
+
+    #[test]
+    fn a_disabled_button_swallows_the_press() {
+        let arena = Arena::default();
+        let thunk = Button::new(&arena, fixed(leaf::<u32>(40.0, 10.0)), || 7u32)
+            .enabled(false)
+            .layout(
+                &arena,
+                Constraints {
+                    min: Size::default(),
+                    max: Size::new(400.0, 400.0),
+                },
+            );
+        let viewport = skia_safe::Rect::from_wh(60.0, 18.0);
+        let widget = thunk.realize(&arena, viewport);
+        let result = widget.handle_event(
+            &arena,
+            &Event::MouseDown {
+                point: skia_safe::Point::new(5.0, 5.0),
+                button: MouseButton::Left,
+                mods: Default::default(),
+                count: 1,
+            },
+            viewport,
+        );
+        assert!(matches!(result, EventResult::Handled));
+    }
+}
+
+/// Compose's `Box`, named `ZBox` (std owns `Box`): children stack in
+/// Z — later = on top — each placed by an alignment; the box takes
+/// its largest child, clamped into the incoming constraints. Purely
+/// VISUAL stacking; the base+modal VIEW with routing semantics
+/// remains `imba::stack::Stack`.
+pub struct ZBox<'a, Command> {
+    arena: &'a Arena,
+    children: Vec<(Alignment, LayoutBox<'a, Command>)>,
+    alignment: Alignment,
+}
+
+impl<'a, Command: 'a> ZBox<'a, Command> {
+    pub fn new(arena: &'a Arena) -> Self {
+        Self {
+            arena,
+            children: Vec::new(),
+            alignment: Alignment::TopStart,
+        }
+    }
+
+    /// The default placement (`contentAlignment`).
+    pub fn alignment(mut self, alignment: Alignment) -> Self {
+        self.alignment = alignment;
+        self
+    }
+
+    pub fn child(mut self, child: impl Layout<'a, Command> + 'a) -> Self {
+        let alignment = self.alignment;
+        self.children
+            .push((alignment, LayoutBox::new(self.arena, child)));
+        self
+    }
+
+    /// Compose's per-child `Modifier.align(…)` inside a Box.
+    pub fn child_aligned(
+        mut self,
+        alignment: Alignment,
+        child: impl Layout<'a, Command> + 'a,
+    ) -> Self {
+        self.children
+            .push((alignment, LayoutBox::new(self.arena, child)));
+        self
+    }
+}
+
+impl<'a, Command> LayoutValue for ZBox<'a, Command> {}
+
+impl<'a, Command: 'a> Layout<'a, Command> for ZBox<'a, Command> {
+    fn layout(self, arena: &'a Arena, constraints: Constraints) -> ThunkBox<'a, Command> {
+        let loose = constraints.loosen();
+        let mut thunks: Vec<(Alignment, ThunkBox<'a, Command>)> = Vec::new();
+        let mut extent = Size::new(constraints.min.width, constraints.min.height);
+        for (alignment, child) in self.children {
+            let thunk = child.layout(arena, loose);
+            let size = thunk.size();
+            extent.width = extent.width.max(size.width);
+            extent.height = extent.height.max(size.height);
+            thunks.push((alignment, thunk));
+        }
+        extent.width = extent.width.min(constraints.max.width);
+        extent.height = extent.height.min(constraints.max.height);
+        let mut frame = container(self.arena, extent);
+        for (alignment, thunk) in thunks {
+            let (x, y) = alignment.place(extent, thunk.size());
+            frame.place_boxed(x, y, thunk);
+        }
+        ThunkBox::new(arena, frame)
+    }
+}
+
+/// A painter running UNDER the layout's own pixels — Compose's
+/// `Modifier.background`, generalized to a paint closure (painting
+/// is imperative by nature; the STRUCTURE stays reified).
+pub struct Backdrop<L, F> {
+    inner: L,
+    painter: F,
+}
+
+impl<L, F> LayoutValue for Backdrop<L, F> {}
+
+impl<'a, Command: 'a, L, F> Layout<'a, Command> for Backdrop<L, F>
+where
+    L: Layout<'a, Command> + 'a,
+    F: Fn(&Arena, &skia_safe::Canvas, skia_safe::Rect) + 'a,
+{
+    fn layout(self, arena: &'a Arena, constraints: Constraints) -> ThunkBox<'a, Command> {
+        ThunkBox::new(
+            arena,
+            self.inner
+                .layout(arena, constraints)
+                .paint_below(self.painter),
+        )
+    }
+}
+
+/// The reified press shield: consumes presses so they stop falling
+/// through to whatever sits underneath (panel chrome over content).
+#[derive(Clone)]
+pub struct Shield;
+
+impl<Command> EventHandler<Command> for Shield {
+    fn handle(
+        &self,
+        _arena: &Arena,
+        event: &crate::event::Event<'_>,
+        _size: Size,
+    ) -> crate::event::EventResult<Command> {
+        match event {
+            crate::event::Event::MouseDown { .. } => crate::event::EventResult::Handled,
+            _ => crate::event::EventResult::Ignored,
+        }
     }
 }

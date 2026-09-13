@@ -25,7 +25,7 @@ impl imba::View for StubWidget {
         _arena: &'a Arena,
         _store: &'a Store,
         _ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
             leaf(constraints.max.width, constraints.max.height)
         })

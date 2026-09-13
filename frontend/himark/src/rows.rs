@@ -3,17 +3,13 @@
 
 use imba::{
     arena::Arena,
-    constraints::Constraints,
     effect::Effects,
     event::{Event, EventResult},
-    leaf::leaf,
     list::{ListCommand, ListSlice, ListView, SelectionStyle},
     scroll::{ScrollCommand, ScrollView},
     store::Store,
-    thunk_ext::ThunkExt,
-    UiCtx, View,
+    LayoutExt as _, UiCtx, View,
 };
-use skia_safe::Paint;
 
 #[derive(Clone)]
 pub struct LabelRow {
@@ -43,52 +39,53 @@ impl View for LabelRow {
 
     fn display<'a>(
         &'a self,
-        _arena: &'a Arena,
+        arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
-        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
-            let chrome = crate::env::Themes::of(store).ui().peeker.clone();
-            let width = constraints.max.width.max(1.0);
-            let row_height = chrome.row_height;
-            let font = crate::fonts::ui_font(ui, chrome.row_size);
-            let dim = self.dim;
-            let label = self.label.clone();
-            let trail = self.trail.clone();
-            let trail_font = crate::fonts::ui_text_font(ui, chrome.row_size);
-            leaf::<RowCommand>(width, row_height)
-                .paint_instead(move |_arena, canvas, rect| {
-                    let mut text = Paint::default();
-                    text.set_anti_alias(true);
-                    let baseline = rect.top + rect.height() - chrome.row_baseline;
-                    text.set_color(if dim {
-                        chrome.dim_text.0
-                    } else {
-                        chrome.text.0
-                    });
-                    canvas.draw_str(
-                        &label,
-                        (rect.left + chrome.row_text_x, baseline),
-                        &font,
-                        &text,
-                    );
-                    if let Some(trail) = &trail {
-                        let advance = trail_font.measure_str(trail, None).0;
-                        text.set_color(chrome.dim_text.0);
-                        canvas.draw_str(
-                            trail,
-                            (rect.right - advance - chrome.row_text_x, baseline),
-                            &trail_font,
-                            &text,
-                        );
-                    }
-                })
-                .event(move |_arena, event, _size| match event {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
+        let chrome = crate::env::Themes::of(store).ui().peeker.clone();
+        let font = crate::fonts::ui_font(ui, chrome.row_size);
+        let trail_font = crate::fonts::ui_text_font(ui, chrome.row_size);
+        let color = match self.dim {
+            true => chrome.dim_text.0,
+            false => chrome.text.0,
+        };
+        // The chrome's baseline sits `row_baseline` above the row's
+        // bottom; each text pads down so its OWN ascent lands there —
+        // the exact position the hand-rolled painter used.
+        let baseline_y = chrome.row_height - chrome.row_baseline;
+        let drop = |font: &skia_safe::Font| (baseline_y + font.metrics().1.ascent).max(0.0);
+        let dim = self.dim;
+        let mut row = imba::Row::new(arena)
+            .child(
+                imba::text(self.label.clone(), font.clone(), color).pad_insets(imba::Insets {
+                    left: chrome.row_text_x,
+                    top: drop(&font),
+                    right: 0.0,
+                    bottom: 0.0,
+                }),
+            )
+            .weighted(1.0, imba::Fill::new());
+        if let Some(trail) = &self.trail {
+            row = row.child(
+                imba::text(trail.clone(), trail_font.clone(), chrome.dim_text.0).pad_insets(
+                    imba::Insets {
+                        left: 0.0,
+                        top: drop(&trail_font),
+                        right: chrome.row_text_x,
+                        bottom: 0.0,
+                    },
+                ),
+            );
+        }
+        row.height(chrome.row_height)
+            .on_event(
+                move |_arena: &Arena, event: &Event<'_>, _size| match event {
                     Event::MouseDown { .. } if !dim => EventResult::Command(RowCommand::Picked),
                     Event::MouseDown { .. } => EventResult::Handled,
                     _ => EventResult::Ignored,
-                })
-        })
+                },
+            )
     }
 }
 
@@ -304,7 +301,7 @@ impl View for RowList {
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         self.scroll.display(arena, store, ui)
     }
 }
@@ -330,8 +327,13 @@ mod tests {
         for tick in 0..120 {
             let commands = {
                 let arena = Arena::default();
-                let widget =
-                    imba::View::layout(&list, &arena, &store, &ui, Constraints::tight(viewport));
+                let widget = imba::View::layout(
+                    &list,
+                    &arena,
+                    &store,
+                    &ui,
+                    imba::constraints::Constraints::tight(viewport),
+                );
                 let event = Event::AnimationClock {
                     now: AnimationClock::from_millis(tick as f64 * 8.0),
                 };

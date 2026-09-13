@@ -253,7 +253,7 @@ where
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl crate::Layout<'a, Self::Command> + 'a {
+    ) -> impl crate::Layout<'a, Self::Command> + crate::LayoutValue + 'a {
         crate::laid(move |_arena: &'a Arena, constraints: Constraints| {
             let viewport = constraints.max;
             let content = self.content.layout(

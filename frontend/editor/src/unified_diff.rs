@@ -181,7 +181,7 @@ impl imba::View for UnifiedDiffView {
         arena: &'a imba::arena::Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(
             move |_arena: &'a imba::arena::Arena, constraints: Constraints| {
                 let face: imba::ThunkBox<'a, UnifiedDiffCommand> = match self.inline_face(store) {

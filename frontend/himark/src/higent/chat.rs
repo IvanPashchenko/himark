@@ -87,7 +87,7 @@ impl View for ChatRow {
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(
             move |_arena: &'a Arena, constraints: Constraints| match self {
                 ChatRow::Loader { armed } => {
@@ -1735,7 +1735,7 @@ impl View for ChatPanel {
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
             let size = constraints.max;
             let theme = env::Themes::of(store);

@@ -23,7 +23,7 @@ impl View for NullInlay {
         _arena: &'a Arena,
         _store: &'a Store,
         _ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(move |_arena: &'a Arena, _constraints: Constraints| imba::leaf::leaf(10.0, 10.0))
     }
 }

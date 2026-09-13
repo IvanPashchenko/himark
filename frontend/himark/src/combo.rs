@@ -88,7 +88,7 @@ impl View for ComboOption {
         _arena: &'a imba::arena::Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(
             move |_arena: &'a imba::arena::Arena, constraints: Constraints| {
                 let chrome = crate::env::Themes::of(store).ui().combo.clone();
@@ -510,7 +510,7 @@ where
         arena: &'a imba::arena::Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(
             move |_arena: &'a imba::arena::Arena, constraints: Constraints| {
                 self.cell(arena, store, ui, constraints.max.height)

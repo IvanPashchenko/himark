@@ -106,7 +106,7 @@ impl View for Box<dyn DynView> {
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl crate::Layout<'a, Self::Command> + 'a {
+    ) -> impl crate::Layout<'a, Self::Command> + crate::LayoutValue + 'a {
         crate::laid(move |_arena: &'a Arena, constraints: Constraints| {
             self.as_ref().layout_dyn(arena, store, ui, constraints)
         })

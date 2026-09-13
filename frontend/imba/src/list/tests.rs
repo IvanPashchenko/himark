@@ -23,7 +23,7 @@ impl crate::View for Stub {
         _arena: &'a crate::arena::Arena,
         _store: &'a crate::store::Store,
         _ui: &'a crate::UiCtx,
-    ) -> impl crate::Layout<'a, ()> + 'a {
+    ) -> impl crate::Layout<'a, ()> + crate::LayoutValue + 'a {
         crate::laid(
             move |_arena: &'a crate::arena::Arena,
                   _constraints: crate::constraints::Constraints| {
@@ -116,7 +116,7 @@ fn drags_reach_the_focused_row_in_row_coordinates() {
             _arena: &'a crate::arena::Arena,
             _store: &'a Store,
             _ui: &'a UiCtx,
-        ) -> impl crate::Layout<'a, Point> + 'a {
+        ) -> impl crate::Layout<'a, Point> + crate::LayoutValue + 'a {
             crate::laid(
                 move |_arena: &'a crate::arena::Arena, _constraints: Constraints| {
                     crate::leaf::leaf::<Point>(200.0, 30.0).event(

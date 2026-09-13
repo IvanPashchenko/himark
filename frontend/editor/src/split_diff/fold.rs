@@ -331,7 +331,7 @@ impl imba::View for FoldStrip {
         arena: &'a imba::arena::Arena,
         store: &'a imba::store::Store,
         _ui: &'a imba::UiCtx,
-    ) -> impl imba::Layout<'a, FoldCommand> + 'a {
+    ) -> impl imba::Layout<'a, FoldCommand> + imba::LayoutValue + 'a {
         imba::laid(
             move |_arena: &'a imba::arena::Arena, constraints: imba::constraints::Constraints| {
                 use imba::event::{Event, EventResult, MouseButton};

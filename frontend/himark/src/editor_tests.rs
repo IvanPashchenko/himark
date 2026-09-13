@@ -765,7 +765,7 @@ impl View for TestInlay {
         _arena: &'a imba::arena::Arena,
         _store: &'a Store,
         _ui: &'a imba::UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(
             move |_arena: &'a imba::arena::Arena, _constraints: imba::constraints::Constraints| {
                 use imba::event::{Event, EventResult, MouseButton};
@@ -879,7 +879,7 @@ impl View for FocusProbe {
         _arena: &'a imba::arena::Arena,
         _store: &'a Store,
         _ui: &'a imba::UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(
             move |_arena: &'a imba::arena::Arena, _constraints: imba::constraints::Constraints| {
                 use imba::event::{Event, EventResult};
@@ -1704,7 +1704,7 @@ fn palette_commands_follow_the_modal_focus() {
             _arena: &'a imba::arena::Arena,
             _store: &'a Store,
             _ui: &'a imba::UiCtx,
-        ) -> impl imba::Layout<'a, TestModalCommand> + 'a {
+        ) -> impl imba::Layout<'a, TestModalCommand> + imba::LayoutValue + 'a {
             imba::laid(
                 move |_arena: &'a imba::arena::Arena,
                       constraints: imba::constraints::Constraints| {
@@ -2099,7 +2099,7 @@ fn switching_dismisses_the_overlays_first() {
             _arena: &'a imba::arena::Arena,
             _store: &'a Store,
             _ui: &'a imba::UiCtx,
-        ) -> impl imba::Layout<'a, ()> + 'a {
+        ) -> impl imba::Layout<'a, ()> + imba::LayoutValue + 'a {
             imba::laid(
                 move |_arena: &'a imba::arena::Arena,
                       constraints: imba::constraints::Constraints| {
@@ -4136,7 +4136,7 @@ mod dock_tests {
             _arena: &'a imba::arena::Arena,
             _store: &'a Store,
             _ui: &'a UiCtx,
-        ) -> impl imba::Layout<'a, StubCommand> + 'a {
+        ) -> impl imba::Layout<'a, StubCommand> + imba::LayoutValue + 'a {
             imba::laid(
                 move |_arena: &'a imba::arena::Arena, constraints: Constraints| {
                     let size = constraints.max;
@@ -5044,7 +5044,7 @@ fn a_pane_documents_popup_paints_in_the_window() {
             _arena: &'a imba::arena::Arena,
             _store: &'a imba::store::Store,
             _ui: &'a imba::UiCtx,
-        ) -> impl imba::Layout<'a, Self::Command> + 'a {
+        ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
             imba::laid(
                 move |_arena: &'a imba::arena::Arena,
                       _constraints: imba::constraints::Constraints| {

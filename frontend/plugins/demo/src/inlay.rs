@@ -401,7 +401,7 @@ impl View for DemoInlay {
         _arena: &'a Arena,
         _store: &'a Store,
         _ui: &'a imba::UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
             let size = self.size_for(constraints);
             imba::leaf::leaf(size.width, size.height)

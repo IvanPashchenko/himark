@@ -80,7 +80,7 @@ impl View for ModelOption {
         _arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
             let chrome = crate::env::Themes::of(store).ui().combo.clone();
             let heading = self.model.is_none();
@@ -786,7 +786,7 @@ impl View for NewSessionView {
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
             let size = constraints.max;
             let themes = crate::env::Themes::of(store);
@@ -1224,7 +1224,7 @@ impl View for ComposerPane {
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
             let Some(composer) = Composers::composer_ref(store, self.window) else {
                 let blank = imba::ThunkBox::new(

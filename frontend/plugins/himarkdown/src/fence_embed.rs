@@ -54,7 +54,7 @@ impl View for EmbedPending {
         _arena: &'a Arena,
         _store: &'a Store,
         _ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(move |_arena: &'a Arena, _constraints: Constraints| imba::leaf::leaf(0.0, 0.0))
     }
 }
@@ -111,7 +111,7 @@ impl View for EmbedView {
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
             let height = self.live_height(store).unwrap_or(self.height).max(1.0);
             let width = match constraints.max.width.is_finite() {

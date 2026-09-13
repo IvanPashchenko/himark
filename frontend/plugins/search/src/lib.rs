@@ -532,7 +532,7 @@ impl View for SearchView {
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
             let thunk: imba::ThunkBox<'a, SearchCommand> = match self.docked {
                 true => {

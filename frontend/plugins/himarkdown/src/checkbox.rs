@@ -85,7 +85,7 @@ impl imba::View for CheckboxView {
         _arena: &'a Arena,
         _store: &'a Store,
         _ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(move |_arena: &'a Arena, _constraints: Constraints| {
             use imba::thunk_ext::ThunkExt;
             let chrome = &self.chrome;

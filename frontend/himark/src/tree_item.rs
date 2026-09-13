@@ -72,7 +72,7 @@ impl View for TreeLabel {
         _arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
             let theme = crate::env::Themes::of(store);
             let tree = theme.ui().tree.clone();
@@ -191,7 +191,7 @@ where
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
             let tree = crate::env::Themes::of(store).ui().tree.clone();
             let colors = crate::env::Themes::of(store).ui().peeker.clone();

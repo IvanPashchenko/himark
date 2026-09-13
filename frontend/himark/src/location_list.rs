@@ -111,7 +111,7 @@ impl View for ResultGroup {
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
             use imba::thunk_ext::ThunkExt;
             let width = constraints.max.width;
@@ -1133,7 +1133,7 @@ impl View for LocationList {
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
             let inset = crate::env::Themes::of(store).ui().search.group_text_x;
             self.row_width.store(
@@ -1211,7 +1211,7 @@ impl View for ListPanel {
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
             let size = constraints.max;
             let chrome = crate::env::Themes::of(store).ui().search.clone();

@@ -109,13 +109,15 @@ impl View for ImageView {
         _arena: &'a Arena,
         _store: &'a Store,
         _ui: &'a UiCtx,
-    ) -> impl crate::Layout<'a, Self::Command> + 'a {
+    ) -> impl crate::Layout<'a, Self::Command> + crate::LayoutValue + 'a {
         Scaled(self)
     }
 }
 
 /// The view's one layout, reified: width-scaled box, self-painting.
 struct Scaled<'a>(&'a ImageView);
+
+impl crate::LayoutValue for Scaled<'_> {}
 
 impl<'a> crate::Layout<'a, ImageCommand> for Scaled<'a> {
     fn layout(

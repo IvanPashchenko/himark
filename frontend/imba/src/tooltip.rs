@@ -174,7 +174,7 @@ where
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a crate::ui::UiCtx,
-    ) -> impl crate::Layout<'a, Self::Command> + 'a {
+    ) -> impl crate::Layout<'a, Self::Command> + crate::LayoutValue + 'a {
         crate::laid(move |_arena: &'a Arena, constraints: Constraints| {
             let inner = ThunkBox::new(
                 arena,
@@ -328,7 +328,7 @@ mod tests {
             _arena: &'a Arena,
             _store: &'a Store,
             _ui: &'a crate::ui::UiCtx,
-        ) -> impl crate::Layout<'a, u32> + 'a {
+        ) -> impl crate::Layout<'a, u32> + crate::LayoutValue + 'a {
             crate::laid(move |_arena: &'a Arena, _constraints: Constraints| leaf(200.0, 40.0))
         }
     }
@@ -350,7 +350,7 @@ mod tests {
             _arena: &'a Arena,
             _store: &'a Store,
             _ui: &'a crate::ui::UiCtx,
-        ) -> impl crate::Layout<'a, Infallible> + 'a {
+        ) -> impl crate::Layout<'a, Infallible> + crate::LayoutValue + 'a {
             crate::laid(move |_arena: &'a Arena, _constraints: Constraints| leaf(60.0, 24.0))
         }
     }

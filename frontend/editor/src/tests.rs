@@ -1694,7 +1694,7 @@ impl imba::View for FixedInlay {
         _arena: &'a imba::arena::Arena,
         _store: &'a imba::store::Store,
         _ui: &'a imba::UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(
             move |_arena: &'a imba::arena::Arena, _constraints: imba::constraints::Constraints| {
                 imba::leaf::leaf(self.width, self.height)

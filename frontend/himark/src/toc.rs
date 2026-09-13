@@ -6,12 +6,9 @@ use std::sync::Arc;
 use imba::{
     arena::Arena,
     constraints::Constraints,
-    container::container,
     event::{Event, EventResult, Key as InputKey},
-    leaf::leaf,
     store::Store,
-    thunk_ext::ThunkExt,
-    UiCtx, View,
+    LayoutExt as _, UiCtx, View,
 };
 use skia_safe::{Paint, Size};
 
@@ -238,102 +235,58 @@ impl View for TocView {
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
-        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
-            let size = constraints.max;
-            let mut overlay = container(arena, size);
-            let theme = crate::env::Themes::of(store).ui().clone();
-            let width = crate::DRAWER_WIDTH;
-
-            let title_font = crate::fonts::ui_font(ui, theme.panel.title_size);
-            let context = self.context.clone();
-            let backdrop = leaf::<TocCommand>(width, size.height)
-                .paint_instead(move |_arena, canvas, rect| {
-                    crate::rows::paint_panel_chrome(
-                        canvas,
-                        rect,
-                        &theme,
-                        &title_font,
-                        "Contents",
-                        &context,
-                    );
-                })
-                .event(|_arena, event, _size| match event {
-                    Event::MouseDown { .. } => EventResult::Handled,
-                    _ => EventResult::Ignored,
-                });
-            let mut panel = container(arena, Size::new(width, size.height));
-            panel.place(0.0, 0.0, backdrop);
-
-            let pad = 8.0f32.min(size.height * 0.05);
-            let list = self
-                .search
-                .layout(
-                    arena,
-                    store,
-                    ui,
-                    Constraints::tight(Size::new(
-                        width
-                            - crate::rows::panel_inset(crate::env::Themes::of(store).ui()) * 2.0
-                            - 2.0,
-                        (size.height
-                            - crate::rows::panel_inset(crate::env::Themes::of(store).ui()) * 2.0
-                            - crate::env::Themes::of(store).ui().panel.header_height
-                            - pad * 2.0)
-                            .max(1.0),
-                    )),
-                )
-                .map(TocCommand::List);
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
+        {
             let theme_ui = crate::env::Themes::of(store).ui().clone();
-            let inset = crate::rows::panel_inset(&theme_ui);
-            panel.place(
-                inset + 1.0,
-                inset + theme_ui.panel.header_height + pad,
-                list,
-            );
-            overlay.place(0.0, 0.0, panel);
-
+            let title_font = crate::fonts::ui_font(ui, theme_ui.panel.title_size);
             let rows = self.search.inner().list().len();
             let searching = self.search.searching();
-            let keymap =
-                leaf::<TocCommand>(size.width, size.height).event(move |_arena, event, _size| {
-                    match event {
-                        Event::KeyDown {
-                            key: InputKey::Escape,
-                            ..
-                        } if !searching => EventResult::Command(TocCommand::Dismiss),
-                        Event::KeyDown {
-                            key: InputKey::Up, ..
-                        } if !searching => EventResult::Command(TocCommand::Select(-1)),
-                        Event::KeyDown {
-                            key: InputKey::Down,
-                            ..
-                        } if !searching => EventResult::Command(TocCommand::Select(1)),
-                        Event::KeyDown {
-                            key: InputKey::Left,
-                            ..
-                        } if !searching => EventResult::Command(TocCommand::Fold(false)),
-                        Event::KeyDown {
-                            key: InputKey::Right,
-                            ..
-                        } if !searching => EventResult::Command(TocCommand::Fold(true)),
-                        Event::KeyDown {
-                            key: InputKey::Enter,
-                            ..
-                        } if rows > 0 && searching => EventResult::Commands(vec![
-                            TocCommand::Pick,
-                            TocCommand::List(SpeedSearchCommand::Clear),
-                        ]),
-                        Event::KeyDown {
-                            key: InputKey::Enter,
-                            ..
-                        } if rows > 0 => EventResult::Command(TocCommand::Pick),
-                        _ => EventResult::Ignored,
-                    }
-                });
-            overlay.place(0.0, 0.0, keymap);
-            overlay
-        })
+            DrawerPanel {
+                content: imba::LayoutBox::new(
+                    arena,
+                    self.search
+                        .display(arena, store, ui)
+                        .map_layout(TocCommand::List),
+                ),
+                theme: theme_ui,
+                title_font,
+                context: self.context.clone(),
+                scaled_pad: true,
+                keys: move |_arena: &Arena, event: &Event<'_>, _size: Size| match event {
+                    Event::KeyDown {
+                        key: InputKey::Escape,
+                        ..
+                    } if !searching => EventResult::Command(TocCommand::Dismiss),
+                    Event::KeyDown {
+                        key: InputKey::Up, ..
+                    } if !searching => EventResult::Command(TocCommand::Select(-1)),
+                    Event::KeyDown {
+                        key: InputKey::Down,
+                        ..
+                    } if !searching => EventResult::Command(TocCommand::Select(1)),
+                    Event::KeyDown {
+                        key: InputKey::Left,
+                        ..
+                    } if !searching => EventResult::Command(TocCommand::Fold(false)),
+                    Event::KeyDown {
+                        key: InputKey::Right,
+                        ..
+                    } if !searching => EventResult::Command(TocCommand::Fold(true)),
+                    Event::KeyDown {
+                        key: InputKey::Enter,
+                        ..
+                    } if rows > 0 && searching => EventResult::Commands(vec![
+                        TocCommand::Pick,
+                        TocCommand::List(SpeedSearchCommand::Clear),
+                    ]),
+                    Event::KeyDown {
+                        key: InputKey::Enter,
+                        ..
+                    } if rows > 0 => EventResult::Command(TocCommand::Pick),
+                    _ => EventResult::Ignored,
+                },
+            }
+        }
     }
 }
 
@@ -740,55 +693,10 @@ impl View for OutlineView {
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
-        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
-            let size = constraints.max;
-            let mut overlay = container(arena, size);
-            let theme = crate::env::Themes::of(store).ui().clone();
-            let width = crate::DRAWER_WIDTH;
-
-            let title_font = crate::fonts::ui_font(ui, theme.panel.title_size);
-            let context = self.location.name().to_owned();
-            let backdrop = leaf::<OutlineCommand>(width, size.height)
-                .paint_instead(move |_arena, canvas, rect| {
-                    crate::rows::paint_panel_chrome(
-                        canvas,
-                        rect,
-                        &theme,
-                        &title_font,
-                        "Contents",
-                        &context,
-                    );
-                })
-                .event(|_arena, event, _size| match event {
-                    Event::MouseDown { .. } => EventResult::Handled,
-                    _ => EventResult::Ignored,
-                });
-            let mut panel = container(arena, Size::new(width, size.height));
-            panel.place(0.0, 0.0, backdrop);
-            let list = self
-                .search
-                .layout(
-                    arena,
-                    store,
-                    ui,
-                    Constraints::tight(Size::new(
-                        width
-                            - crate::rows::panel_inset(crate::env::Themes::of(store).ui()) * 2.0
-                            - 2.0,
-                        (size.height
-                            - crate::rows::panel_inset(crate::env::Themes::of(store).ui()) * 2.0
-                            - crate::env::Themes::of(store).ui().panel.header_height
-                            - 1.0)
-                            .max(1.0),
-                    )),
-                )
-                .map(OutlineCommand::List);
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
+        {
             let theme_ui = crate::env::Themes::of(store).ui().clone();
-            let inset = crate::rows::panel_inset(&theme_ui);
-            panel.place(inset + 1.0, inset + theme_ui.panel.header_height, list);
-            overlay.place(0.0, 0.0, panel);
-
+            let title_font = crate::fonts::ui_font(ui, theme_ui.panel.title_size);
             let stale =
                 crate::OpenDocuments::document_ref(store, self.document).is_some_and(|document| {
                     let stamp = Self::stamp_of(document);
@@ -796,8 +704,18 @@ impl View for OutlineView {
                 });
             let rows = self.search.inner().list().len();
             let searching = self.search.searching();
-            let keymap = leaf::<OutlineCommand>(size.width, size.height).event(
-                move |_arena, event, _size| match event {
+            DrawerPanel {
+                content: imba::LayoutBox::new(
+                    arena,
+                    self.search
+                        .display(arena, store, ui)
+                        .map_layout(OutlineCommand::List),
+                ),
+                theme: theme_ui,
+                title_font,
+                context: self.location.name().to_owned(),
+                scaled_pad: false,
+                keys: move |_arena: &Arena, event: &Event<'_>, _size: Size| match event {
                     Event::Paint { .. } if stale => EventResult::Command(OutlineCommand::Refresh),
                     Event::KeyDown {
                         key: InputKey::Escape,
@@ -831,10 +749,8 @@ impl View for OutlineView {
                     } if rows > 0 => EventResult::Command(OutlineCommand::Pick),
                     _ => EventResult::Ignored,
                 },
-            );
-            overlay.place(0.0, 0.0, keymap);
-            overlay
-        })
+            }
+        }
     }
 }
 
@@ -849,5 +765,74 @@ impl ModalView for OutlineView {
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+}
+
+/// The drawer panel, REIFIED (docs/UI.md stage 2): panel chrome
+/// painted behind a shielded `DRAWER_WIDTH` surface, the content
+/// padded inside it, a full-size key surface underneath. The content
+/// pad depends on the incoming height, which is exactly why this is
+/// a layout struct and not a `display`-time composition.
+struct DrawerPanel<'a, Command, Keys> {
+    content: imba::LayoutBox<'a, Command>,
+    theme: ::editor::theme::UiTheme,
+    title_font: skia_safe::Font,
+    context: String,
+    /// The toc panel scales its content pad with the height; the
+    /// outline panel uses a hairline.
+    scaled_pad: bool,
+    keys: Keys,
+}
+
+impl<Command, Keys> imba::LayoutValue for DrawerPanel<'_, Command, Keys> {}
+
+impl<'a, Command: 'a, Keys> imba::Layout<'a, Command> for DrawerPanel<'a, Command, Keys>
+where
+    Keys: imba::EventHandler<Command> + 'a,
+{
+    fn layout(self, arena: &'a Arena, constraints: Constraints) -> imba::ThunkBox<'a, Command> {
+        let size = constraints.max;
+        let inset = crate::rows::panel_inset(&self.theme);
+        let header = self.theme.panel.header_height;
+        let (top, bottom) = match self.scaled_pad {
+            true => {
+                let pad = 8.0f32.min(size.height * 0.05);
+                (inset + header + pad, inset + pad)
+            }
+            false => (inset + header, inset + 1.0),
+        };
+        let DrawerPanel {
+            content,
+            theme,
+            title_font,
+            context,
+            keys,
+            ..
+        } = self;
+        let panel = content
+            .pad_insets(imba::Insets {
+                left: inset + 1.0,
+                top,
+                right: inset + 1.0,
+                bottom,
+            })
+            .backdrop(
+                move |_arena: &Arena, canvas: &skia_safe::Canvas, rect: skia_safe::Rect| {
+                    crate::rows::paint_panel_chrome(
+                        canvas,
+                        rect,
+                        &theme,
+                        &title_font,
+                        "Contents",
+                        &context,
+                    );
+                },
+            )
+            .shield()
+            .sized(crate::DRAWER_WIDTH, size.height);
+        imba::ZBox::new(arena)
+            .child(imba::Fill::new().on_event(keys))
+            .child(panel)
+            .layout(arena, constraints)
     }
 }

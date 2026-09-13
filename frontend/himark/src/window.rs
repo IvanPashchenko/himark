@@ -131,92 +131,15 @@ impl View for Layers {
 
     fn display<'a>(
         &'a self,
-        arena: &'a Arena,
+        _arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, WindowCommand> + 'a {
-        imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
-            let title = self.workbench.root.focused_pane().title(store);
-
-            let size = constraints.max;
-            let toolbar_height = ::editor::env::Themes::of(store).ui().toolbar.height;
-            let below = Constraints::tight(Size::new(
-                size.width,
-                (size.height - toolbar_height).max(1.0),
-            ));
-
-            let revealed = self
-                .workbench
-                .dock()
-                .map_or(0.0, crate::dock::Dock::revealed);
-            let base_below = Constraints::tight(Size::new(
-                (size.width - revealed).max(1.0),
-                (size.height - toolbar_height).max(1.0),
-            ));
-
-            let bottom_rect = self.workbench.shown_bottom().map(|bottom| {
-                let chrome = ::editor::env::Themes::of(store).ui().sheet.clone();
-
-                let mut rect = bottom.rect(&chrome, store, base_below.max);
-                rect.offset((0.0, toolbar_height));
-                rect
-            });
-            LayersWidget {
-                focus: self.focus,
-                toolbar_height,
-                bottom_rect,
-                dock_edge_x: self.workbench.dock().map(|_| size.width - revealed),
-                base: below_layer(
-                    arena,
-                    size,
-                    toolbar_height,
-                    imba::ThunkBox::new(arena, self.workbench.layout(arena, store, ui, base_below)),
-                ),
-                toolbar: self.toolbar.layout(
-                    arena,
-                    store,
-                    ui,
-                    constraints.max.width,
-                    title,
-                    self.workbench
-                        .dock()
-                        .filter(|dock| dock.target_width() > 0.0)
-                        .map(crate::dock::Dock::owner),
-                ),
-                side: self.side.as_ref().map(|side| {
-                    below_layer(
-                        arena,
-                        size,
-                        toolbar_height,
-                        side.layout_dyn(arena, store, ui, below),
-                    )
-                }),
-                dock: self.workbench.dock().map(|dock| {
-                    below_layer(
-                        arena,
-                        size,
-                        toolbar_height,
-                        dock.layout_dyn(arena, store, ui, below),
-                    )
-                }),
-                bottom: self.workbench.shown_bottom().map(|bottom| {
-                    below_layer(
-                        arena,
-                        size,
-                        toolbar_height,
-                        imba::DynView::layout_dyn(bottom, arena, store, ui, base_below),
-                    )
-                }),
-                modal: self.modal.as_ref().map(|modal| {
-                    below_layer(
-                        arena,
-                        size,
-                        toolbar_height,
-                        modal.as_ref().layout_dyn(arena, store, ui, below),
-                    )
-                }),
-            }
-        })
+    ) -> impl imba::Layout<'a, WindowCommand> + imba::LayoutValue + 'a {
+        WindowFrame {
+            layers: self,
+            store,
+            ui,
+        }
     }
 }
 
@@ -1911,7 +1834,7 @@ impl View for Window {
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, WindowCommand> + 'a {
+    ) -> impl imba::Layout<'a, WindowCommand> + imba::LayoutValue + 'a {
         self.content.display(arena, store, ui)
     }
 }
@@ -1991,5 +1914,114 @@ fn same_editor_location(a: &crate::NavigationLocation, b: &crate::NavigationLoca
     ) {
         (Some(a), Some(b)) => a.location == b.location,
         _ => false,
+    }
+}
+
+/// The window WIREFRAME, reified (docs/UI.md stage 2): toolbar band,
+/// base workbench, side/dock/bottom layers — geometry cut per
+/// constraints, composed into the focus-routing `LayersWidget`.
+/// Captures the store/ui borrows the `laid` closure used to hide;
+/// hoisting the child `display` calls up is this view's next verse.
+struct WindowFrame<'a> {
+    layers: &'a Layers,
+    store: &'a Store,
+    ui: &'a UiCtx,
+}
+
+impl imba::LayoutValue for WindowFrame<'_> {}
+
+impl<'a> imba::Layout<'a, WindowCommand> for WindowFrame<'a> {
+    fn layout(
+        self,
+        arena: &'a Arena,
+        constraints: Constraints,
+    ) -> imba::ThunkBox<'a, WindowCommand> {
+        let WindowFrame { layers, store, ui } = self;
+        imba::ThunkBox::new(arena, {
+            let title = layers.workbench.root.focused_pane().title(store);
+
+            let size = constraints.max;
+            let toolbar_height = ::editor::env::Themes::of(store).ui().toolbar.height;
+            let below = Constraints::tight(Size::new(
+                size.width,
+                (size.height - toolbar_height).max(1.0),
+            ));
+
+            let revealed = layers
+                .workbench
+                .dock()
+                .map_or(0.0, crate::dock::Dock::revealed);
+            let base_below = Constraints::tight(Size::new(
+                (size.width - revealed).max(1.0),
+                (size.height - toolbar_height).max(1.0),
+            ));
+
+            let bottom_rect = layers.workbench.shown_bottom().map(|bottom| {
+                let chrome = ::editor::env::Themes::of(store).ui().sheet.clone();
+
+                let mut rect = bottom.rect(&chrome, store, base_below.max);
+                rect.offset((0.0, toolbar_height));
+                rect
+            });
+            LayersWidget {
+                focus: layers.focus,
+                toolbar_height,
+                bottom_rect,
+                dock_edge_x: layers.workbench.dock().map(|_| size.width - revealed),
+                base: below_layer(
+                    arena,
+                    size,
+                    toolbar_height,
+                    imba::ThunkBox::new(
+                        arena,
+                        layers.workbench.layout(arena, store, ui, base_below),
+                    ),
+                ),
+                toolbar: layers.toolbar.layout(
+                    arena,
+                    store,
+                    ui,
+                    constraints.max.width,
+                    title,
+                    layers
+                        .workbench
+                        .dock()
+                        .filter(|dock| dock.target_width() > 0.0)
+                        .map(crate::dock::Dock::owner),
+                ),
+                side: layers.side.as_ref().map(|side| {
+                    below_layer(
+                        arena,
+                        size,
+                        toolbar_height,
+                        side.layout_dyn(arena, store, ui, below),
+                    )
+                }),
+                dock: layers.workbench.dock().map(|dock| {
+                    below_layer(
+                        arena,
+                        size,
+                        toolbar_height,
+                        dock.layout_dyn(arena, store, ui, below),
+                    )
+                }),
+                bottom: layers.workbench.shown_bottom().map(|bottom| {
+                    below_layer(
+                        arena,
+                        size,
+                        toolbar_height,
+                        imba::DynView::layout_dyn(bottom, arena, store, ui, base_below),
+                    )
+                }),
+                modal: layers.modal.as_ref().map(|modal| {
+                    below_layer(
+                        arena,
+                        size,
+                        toolbar_height,
+                        modal.as_ref().layout_dyn(arena, store, ui, below),
+                    )
+                }),
+            }
+        })
     }
 }

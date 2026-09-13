@@ -220,7 +220,7 @@ impl View for TerminalView {
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
             let Some(session) = Terminals::session_ref(store, &self.channel) else {
                 let blank = imba::ThunkBox::new(

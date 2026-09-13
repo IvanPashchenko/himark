@@ -67,8 +67,9 @@ impl<Command> PresentableCommand<Command> {
 }
 
 pub use layout::{
-    fixed, laid, text, Align, Alignment, Column, CrossAlign, Fill, Fixed, Insets, Laid, Layout,
-    LayoutBox, LayoutExt, MapLayout, Pad, Row, SizedBox, Text, WithBaseline,
+    fixed, laid, text, Align, Alignment, Backdrop, Button, Column, CrossAlign, EventHandler, Fill,
+    Fixed, Insets, Laid, Layout, LayoutBox, LayoutExt, LayoutValue, MapLayout, OnClick, OnEvent,
+    Pad, Row, Shield, SizedBox, Text, WithBaseline, ZBox,
 };
 
 pub trait View {
@@ -90,7 +91,7 @@ pub trait View {
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl Layout<'a, Self::Command> + 'a;
+    ) -> impl Layout<'a, Self::Command> + LayoutValue + 'a;
 
     /// The composed pipeline — display, then size. Containers and
     /// the frame root call this; layout combinators address the

@@ -903,7 +903,7 @@ impl imba::View for CommitTip {
         _arena: &'a imba::arena::Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(
             move |_arena: &'a imba::arena::Arena, _constraints: imba::constraints::Constraints| {
                 let theme = crate::env::Themes::of(store);
@@ -1213,7 +1213,7 @@ impl View for HistoryView {
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
             let size = constraints.max;
             let mut section = container(arena, size);

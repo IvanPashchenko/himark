@@ -175,7 +175,7 @@ impl imba::View for ClosedPanel {
         _arena: &'a imba::arena::Arena,
         _store: &'a Store,
         _ui: &'a imba::UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::Fill::new()
     }
 }
@@ -450,7 +450,7 @@ impl View for Panel {
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
             let content: imba::ThunkBox<'a, PanelCommand> = match self {
                 Self::Editor(pane) => imba::ThunkBox::new(
@@ -1137,7 +1137,7 @@ impl View for WorkbenchNode {
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
             let widget: imba::ThunkBox<'a, NodeCommand> = match self {
                 Self::Leaf(slot) => match &slot.find {

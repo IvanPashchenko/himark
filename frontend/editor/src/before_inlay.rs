@@ -398,7 +398,7 @@ impl imba::View for BeforeInlay {
         arena: &'a imba::arena::Arena,
         store: &'a imba::store::Store,
         ui: &'a imba::UiCtx,
-    ) -> impl imba::Layout<'a, BeforeCommand> + 'a {
+    ) -> impl imba::Layout<'a, BeforeCommand> + imba::LayoutValue + 'a {
         imba::laid(
             move |_arena: &'a imba::arena::Arena, constraints: imba::constraints::Constraints| {
                 use imba::thunk_ext::ThunkExt;

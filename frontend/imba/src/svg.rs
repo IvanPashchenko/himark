@@ -179,13 +179,15 @@ impl View for SvgView {
         _arena: &'a Arena,
         _store: &'a Store,
         _ui: &'a UiCtx,
-    ) -> impl crate::Layout<'a, Self::Command> + 'a {
+    ) -> impl crate::Layout<'a, Self::Command> + crate::LayoutValue + 'a {
         Scaled(self)
     }
 }
 
 /// The view's one layout, reified: width-scaled box, self-painting.
 struct Scaled<'a>(&'a SvgView);
+
+impl crate::LayoutValue for Scaled<'_> {}
 
 impl<'a> crate::Layout<'a, SvgCommand> for Scaled<'a> {
     fn layout(self, arena: &'a Arena, constraints: Constraints) -> crate::ThunkBox<'a, SvgCommand> {

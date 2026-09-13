@@ -51,7 +51,7 @@ impl View for ImageInlay {
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         self.view.display(arena, store, ui)
     }
 }

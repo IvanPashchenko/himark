@@ -199,7 +199,7 @@ impl imba::View for ChatPane {
         arena: &'a imba::arena::Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(
             move |_arena: &'a imba::arena::Arena, constraints: imba::constraints::Constraints| {
                 let widget: imba::ThunkBox<'a, Self::Command> =

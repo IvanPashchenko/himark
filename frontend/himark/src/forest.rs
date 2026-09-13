@@ -377,7 +377,7 @@ impl<K: Clone + Eq + Hash + Send + Sync + 'static> View for ForestList<K> {
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         self.list.display(arena, store, ui)
     }
 }

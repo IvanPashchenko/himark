@@ -243,7 +243,7 @@ impl View for MermaidView {
         _arena: &'a Arena,
         _store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
             let size = self.scaled(constraints.max.width);
             imba::leaf::leaf(size.width, size.height)

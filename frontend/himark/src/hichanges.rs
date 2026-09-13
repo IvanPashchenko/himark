@@ -23,7 +23,7 @@ use imba::{
     leaf::leaf,
     store::Store,
     thunk_ext::ThunkExt,
-    UiCtx, View, Widget,
+    Layout as _, UiCtx, View, Widget,
 };
 use skia_safe::{Paint, Rect, Size};
 
@@ -1300,7 +1300,7 @@ impl View for ChangesView {
         arena: &'a Arena,
         store: &'a Store,
         ui: &'a UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
             let size = constraints.max;
             let mut overlay = container(arena, size);
@@ -1387,38 +1387,26 @@ impl View for ChangesView {
             let chip_font = crate::fonts::ui_font(ui, chrome.hint_size);
             let advance = chip_font.measure_str("REFRESH", None).0;
             let chip_width = advance + chrome.hint_size * 2.0;
-            let chip_radius = chrome.well_radius;
-            let rule = chrome.rule.0;
-            let dim = chrome.dim_text.0;
-            let chip = leaf::<ChangesCommand>(chip_width, chip_height)
-                .paint_instead(move |_arena, canvas, rect| {
-                    let mut paint = Paint::default();
-                    paint.set_anti_alias(true);
-                    paint.set_stroke(true);
-                    paint.set_stroke_width(1.0);
-                    paint.set_color(rule);
-                    canvas.draw_round_rect(
-                        rect.with_inset((0.5, 0.5)),
-                        chip_radius,
-                        chip_radius,
-                        &paint,
-                    );
-                    paint.set_stroke(false);
-                    paint.set_color(dim);
-                    canvas.draw_str(
-                        "REFRESH",
-                        (
-                            rect.left + (rect.width() - advance) * 0.5,
-                            rect.top + rect.height() * 0.5 + 6.0,
-                        ),
-                        &chip_font,
-                        &paint,
-                    );
-                })
-                .event(|_arena, event, _size| match event {
-                    Event::MouseDown { .. } => EventResult::Command(ChangesCommand::Refetch),
-                    _ => EventResult::Ignored,
-                });
+            let (_, metrics) = chip_font.metrics();
+            let label_height = (-metrics.ascent + metrics.descent).ceil().max(1.0);
+            let chip = imba::Button::new(
+                arena,
+                imba::text("REFRESH", chip_font, chrome.dim_text.0),
+                || ChangesCommand::Refetch,
+            )
+            .stroke(chrome.rule.0)
+            .radius(chrome.well_radius)
+            .pad_content(imba::Insets::xy(
+                chrome.hint_size,
+                ((chip_height - label_height) * 0.5).max(0.0),
+            ))
+            .layout(
+                arena,
+                Constraints {
+                    min: Size::default(),
+                    max: Size::new(chip_width, chip_height),
+                },
+            );
 
             let searching = self.list.searching();
             let message_focused = self.message_focused;

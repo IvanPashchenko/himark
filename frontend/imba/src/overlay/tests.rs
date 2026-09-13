@@ -485,7 +485,7 @@ fn scroll_carries_anchors_by_the_scroll_offset() {
             arena: &'a Arena,
             _store: &'a Store,
             _ui: &'a UiCtx,
-        ) -> impl crate::Layout<'a, Cmd> + 'a {
+        ) -> impl crate::Layout<'a, Cmd> + crate::LayoutValue + 'a {
             crate::laid(move |_arena: &'a Arena, constraints: Constraints| {
                 let mut root: Container<'_, Cmd> =
                     Container::new(arena, Size::new(constraints.max.width, 500.0));

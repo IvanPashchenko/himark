@@ -157,7 +157,7 @@ impl View for Stats {
         _arena: &'a Arena,
         store: &'a Store,
         _ui: &'a imba::UiCtx,
-    ) -> impl imba::Layout<'a, Self::Command> + 'a {
+    ) -> impl imba::Layout<'a, Self::Command> + imba::LayoutValue + 'a {
         imba::laid(move |_arena: &'a Arena, constraints: Constraints| {
             let theme = ::editor::env::Themes::of(store);
             imba::leaf::leaf(constraints.max.width, constraints.max.height).paint_instead(

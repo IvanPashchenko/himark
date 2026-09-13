@@ -223,7 +223,7 @@ impl View for FixedContent {
         _arena: &'a Arena,
         _store: &'a Store,
         _ui: &'a crate::ui::UiCtx,
-    ) -> impl crate::Layout<'a, Self::Command> + 'a {
+    ) -> impl crate::Layout<'a, Self::Command> + crate::LayoutValue + 'a {
         crate::laid(move |_arena: &'a Arena, _constraints: Constraints| {
             crate::eager(FixedWidget { size: self.size })
         })
@@ -337,7 +337,7 @@ impl View for PanContent {
         _arena: &'a Arena,
         _store: &'a Store,
         _ui: &'a crate::ui::UiCtx,
-    ) -> impl crate::Layout<'a, f32> + 'a {
+    ) -> impl crate::Layout<'a, f32> + crate::LayoutValue + 'a {
         crate::laid(move |_arena: &'a Arena, _constraints: Constraints| {
             crate::eager(PanWidget {
                 surface: self.surface,
@@ -463,7 +463,7 @@ fn a_fitted_view_never_claims() {
             _arena: &'a Arena,
             _store: &'a Store,
             _ui: &'a crate::ui::UiCtx,
-        ) -> impl crate::Layout<'a, f32> + 'a {
+        ) -> impl crate::Layout<'a, f32> + crate::LayoutValue + 'a {
             crate::laid(move |_arena: &'a Arena, _constraints: Constraints| {
                 crate::leaf::leaf(100.0, 50.0)
             })
@@ -704,7 +704,7 @@ fn boxed_dyn_view_routes_commands_back_to_the_typed_view() {
             _arena: &'a Arena,
             _store: &'a Store,
             _ui: &'a crate::ui::UiCtx,
-        ) -> impl crate::Layout<'a, Self::Command> + 'a {
+        ) -> impl crate::Layout<'a, Self::Command> + crate::LayoutValue + 'a {
             crate::laid(move |_arena: &'a Arena, _constraints: Constraints| {
                 leaf(10.0, 10.0).event(|_, event, _| match event {
                     Event::MouseDown { .. } => EventResult::Command(CounterCommand::Add(2)),
@@ -996,7 +996,7 @@ impl View for Row {
         _arena: &'a Arena,
         _store: &'a Store,
         _ui: &'a crate::ui::UiCtx,
-    ) -> impl crate::Layout<'a, Self::Command> + 'a {
+    ) -> impl crate::Layout<'a, Self::Command> + crate::LayoutValue + 'a {
         crate::laid(move |_arena: &'a Arena, constraints: Constraints| {
             let _ = constraints;
             crate::eager(RowWidget {

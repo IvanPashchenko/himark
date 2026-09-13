@@ -8,7 +8,7 @@ use imba::{
     leaf::leaf,
     store::Store,
     thunk_ext::ThunkExt,
-    Thunk, UiCtx, View,
+    Layout as _, Thunk, UiCtx, View,
 };
 use skia_safe::{Canvas, Paint, Rect, Size};
 
@@ -235,7 +235,6 @@ impl Toolbar {
 
         let backdrop = leaf::<ToolbarCommand>(size.width, size.height).paint_below({
             let chrome = chrome.clone();
-            let title_font = title_font.clone();
             move |_arena, canvas, rect| {
                 let mut paint = Paint::default();
                 paint.set_color(chrome.background.0);
@@ -263,43 +262,39 @@ impl Toolbar {
                     &paint,
                 );
                 paint.set_anti_alias(true);
-
-                if let Some(mode) = mode {
-                    paint.set_color(chrome.title_color.0);
-                    let mode_font = title_font.clone();
-
-                    let tracked: f32 = mode
-                        .chars()
-                        .map(|ch| mode_font.measure_str(ch.to_string(), None).0 + 1.5)
-                        .sum();
-                    let mut x = rect.left + well_x + well_width - tracked - 18.0;
-                    let baseline =
-                        rect.top + well_y + (chrome.well_height + chrome.title_size * 0.7) * 0.5;
-                    for ch in mode.chars() {
-                        let glyph = ch.to_string();
-                        canvas.draw_str(&glyph, (x, baseline), &mode_font, &paint);
-                        x += mode_font.measure_str(&glyph, None).0 + 1.5;
-                    }
-                }
-                if !focused {
-                    paint.set_color(chrome.title_color.0);
-                    let (advance, _) = title_font.measure_str(&title, Some(&paint));
-                    let text_x = rect.left + well_x + ((well_width - advance) * 0.5).max(0.0);
-
-                    let baseline =
-                        rect.top + well_y + (chrome.well_height + chrome.title_size * 0.7) * 0.5;
-                    canvas.save();
-                    canvas.clip_rect(
-                        Rect::from_xywh(rect.left + well_x, rect.top, well_width, chrome.height),
-                        None,
-                        true,
-                    );
-                    canvas.draw_str(&title, (text_x, baseline), &title_font, &paint);
-                    canvas.restore();
-                }
             }
         });
         strip.place(0.0, 0.0, backdrop);
+
+        // The well's texts, as PRIMITIVES with exact baseline parity:
+        // Text paints its baseline at top + ascent, so placing each at
+        // (the old hand-computed baseline − ascent) reproduces the
+        // draw_str glyph positions bit for bit.
+        let baseline = well_y + (chrome.well_height + chrome.title_size * 0.7) * 0.5;
+        let ascent = -title_font.metrics().1.ascent;
+        let well_bounds = Constraints {
+            min: Size::default(),
+            max: Size::new(well_width, chrome.height),
+        };
+        if let Some(mode) = mode {
+            let label = imba::text(mode, title_font.clone(), chrome.title_color.0)
+                .tracking(1.5)
+                .layout(arena, well_bounds);
+            strip.place_boxed(
+                well_x + well_width - label.size().width - 18.0,
+                baseline - ascent,
+                label,
+            );
+        }
+        if !focused {
+            let label = imba::text(title, title_font.clone(), chrome.title_color.0)
+                .layout(arena, well_bounds);
+            strip.place_boxed(
+                well_x + ((well_width - label.size().width) * 0.5).max(0.0),
+                baseline - ascent,
+                label,
+            );
+        }
 
         match &self.session {
             Some(session) => {
@@ -389,40 +384,40 @@ impl Toolbar {
                 canvas.draw_rect(rect, &paint);
             })
         };
-        let mut x = chrome.button_inset + clearance;
-        let mut any_left = false;
-        for (index, button) in buttons.0.iter().enumerate() {
-            if button.side != ToolbarSide::Left {
-                continue;
+        // Each side's buttons are a ROW (vec order, left to right —
+        // exactly the order the old descending-x loops produced);
+        // the hairline edges keep their absolute homes.
+        let side_row = |side: ToolbarSide| -> Option<imba::ThunkBox<'a, ToolbarCommand>> {
+            let mut row = imba::Row::new(arena);
+            let mut any = false;
+            for (index, button) in buttons.0.iter().enumerate() {
+                if button.side != side {
+                    continue;
+                }
+                row = row.child(imba::fixed(button_widget(index, button)));
+                any = true;
             }
-            strip.place(x, 0.0, button_widget(index, button));
-            x += chrome.button_size;
-            any_left = true;
+            any.then(|| {
+                row.layout(
+                    arena,
+                    Constraints {
+                        min: Size::default(),
+                        max: Size::new(width, chrome.height),
+                    },
+                )
+            })
+        };
+        if let Some(row) = side_row(ToolbarSide::Left) {
+            let end = chrome.button_inset + clearance + row.size().width;
+            strip.place_boxed(chrome.button_inset + clearance, 0.0, row);
+            strip.place(end, 0.0, closing_edge());
         }
-        if any_left {
-            strip.place(x, 0.0, closing_edge());
+        if let Some(row) = side_row(ToolbarSide::Well) {
+            strip.place_boxed(well_x - 6.0 - row.size().width, 0.0, row);
         }
-
-        let mut x = well_x - chrome.button_size - 6.0;
-        for (index, button) in buttons.0.iter().enumerate().rev() {
-            if button.side != ToolbarSide::Well {
-                continue;
-            }
-            strip.place(x, 0.0, button_widget(index, button));
-            x -= chrome.button_size;
-        }
-
-        let mut x = width - chrome.button_inset - chrome.button_size;
-        let mut right_end = None;
-        for (index, button) in buttons.0.iter().enumerate().rev() {
-            if button.side != ToolbarSide::Right {
-                continue;
-            }
-            strip.place(x, 0.0, button_widget(index, button));
-            right_end.get_or_insert(x + chrome.button_size);
-            x -= chrome.button_size;
-        }
-        if let Some(end) = right_end {
+        if let Some(row) = side_row(ToolbarSide::Right) {
+            let end = width - chrome.button_inset;
+            strip.place_boxed(end - row.size().width, 0.0, row);
             strip.place(end - 1.0, 0.0, closing_edge());
         }
 
