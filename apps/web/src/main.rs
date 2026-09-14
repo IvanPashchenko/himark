@@ -175,6 +175,31 @@ mod app {
             >,
             target_thread: usize,
         ) -> c_int;
+        fn emscripten_set_mousemove_callback_on_thread(
+            target: *const c_char,
+            user_data: *mut c_void,
+            use_capture: bool,
+            callback: Option<
+                extern "C" fn(c_int, *const EmscriptenMouseEvent, *mut c_void) -> bool,
+            >,
+            target_thread: usize,
+        ) -> c_int;
+        fn emscripten_set_mouseup_callback_on_thread(
+            target: *const c_char,
+            user_data: *mut c_void,
+            use_capture: bool,
+            callback: Option<
+                extern "C" fn(c_int, *const EmscriptenMouseEvent, *mut c_void) -> bool,
+            >,
+            target_thread: usize,
+        ) -> c_int;
+        fn emscripten_set_blur_callback_on_thread(
+            target: *const c_char,
+            user_data: *mut c_void,
+            use_capture: bool,
+            callback: Option<extern "C" fn(c_int, *const c_void, *mut c_void) -> bool>,
+            target_thread: usize,
+        ) -> c_int;
         fn emscripten_run_script_string(script: *const c_char) -> *const c_char;
         fn emscripten_set_resize_callback_on_thread(
             target: *const c_char,
@@ -252,7 +277,9 @@ mod app {
         scroll_gesture: imba::event::ScrollGesture,
         last_scroll_ms: Option<f64>,
         clicks: crate::clicks::ClickCounter,
-
+        /// Only presses in this canvas can start a selection drag.
+        drag_point: Option<skia_safe::Point>,
+        /// The one browser canvas is one himark window.
         window: himark::WindowId,
         context: DirectContext,
 
@@ -474,6 +501,7 @@ mod app {
                 scroll_gesture: imba::event::ScrollGesture::default(),
                 last_scroll_ms: None,
                 clicks: crate::clicks::ClickCounter::default(),
+                drag_point: None,
                 window,
                 context,
                 #[cfg(target_feature = "atomics")]
@@ -571,6 +599,28 @@ mod app {
             app,
             true,
             Some(mouse_down),
+            CALLBACK_THREAD_CALLING,
+        );
+        // Window listeners retain a canvas-started drag outside its bounds.
+        emscripten_set_mousemove_callback_on_thread(
+            EVENT_TARGET_WINDOW,
+            app,
+            true,
+            Some(mouse_move),
+            CALLBACK_THREAD_CALLING,
+        );
+        emscripten_set_mouseup_callback_on_thread(
+            EVENT_TARGET_WINDOW,
+            app,
+            true,
+            Some(mouse_up),
+            CALLBACK_THREAD_CALLING,
+        );
+        emscripten_set_blur_callback_on_thread(
+            EVENT_TARGET_WINDOW,
+            app,
+            false,
+            Some(blur),
             CALLBACK_THREAD_CALLING,
         );
         emscripten_set_keydown_callback_on_thread(
@@ -814,6 +864,7 @@ mod app {
             else {
                 return false;
             };
+            app.drag_point = Some(point);
             app.state.dispatch_timed(
                 app.window,
                 imba::event::Event::MouseDown {
@@ -831,6 +882,90 @@ mod app {
                 event.timestamp / 1000.0,
             )
         }
+    }
+
+    /// The canvas fills the viewport at (0, 0), so client coordinates
+    /// remain canvas-relative even when a window listener receives input
+    /// outside the canvas. Scale to the editor's physical pixels.
+    fn window_mouse_point(app: &WebApp, event: &EmscriptenMouseEvent) -> skia_safe::Point {
+        skia_safe::Point::new(
+            event.client_x as f32 * app.scale,
+            event.client_y as f32 * app.scale,
+        )
+    }
+
+    fn end_drag(app: &mut WebApp, point: skia_safe::Point, timestamp: f64) -> bool {
+        if app.drag_point.take().is_none() {
+            return false;
+        }
+        app.state.dispatch_timed(
+            app.window,
+            imba::event::Event::MouseUp { point },
+            app.state.viewport_size(),
+            timestamp,
+        )
+    }
+
+    extern "C" fn mouse_move(
+        _event_type: c_int,
+        event: *const EmscriptenMouseEvent,
+        user_data: *mut c_void,
+    ) -> bool {
+        unsafe {
+            let app = &mut *user_data.cast::<WebApp>();
+            if app.drag_point.is_none() {
+                return false;
+            }
+            let event = &*event;
+            let point = window_mouse_point(app, event);
+            let timestamp = event.timestamp / 1000.0;
+            // Recover if the release happened outside the browser window.
+            if event.buttons & 1 == 0 {
+                return end_drag(app, point, timestamp);
+            }
+            app.drag_point = Some(point);
+            app.state.dispatch_timed(
+                app.window,
+                imba::event::Event::MouseDrag {
+                    point,
+                    mods: imba::event::Modifiers {
+                        shift: event.shift_key,
+                        control: event.ctrl_key,
+                        alt: event.alt_key,
+                        command: event.meta_key,
+                    },
+                },
+                app.state.viewport_size(),
+                timestamp,
+            )
+        }
+    }
+
+    extern "C" fn mouse_up(
+        _event_type: c_int,
+        event: *const EmscriptenMouseEvent,
+        user_data: *mut c_void,
+    ) -> bool {
+        unsafe {
+            let app = &mut *user_data.cast::<WebApp>();
+            let event = &*event;
+            if event.button != 0 {
+                return false;
+            }
+            let point = window_mouse_point(app, event);
+            end_drag(app, point, event.timestamp / 1000.0)
+        }
+    }
+
+    extern "C" fn blur(_event_type: c_int, _event: *const c_void, user_data: *mut c_void) -> bool {
+        unsafe {
+            let app = &mut *user_data.cast::<WebApp>();
+            app.clicks = crate::clicks::ClickCounter::default();
+            if let Some(point) = app.drag_point {
+                end_drag(app, point, 0.0);
+            }
+        }
+        false
     }
 
     extern "C" fn key_down(
