@@ -541,6 +541,13 @@ impl OpenDocuments {
         stamped
     }
 
+    /// Land a refetch's computed rebase. `Some(text)` back means the
+    /// landing raced a fresher revision and the caller must RE-DIFF
+    /// the kept disk text against the new buffer
+    /// (`watch::rediff`) — dropping it silently would leave the
+    /// document stale against the disk with nothing left to retry
+    /// (docs: the reload loop must converge, not give up).
+    #[must_use]
     pub fn absorb_refetched(
         store: &mut Store,
         document_id: DocumentId,
@@ -550,15 +557,15 @@ impl OpenDocuments {
         fetched: editor::Text,
         clean: bool,
         fx: &mut imba::effect::Effects<'_, editor::EditorCommand>,
-    ) {
+    ) -> Option<String> {
         if Self::entity(store, document_id).is_none_or(|entity| entity.refetch_serial != serial) {
-            return;
+            return None;
         }
         let Some(mut document) = Self::document(store, document_id) else {
-            return;
+            return None;
         };
         if document.revision() != base_revision {
-            return;
+            return Some(crate::watch::text_string(&fetched));
         }
         let moves = !operation
             .iter()
@@ -579,11 +586,18 @@ impl OpenDocuments {
             }
         }
         let revision = document.revision();
+        // The landing may have brought the buffer EXACTLY to the
+        // disk's text (the merge target was the disk, or the echo of
+        // shared edits caught up): that is a save, whatever the diff
+        // thought — leaving it "dirty" strands a phantom flag.
+        let synced = clean
+            || crate::watch::text_string(document.text()) == crate::watch::text_string(&fetched);
         Self::put_document(store, document_id, document);
-        match clean {
+        match synced {
             true => Self::mark_saved(store, document_id, revision, fetched),
             false => Self::update_entity(store, document_id, |entity| entity.baseline = fetched),
         }
+        None
     }
 
     pub fn remove_if_editorless<R: 'static>(

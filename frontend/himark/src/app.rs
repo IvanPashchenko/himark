@@ -1444,7 +1444,7 @@ impl Application {
                 serial,
                 rebase,
             } => {
-                entity_scope(document, fx, |fx| {
+                let retry = entity_scope(document, fx, |fx| {
                     crate::OpenDocuments::absorb_refetched(
                         store,
                         document,
@@ -1456,6 +1456,21 @@ impl Application {
                         fx,
                     )
                 });
+                if let Some(fetched) = retry {
+                    documents::watch::rediff(
+                        store,
+                        document,
+                        serial,
+                        fetched,
+                        fx,
+                        |document, base_revision, serial, rebase| AppCommand::RefetchDiffed {
+                            document,
+                            base_revision,
+                            serial,
+                            rebase,
+                        },
+                    );
+                }
             }
             AppCommand::Opened(window, opened) => {
                 let document = opened.document;
