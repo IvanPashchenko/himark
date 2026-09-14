@@ -85,15 +85,11 @@ impl View for TreeLabel {
         let mut style = crate::ui::RowStyle::drawer(store, ui);
         // Tree rows breathe more than menu rows.
         style.air = crate::ui::space::M;
-        let theme = crate::env::Themes::of(store);
-        let syntax = |slot: ::editor::ThemeStyleId| match theme.attributes(slot).color {
-            Some(color) => style.label.clone().colored(color),
-            None => style.label.clone(),
-        };
+        let tree = crate::env::Themes::of(store).ui().tree.clone();
         let label_style = match (self.dim, self.tint) {
             (true, _) => style.trail.clone(),
-            (false, TreeTint::Directory) => syntax(::editor::ThemeStyleId::Function),
-            (false, TreeTint::File) => syntax(::editor::ThemeStyleId::Variable),
+            (false, TreeTint::Directory) => style.label.clone().colored(tree.directory.0),
+            (false, TreeTint::File) => style.label.clone().colored(tree.file.0),
             (false, TreeTint::Label) => style.label.clone(),
         };
         let mut row = crate::ui::ListRow::new(arena, style.clone())

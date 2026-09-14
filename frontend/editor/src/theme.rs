@@ -867,6 +867,12 @@ pub struct TreeChrome {
     pub text_x: f32,
 
     pub highlight: Rgba,
+
+    /// Directory labels — LIGHT, the declaration-name register, not
+    /// the darker keyword blue.
+    pub directory: Rgba,
+    /// File labels.
+    pub file: Rgba,
 }
 
 impl Default for TreeChrome {
@@ -876,6 +882,8 @@ impl Default for TreeChrome {
             indent: 26.0,
             text_x: 36.0,
             highlight: Rgba(Color::new(0x2e50565f)),
+            directory: Rgba(Color::from_argb(0xff, 0xde, 0xe5, 0xf2)),
+            file: Rgba(Color::from_argb(0xff, 0xc9, 0xd2, 0xe4)),
         }
     }
 }

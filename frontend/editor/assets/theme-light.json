@@ -442,7 +442,9 @@
       "font_size": 32.0,
       "indent": 26.0,
       "text_x": 36.0,
-      "highlight": "#ffe9edf5"
+      "highlight": "#ffe9edf5",
+      "directory": "#16181d",
+      "file": "#33373f"
     },
     "chat": {
       "pad": 16.0,
