@@ -4,18 +4,20 @@
 # The image is a bare Ubuntu 24.04 with no C toolchain, no headers and no
 # passwordless sudo, so everything is installed into $HOME:
 #
-#   ~/.air-sysroot     Ubuntu .deb packages unpacked as a userspace sysroot
-#                      (gcc/g++, libc headers, clang/libclang, pkg-config,
-#                      fontconfig, freetype, wayland, xkbcommon, zlib, fonts)
-#   ~/.air-toolchain   compiler wrappers that point gcc/clang at that sysroot
-#   ~/.cargo ~/.rustup rustup with the stable toolchain
+#   ~/.air-sysroot        Ubuntu .deb packages unpacked as a userspace sysroot
+#                         (gcc/g++, libc headers, clang/libclang, pkg-config,
+#                         fontconfig, freetype, wayland, xkbcommon, zlib, fonts)
+#   ~/.air-toolchain      compiler wrappers that point gcc/clang at that sysroot
+#   ~/.air-fontconfig     a fonts.conf that points fontconfig at the sysroot's
+#                         font directories instead of the empty /usr/share/fonts
+#   ~/.cargo ~/.rustup    rustup with the stable toolchain
 #   ~/.air-himark-env.sh  the environment, sourced from ~/.profile and ~/.bashrc
 #
 # Modes (AIR_STARTUP_MODE): "warmup" bakes the snapshot, so it does the slow
-# cacheable work -- unpack the sysroot, install Rust, fetch the crates and run
-# a full `cargo build` -- and then blocks in `healthcheck`. "task" boots from
-# that snapshot, so it only re-asserts the environment and starts the agent
-# host in the background before returning.
+# cacheable work -- unpack the sysroot, install Rust, fetch the crates, prime
+# the font cache and run a full `cargo build` -- and then blocks in
+# `healthcheck`. "task" boots from that snapshot, so it only re-asserts the
+# environment and starts the agent host in the background before returning.
 
 set -euo pipefail
 
@@ -27,21 +29,26 @@ if [ "${AIR_STARTUP_MODE:-}" = warmup ]; then WARMUP=1; else WARMUP=; fi
 REPO_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 SYSROOT="$HOME/.air-sysroot"
 TOOLCHAIN_BIN="$HOME/.air-toolchain/bin"
+FONTCONFIG_DIR="$HOME/.air-fontconfig"
 ENV_FILE="$HOME/.air-himark-env.sh"
 APT_DIR="$HOME/.air-apt"
 SYSROOT_STAMP="$SYSROOT/.air-complete"
 HOST_LOG="$HOME/.air-agent-host.log"
 HOST_BIN="$REPO_ROOT/target/debug/himark-agent-host"
+SHOT_DIR="${HIMARK_SHOT:-/tmp/himark-shots}"
 HTTP_BIND="${HIMARK_HTTP_BIND:-0.0.0.0:4312}"
 HTTP_PORT="${HTTP_BIND##*:}"
 
 # Everything the README's "Prerequisites" and the Linux CI job install with
-# apt-get. apt resolves the full dependency closure for these.
+# apt-get, plus the fontconfig tools and a few font families: the image ships
+# no fonts at all and the editor panics ("a system typeface") without one.
+# apt resolves the full dependency closure for these.
 APT_PACKAGES=(
     gcc g++ make pkg-config libc6-dev
     clang libclang-dev
     libfontconfig-dev libfreetype-dev libwayland-dev libxkbcommon-dev
-    zlib1g-dev fonts-dejavu-core
+    zlib1g-dev
+    fontconfig fonts-dejavu-core fonts-liberation2 fonts-noto-color-emoji
 )
 
 # --------------------------------------------------------------------------
@@ -50,11 +57,11 @@ APT_PACKAGES=(
 
 install_sysroot() {
     if [ -f "$SYSROOT_STAMP" ]; then
-        log "sysroot already present at $SYSROOT"
+        log "sysroot already present at $SYSROOT ($(du -sh "$SYSROOT" | cut -f1))"
         return
     fi
 
-    log "resolving apt dependency closure for: ${APT_PACKAGES[*]}"
+    log "resolving the apt dependency closure for: ${APT_PACKAGES[*]}"
     rm -rf "$APT_DIR"
     mkdir -p "$APT_DIR/state/lists/partial" "$APT_DIR/cache/archives/partial" "$APT_DIR/debs"
     : > "$APT_DIR/state/status"
@@ -67,6 +74,8 @@ Acquire::Languages "none";
 EOF
     export APT_CONFIG="$APT_DIR/apt.conf"
 
+    # apt still tries to tidy the system archive dir it cannot write; that
+    # warning is harmless, so only a real failure should stop us here.
     apt-get -qq update
     apt-get install -y --no-install-recommends --print-uris "${APT_PACKAGES[@]}" \
         | sed -n "s/^'\(http[^']*\)'.*/\1/p" > "$APT_DIR/urls.txt"
@@ -100,17 +109,14 @@ EOF
         case "$target" in /*) ln -sfn "$SYSROOT$target" "$link" ;; esac
     done < <(find "$SYSROOT" -type l)
 
-    local broken
-    broken=$(find "$SYSROOT" -xtype l | wc -l)
-    log "sysroot unpacked ($(du -sh "$SYSROOT" | cut -f1), $broken dangling links)"
-
+    log "sysroot unpacked ($(du -sh "$SYSROOT" | cut -f1), $(find "$SYSROOT" -xtype l | wc -l) dangling links)"
     rm -rf "$APT_DIR/debs" "$APT_DIR/cache"
     touch "$SYSROOT_STAMP"
 }
 
 # gcc/clang are relocatable but still look for headers and crt files under the
 # compiled-in /usr prefix, so every invocation needs --sysroot. Rust invokes
-# the linker as plain `cc`, and the `cc` crate as `cc`/`c++`, so the wrappers
+# the linker as plain `cc` and the `cc` crate uses `cc`/`c++`, so the wrappers
 # have to own those names and come first on PATH.
 install_compiler_wrappers() {
     mkdir -p "$TOOLCHAIN_BIN"
@@ -130,6 +136,28 @@ EOF
     log "compiler wrappers installed in $TOOLCHAIN_BIN"
 }
 
+# The sysroot's own fonts.conf lists absolute font directories (/usr/share/
+# fonts), which are empty in this image. Point fontconfig at the sysroot's
+# directories instead, or Skia finds no typeface and the editor panics.
+install_fontconfig() {
+    mkdir -p "$FONTCONFIG_DIR" "$HOME/.cache/fontconfig"
+    cat > "$FONTCONFIG_DIR/fonts.conf" <<EOF
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<!-- Generated by .air/cloud/startup.sh -->
+<fontconfig>
+  <dir>$SYSROOT/usr/share/fonts</dir>
+  <dir>$SYSROOT/usr/local/share/fonts</dir>
+  <dir>/usr/share/fonts</dir>
+  <dir prefix="xdg">fonts</dir>
+  <dir>~/.fonts</dir>
+  <cachedir>$HOME/.cache/fontconfig</cachedir>
+  <include ignore_missing="yes">$SYSROOT/etc/fonts/conf.d</include>
+</fontconfig>
+EOF
+    log "wrote $FONTCONFIG_DIR/fonts.conf"
+}
+
 # --------------------------------------------------------------------------
 # rust
 # --------------------------------------------------------------------------
@@ -147,7 +175,7 @@ install_rust() {
 }
 
 # CI runs the suite with cargo-nextest, so make it available too. The
-# prebuilt tarball is seconds; building it from crates.io is the fallback.
+# prebuilt tarball takes seconds; building it from crates.io is the fallback.
 install_nextest() {
     if [ -x "$HOME/.cargo/bin/cargo-nextest" ]; then
         log "cargo-nextest already present"
@@ -193,20 +221,19 @@ export PKG_CONFIG_SYSROOT_DIR="$SYSROOT"
 export LIBCLANG_PATH="$SYSROOT/usr/lib/llvm-18/lib"
 export BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$SYSROOT"
 
-# Skia and the editor enumerate fonts through fontconfig at runtime.
-export FONTCONFIG_PATH="$SYSROOT/etc/fonts"
-export FONTCONFIG_FILE="$SYSROOT/etc/fonts/fonts.conf"
+# Skia enumerates fonts through fontconfig at runtime.
+export FONTCONFIG_FILE="$FONTCONFIG_DIR/fonts.conf"
+export FONTCONFIG_PATH="$FONTCONFIG_DIR"
 EOF
     log "wrote $ENV_FILE"
 
     local line="[ -f \"$ENV_FILE\" ] && . \"$ENV_FILE\"  # himark-air-env"
-    local rc
-    # A login shell reads only the first of these that exists.
-    for rc in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
-        if [ -f "$rc" ]; then break; fi
+    # A login shell reads only the first of these that exists, so writing to
+    # ~/.profile while the image ships a ~/.bash_profile would do nothing.
+    local rc="$HOME/.profile" candidate target
+    for candidate in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
+        if [ -f "$candidate" ]; then rc="$candidate"; break; fi
     done
-    [ -f "$rc" ] || { touch "$rc"; }
-    local target
     for target in "$rc" "$HOME/.bashrc"; do
         [ -f "$target" ] || touch "$target"
         if ! grep -qF 'himark-air-env' "$target"; then
@@ -220,11 +247,19 @@ EOF
 # build and run
 # --------------------------------------------------------------------------
 
+prime_font_cache() {
+    log "priming the fontconfig cache"
+    fc-cache -f >/dev/null 2>&1 || log "WARNING: fc-cache failed"
+    log "fontconfig sees $(fc-list | wc -l) fonts; default sans is $(fc-match sans)"
+}
+
 prime_build_caches() {
     cd "$REPO_ROOT"
     log "fetching crates (cargo fetch --locked)"
     cargo fetch --locked
 
+    # Cargo's first build also downloads the prebuilt Skia archive for this
+    # target from the rust-skia/skia-binaries releases.
     log "building the default members (engine, plugins, backend); this is the slow one"
     cargo build --locked
 
@@ -233,6 +268,9 @@ prime_build_caches() {
     log "building the linux shell and hiscript"
     cargo build --locked -p linux -p hiscript
 
+    # Deliberately NOT `--all-targets`: test binaries link Skia statically per
+    # crate and a full --all-targets build overflows this 30G volume. The
+    # healthcheck below primes the test profile for a representative subset.
     log "disk after the build: $(df -h "$REPO_ROOT" | awk 'NR==2 {print $4" free"}')"
 }
 
@@ -251,6 +289,7 @@ start_agent_host() {
         log "serving the web app from target/web"
     else
         log "target/web is not built; the agent host serves AHP/WebSocket only"
+        log "  (build it with apps/web/tools/build-web.sh -- see the README's Web section)"
     fi
     log "starting the agent host on $HTTP_BIND (log: $HOST_LOG)"
     : > "$HOST_LOG"
@@ -261,12 +300,18 @@ start_agent_host() {
 # --------------------------------------------------------------------------
 # healthcheck
 # --------------------------------------------------------------------------
-# Asserts the things a real task needs: the toolchain compiles and links C and
-# C++ against the sysroot, pkg-config finds the native libraries, the agent
-# host that every shell talks to answers HTTP on its port, and the engine's
-# own tests pass (which links Skia and tree-sitter and loads fontconfig at
-# runtime). Polls for readiness without a deadline; the launch owns the
-# timeout. Any failure returns non-zero, which fails startup.
+# Asserts what a real task on this repository needs, not just that the install
+# succeeded:
+#   1. the toolchain compiles, links and runs C++ against the userspace
+#      sysroot, and pkg-config resolves the native libraries;
+#   2. the agent host -- the backend every shell talks to -- answers an
+#      authenticated HTTP request on its port and rejects an unauthenticated
+#      one;
+#   3. the engine's own tests pass;
+#   4. the editor actually renders: a headless Skia screenshot test produces a
+#      PNG, which only works when Skia, tree-sitter and fontconfig all work.
+# Polls for readiness without a deadline; the launch owns the timeout. Any
+# failure returns non-zero, which fails startup.
 
 healthcheck() {
     # shellcheck source=/dev/null
@@ -287,16 +332,20 @@ healthcheck() {
 #include <xkbcommon/xkbcommon.h>
 int main() {
     std::string ok = "ok";
-    std::printf("fontconfig %d xkbcommon %s %s\n", FcGetVersion(),
-                xkb_keysym_get_name ? "linked" : "missing", ok.c_str());
-    return 0;
+    FcConfig* config = FcInitLoadConfigAndFonts();
+    if (!config) { std::printf("fontconfig failed to load\n"); return 1; }
+    FcFontSet* fonts = FcConfigGetFonts(config, FcSetSystem);
+    int count = fonts ? fonts->nfont : 0;
+    std::printf("fontconfig %d, %d fonts, xkbcommon %s, c++ %s\n", FcGetVersion(),
+                count, xkb_keysym_get_name ? "linked" : "missing", ok.c_str());
+    return count > 0 ? 0 : 1;
 }
 EOF
     log "healthcheck: compiling and running a C++ probe against the sysroot"
     # shellcheck disable=SC2046
     "$CXX" "$probe/probe.cc" $(pkg-config --cflags --libs fontconfig xkbcommon) \
         -o "$probe/probe" || { rm -rf "$probe"; return 1; }
-    "$probe/probe" || { rm -rf "$probe"; return 1; }
+    "$probe/probe" || { log "the probe found no usable fonts"; rm -rf "$probe"; return 1; }
     rm -rf "$probe"
 
     log "healthcheck: pkg-config sees the native libraries"
@@ -336,12 +385,26 @@ EOF
         log "expected HTTP 403 for a tokenless request, got ${code:-none}"
         return 1
     fi
-    log "healthcheck: tokenless request correctly rejected with 403"
+    log "healthcheck: a tokenless request is correctly rejected with 403"
 
-    log "healthcheck: running the engine's own tests (rope, text, intervals, documents)"
+    log "healthcheck: running the engine's tests (rope, text, intervals, documents)"
     cargo test --locked --lib -p rope -p text -p intervals -p documents || return 1
 
-    log "healthcheck: OK"
+    log "healthcheck: rendering the editor headlessly into $SHOT_DIR"
+    rm -f "$SHOT_DIR/rust-split.png"
+    HIMARK_SHOT="$SHOT_DIR" cargo test --locked -p demo --lib -- \
+        --ignored --exact tests::dump_rust_split_screenshot || return 1
+    local shot="$SHOT_DIR/rust-split.png" size
+    [ -f "$shot" ] || { log "no screenshot at $shot"; return 1; }
+    size=$(wc -c < "$shot")
+    # A blank frame compresses to a few KB; a rendered split view is ~150K.
+    if [ "$size" -lt 20000 ]; then
+        log "the screenshot at $shot is only ${size}B, so nothing was drawn"
+        return 1
+    fi
+    log "healthcheck: the editor rendered $shot (${size}B)"
+
+    log "healthcheck: OK ($(df -h "$REPO_ROOT" | awk 'NR==2 {print $4" free on the workspace volume"}'))"
 }
 
 # --------------------------------------------------------------------------
@@ -352,13 +415,16 @@ main() {
 
     install_sysroot
     install_compiler_wrappers
+    install_fontconfig
     install_rust
     write_env_file
 
     # shellcheck source=/dev/null
     . "$ENV_FILE"
+    mkdir -p "$SHOT_DIR"
 
     if [ -n "$WARMUP" ]; then
+        prime_font_cache
         install_nextest
         prime_build_caches
         start_agent_host
