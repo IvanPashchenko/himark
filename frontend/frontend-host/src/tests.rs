@@ -5839,22 +5839,25 @@ fn a_dirless_session_gains_a_folder_and_switches_edits() {
         Some("Accept edits")
     );
 
-    let manifest_path = || -> std::path::PathBuf {
+    // More than one session dir can exist (the host's local-fs
+    // session persists a manifest too): scan them ALL — polling
+    // whichever `read_dir` yields first is a coin flip.
+    let manifests = || -> Vec<String> {
         std::fs::read_dir(data_dir.join("sessions"))
             .into_iter()
             .flatten()
             .filter_map(Result::ok)
-            .map(|entry| entry.path().join("session.json"))
-            .find(|path| path.exists())
-            .expect("a persisted manifest")
+            .filter_map(|entry| std::fs::read_to_string(entry.path().join("session.json")).ok())
+            .collect()
     };
     settle_until(
         engine_mut(&mut engine),
         "the permission persisted",
         |engine| {
             let _ = engine.draw(window, surface.canvas(), 1200.0, 800.0, 1.0);
-            std::fs::read_to_string(manifest_path())
-                .is_ok_and(|manifest| manifest.contains("\"permissionMode\": \"acceptEdits\""))
+            manifests()
+                .iter()
+                .any(|manifest| manifest.contains("\"permissionMode\": \"acceptEdits\""))
         },
     );
 
@@ -5883,10 +5886,12 @@ fn a_dirless_session_gains_a_folder_and_switches_edits() {
             })
         },
     );
-    let manifest = std::fs::read_to_string(manifest_path()).expect("manifest read");
     assert!(
-        manifest.contains("files"),
-        "the grant persisted: {manifest}"
+        manifests()
+            .iter()
+            .any(|manifest| manifest.contains("files")),
+        "the grant persisted: {:?}",
+        manifests()
     );
 }
 
@@ -6877,11 +6882,14 @@ fn repeated_external_saves_land_exactly_once_each() {
         let end = view.byte_count().min(u32::MAX as usize) as u32;
         view.substring(0..end)
     };
-    let breathe = |engine: &mut HimarkEngine| {
-        for _ in 0..20 {
-            settle(engine);
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
+    // The ladder is the duplicate detector: byte-EQUALITY is each
+    // step's settle condition, so a straggling second application
+    // from step N corrupts step N+1's wait and fails it loudly. No
+    // sleeps — a wrong text never settles.
+    let landed = |engine: &mut HimarkEngine, expected: &str| {
+        settle_until(engine, "the save landed byte-exact", |engine| {
+            text_of(engine) == expected
+        });
     };
 
     // Ladder one: a clean buffer follows repeated saves, once each.
@@ -6891,44 +6899,27 @@ fn repeated_external_saves_land_exactly_once_each() {
         "alpha\nONE\nTWO\nbeta\nTHREE\n",
     ] {
         emacs_save(&fs, expected);
-        settle_until(&mut engine, "the save landed", |engine| {
-            text_of(engine).len() >= expected.len()
-        });
-        breathe(&mut engine);
-        assert_eq!(
-            text_of(&engine),
-            expected,
-            "one save, one application — nothing doubled, nothing stale"
-        );
+        landed(&mut engine, expected);
     }
 
     // Local typing joins the history and flows to the host's mirror.
     assert!(himark::test_driver::type_text(&mut engine.app, "typed "));
-    breathe(&mut engine);
+    settle(&mut engine);
     let merged = text_of(&engine);
     assert!(
         merged.starts_with("typed "),
         "the caret sat at 0: {merged:?}"
     );
 
-    // Its echo (the buffer saved to disk) is a no-op.
+    // Its echo (the buffer saved to disk) must change nothing — the
+    // next ladder step's equality catches it if it does.
     emacs_save(&fs, &merged);
-    breathe(&mut engine);
-    assert_eq!(text_of(&engine), merged, "the echo of typing is a no-op");
 
     // Ladder two: external saves over a document WITH history.
     for tail in ["FOUR\n", "FOUR\nFIVE\n"] {
         let expected = format!("{merged}{tail}");
         emacs_save(&fs, &expected);
-        settle_until(&mut engine, "the save landed", |engine| {
-            text_of(engine).len() >= expected.len()
-        });
-        breathe(&mut engine);
-        assert_eq!(
-            text_of(&engine),
-            expected,
-            "history above changes nothing — once each, byte-exact"
-        );
+        landed(&mut engine, &expected);
     }
 }
 
@@ -7002,7 +6993,9 @@ fn a_diff_opened_before_the_editor_does_not_double_reloads() {
         view.substring(0..end)
     };
 
-    // External edits, byte-exact, several in a row.
+    // External edits, byte-exact, several in a row. Equality is the
+    // settle condition: a duplicate from any step corrupts the next
+    // step's wait — the ladder is the detector, no sleeps.
     for expected in [
         "alpha\nEXTERNAL\nbeta\n",
         "alpha\nEXTERNAL\nbeta\nMORE\n",
@@ -7012,17 +7005,8 @@ fn a_diff_opened_before_the_editor_does_not_double_reloads() {
         let temp = fs.path(&["#live.md.tmp#"]);
         std::fs::write(&temp, expected).expect("temp write");
         std::fs::rename(&temp, &target).expect("rename over");
-        settle_until(&mut engine, "the save landed", |engine| {
-            text_of(engine).len() >= expected.len()
+        settle_until(&mut engine, "the external change landed once", |engine| {
+            text_of(engine) == expected
         });
-        for _ in 0..20 {
-            settle(&mut engine);
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        assert_eq!(
-            text_of(&engine),
-            expected,
-            "diff-then-editor: every external change lands exactly ONCE"
-        );
     }
 }

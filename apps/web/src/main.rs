@@ -374,10 +374,11 @@ mod app {
                     );
                     himark::OpenDocuments::install_hook(
                         &mut state.store_mut(),
-                        Arc::new(hiahp::docsync::DocsyncHook),
+                        Arc::new(hiahp::docsync::DocsyncHook {
+                            channels: Arc::clone(&document_channels),
+                            directory: Arc::clone(&seats),
+                        }),
                     );
-                    let channels: Arc<dyn hiahp::fsroute::DocumentChannelSink> =
-                        Arc::new(hiahp::docsync::ChannelSink(Arc::clone(&document_channels)));
 
                     himark::InstalledChangeSink::install(
                         &mut state.store_mut(),
@@ -385,7 +386,6 @@ mod app {
                     );
                     state.register_handler::<himark::FetchDocumentEffect>(
                         hiahp::fsroute::RouteFetch {
-                            channels,
                             uris: Arc::clone(&resource_uris),
                             directory: Arc::clone(&seats),
                         },
