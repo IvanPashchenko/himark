@@ -197,14 +197,6 @@ impl DocumentChannels {
     }
 }
 
-pub struct ChannelSink(pub Arc<DocumentChannels>);
-
-impl crate::fsroute::DocumentChannelSink for ChannelSink {
-    fn ensure(&self, location: ResourceLocation, seat: Arc<dyn AhpServer>, session: String) {
-        DocumentChannels::ensure(&self.0, location, seat, session);
-    }
-}
-
 type Seeded = (SyncState, Uid, mpsc::UnboundedReceiver<Local<SyncEdit>>);
 
 async fn channel_life(
@@ -244,6 +236,10 @@ async fn channel_life(
         seeded,
     });
     let Some((state, version, edits)) = seed.recv().await else {
+        // Adoption declined (no registered document): release the
+        // channel — a leaked subscription re-subscribes later and
+        // every broadcast arrives twice (the 2026-09-15 doubling).
+        server.unsubscribe_document(&opened.document);
         return;
     };
 
@@ -429,6 +425,11 @@ impl himark::DynamicCommand for AdoptSnapshot {
                 applied: None,
             }),
         );
+        // The host is the source of truth from here: it watches the
+        // file and broadcasts reloads as its own edits; this client
+        // stops watching (docs: agents edit files, clients edit
+        // documents).
+        himark::OpenDocuments::set_host_synced(store, document_id, true, fx);
 
         if adopted {
             let shown = document.text().byte_count().min(u32::MAX as usize) as u32;
@@ -475,10 +476,17 @@ impl himark::DynamicCommand for GiveUp {
         _app: &mut himark::Application,
         store: &mut Store,
         _window: himark::WindowId,
-        _fx: &mut himark::AppFx<'_>,
+        fx: &mut himark::AppFx<'_>,
     ) {
         if SyncSeats::connecting(store, &self.location).is_some() {
             SyncSeats::detach(store, &self.location);
+        }
+        // Mode two: no document channel — this client subscribes to
+        // the resource itself and reloads on its own.
+        if let Some(document) = himark::OpenDocuments::by_location(store, &self.location) {
+            himark::OpenDocuments::set_host_synced(store, document, false, fx);
+            himark::sync_document_watches(store, fx);
+            himark::refetch_document(store, document, fx);
         }
     }
 }
@@ -570,14 +578,33 @@ impl editor::ChangeSink for SyncSink {
     }
 }
 
-pub struct DocsyncHook;
+pub struct DocsyncHook {
+    pub channels: Arc<DocumentChannels>,
+    pub directory: Arc<crate::fs::SeatDirectory>,
+}
 
 impl himark::DocumentHook for DocsyncHook {
-    fn opened(&self, _store: &mut Store, _document: himark::DocumentId) {}
+    fn opened(&self, store: &mut Store, document: himark::DocumentId) {
+        // The invariant (2026-09-15): every located document that
+        // talks to the outside world is registered in OpenDocuments —
+        // so registration is where its document channel gets ensured.
+        let Some(location) = himark::OpenDocuments::location(store, document) else {
+            return;
+        };
+        if himark::is_synthetic(&location) || !location.kind().is_document() {
+            return;
+        }
+        let Some((seat, session)) = crate::fsroute::seat_of(&self.directory, &location) else {
+            return;
+        };
+        DocumentChannels::ensure(&self.channels, location, seat, session);
+    }
 
     fn closing(&self, store: &mut Store, document: himark::DocumentId) {
         if let Some(location) = himark::OpenDocuments::location(store, document) {
             SyncSeats::detach(store, &location);
         }
+        let mut throwaway: imba::effect::Batch<imba::DynCommand> = imba::effect::Batch::new();
+        himark::OpenDocuments::set_host_synced(store, document, false, &mut throwaway.effects());
     }
 }

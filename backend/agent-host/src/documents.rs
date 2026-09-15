@@ -25,6 +25,10 @@ impl Document {
         self.version
     }
 
+    pub(crate) fn text(&self) -> &Text {
+        &self.text
+    }
+
     pub(crate) fn snapshot(&self, uri: Option<&str>) -> Value {
         let mut state = serde_json::json!({
             "text": text::materialize(&self.text),
@@ -56,6 +60,8 @@ pub(crate) fn mint(seq: u64) -> Uid {
         .unwrap_or(0);
     Uid((nanos << 32) ^ u128::from(seq))
 }
+
+pub(crate) mod reload;
 
 #[cfg(test)]
 mod tests;

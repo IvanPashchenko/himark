@@ -428,7 +428,7 @@ impl HimarkEngine {
             Arc::clone(&resource_uris),
         );
 
-        himark::OpenDocuments::install_hook(&mut app.store_mut(), Arc::new(docsync::DocsyncHook));
+        // The docsync hook installs after the seat directory exists (below).
 
         let scheduler = {
             let effect_wake = effect_wake.clone();
@@ -509,10 +509,14 @@ impl HimarkEngine {
         };
         app.register_handler::<host::NewTerminalEffect>(host::SessionTerminalHandler { refresh });
         app.register_command(Arc::new(host::OpenTerminal));
-        let channel_sink: Arc<dyn fsroute::DocumentChannelSink> =
-            Arc::new(docsync::ChannelSink(Arc::clone(&document_channels)));
+        himark::OpenDocuments::install_hook(
+            &mut app.store_mut(),
+            Arc::new(docsync::DocsyncHook {
+                channels: Arc::clone(&document_channels),
+                directory: Arc::clone(&seats),
+            }),
+        );
         app.register_handler::<himark::FetchDocumentEffect>(fsroute::RouteFetch {
-            channels: channel_sink,
             uris: Arc::clone(&resource_uris),
             directory: Arc::clone(&seats),
         });

@@ -1783,11 +1783,11 @@ fn raw_string_conversion_validates_utf8_and_null_lengths() {
 }
 
 #[test]
-fn external_edits_refetch_watched_documents() {
+fn external_edits_reach_documents_through_the_channel() {
     let (_host, mut engine, window, fs) = hosted_engine();
     open_picked(&mut engine, window, &fs, &["watched.md"], "alpha\n");
 
-    settle_until(&mut engine, "the picked-open document watches", |engine| {
+    settle_until(&mut engine, "the document channel went live", |engine| {
         himark::OpenDocuments::list(engine.app.store())
             .into_iter()
             .find(|entity| {
@@ -1796,7 +1796,12 @@ fn external_edits_refetch_watched_documents() {
                     .location()
                     .is_some_and(|location| !himark::is_synthetic(location))
             })
-            .is_some_and(|entity| entity.1.watch().is_some())
+            .is_some_and(|(id, entity)| {
+                // Mode one against the real host: the channel is the
+                // reload road; the client holds NO file watch.
+                himark::OpenDocuments::host_synced(engine.app.store(), id)
+                    && entity.watch().is_none()
+            })
     });
 
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
@@ -1827,7 +1832,7 @@ fn external_edits_refetch_watched_documents() {
 fn an_external_edit_merges_into_unsaved_typing() {
     let (_host, mut engine, window, fs) = hosted_engine();
     open_picked(&mut engine, window, &fs, &["merged.md"], "alpha\nbeta\n");
-    settle_until(&mut engine, "the picked-open document watches", |engine| {
+    settle_until(&mut engine, "the document channel went live", |engine| {
         himark::OpenDocuments::list(engine.app.store())
             .into_iter()
             .find(|entity| {
@@ -1836,7 +1841,12 @@ fn an_external_edit_merges_into_unsaved_typing() {
                     .location()
                     .is_some_and(|location| !himark::is_synthetic(location))
             })
-            .is_some_and(|entity| entity.1.watch().is_some())
+            .is_some_and(|(id, entity)| {
+                // Mode one against the real host: the channel is the
+                // reload road; the client holds NO file watch.
+                himark::OpenDocuments::host_synced(engine.app.store(), id)
+                    && entity.watch().is_none()
+            })
     });
 
     assert!(himark::test_driver::type_text(&mut engine.app, "MINE "));
@@ -6785,4 +6795,234 @@ fn the_two_call_cut_protocol_cuts_once_and_fills_the_pasteboard() {
         None,
         "a second cut with nothing selected sizes to zero"
     );
+}
+
+/// Mode one, end to end: with a documents-extension host the CLIENT
+/// stops watching the file — the host reloads the mirror on disk
+/// changes and broadcasts its own edit, which reaches the buffer
+/// through the document channel alone.
+#[test]
+fn a_hosted_documents_disk_change_arrives_through_the_channel() {
+    let (_host, mut engine, window, fs) = hosted_engine();
+    open_picked(&mut engine, window, &fs, &["agent.md"], "alpha\nbeta\n");
+
+    // The document channel goes live: the host owns the file now.
+    settle_until(&mut engine, "the channel went live", |engine| {
+        himark::OpenDocuments::list(engine.app.store())
+            .into_iter()
+            .any(|(id, entity)| {
+                entity.name() == "agent.md"
+                    && himark::OpenDocuments::host_synced(engine.app.store(), id)
+            })
+    });
+    let document_id = himark::OpenDocuments::list(engine.app.store())
+        .into_iter()
+        .find(|(_, entity)| entity.name() == "agent.md")
+        .map(|(id, _)| id)
+        .expect("the open");
+    assert_eq!(
+        himark::OpenDocuments::entity(engine.app.store(), document_id)
+            .expect("registered")
+            .watch(),
+        None,
+        "no client-side file watch in mode one"
+    );
+
+    // The agent writes the file behind everyone's back.
+    fs.write(&["agent.md"], "alpha\nAGENT\nbeta\n");
+
+    settle_until(&mut engine, "the host's edit landed", |engine| {
+        himark::OpenDocuments::document_ref(engine.app.store(), document_id).is_some_and(
+            |document| {
+                let mut view = document.text().view();
+                let end = view.byte_count().min(u32::MAX as usize) as u32;
+                view.substring(0..end) == "alpha\nAGENT\nbeta\n"
+            },
+        )
+    });
+}
+
+/// The regression that shipped 2026-09-15: every external change
+/// applied TWICE. Emacs-style saves (write a temp file, rename it
+/// over the target), repeated edits, local typing interleaved, and
+/// FULL-EQUALITY assertions — `contains` hid the duplication.
+#[test]
+fn repeated_external_saves_land_exactly_once_each() {
+    let (_host, mut engine, window, fs) = hosted_engine();
+    open_picked(&mut engine, window, &fs, &["emacs.md"], "alpha\nbeta\n");
+    settle_until(&mut engine, "the channel went live", |engine| {
+        himark::OpenDocuments::list(engine.app.store())
+            .into_iter()
+            .any(|(id, entity)| {
+                entity.name() == "emacs.md"
+                    && himark::OpenDocuments::host_synced(engine.app.store(), id)
+            })
+    });
+    let document_id = himark::OpenDocuments::list(engine.app.store())
+        .into_iter()
+        .find(|(_, entity)| entity.name() == "emacs.md")
+        .map(|(id, _)| id)
+        .expect("the open");
+
+    let emacs_save = |fs: &HostedFs, text: &str| {
+        let target = fs.path(&["emacs.md"]);
+        let temp = fs.path(&["#emacs.md.tmp#"]);
+        std::fs::write(&temp, text).expect("temp write");
+        std::fs::rename(&temp, &target).expect("rename over");
+    };
+    let text_of = |engine: &HimarkEngine| -> String {
+        let document =
+            himark::OpenDocuments::document_ref(engine.app.store(), document_id).expect("open");
+        let mut view = document.text().view();
+        let end = view.byte_count().min(u32::MAX as usize) as u32;
+        view.substring(0..end)
+    };
+    let breathe = |engine: &mut HimarkEngine| {
+        for _ in 0..20 {
+            settle(engine);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    };
+
+    // Ladder one: a clean buffer follows repeated saves, once each.
+    for expected in [
+        "alpha\nONE\nbeta\n",
+        "alpha\nONE\nTWO\nbeta\n",
+        "alpha\nONE\nTWO\nbeta\nTHREE\n",
+    ] {
+        emacs_save(&fs, expected);
+        settle_until(&mut engine, "the save landed", |engine| {
+            text_of(engine).len() >= expected.len()
+        });
+        breathe(&mut engine);
+        assert_eq!(
+            text_of(&engine),
+            expected,
+            "one save, one application — nothing doubled, nothing stale"
+        );
+    }
+
+    // Local typing joins the history and flows to the host's mirror.
+    assert!(himark::test_driver::type_text(&mut engine.app, "typed "));
+    breathe(&mut engine);
+    let merged = text_of(&engine);
+    assert!(
+        merged.starts_with("typed "),
+        "the caret sat at 0: {merged:?}"
+    );
+
+    // Its echo (the buffer saved to disk) is a no-op.
+    emacs_save(&fs, &merged);
+    breathe(&mut engine);
+    assert_eq!(text_of(&engine), merged, "the echo of typing is a no-op");
+
+    // Ladder two: external saves over a document WITH history.
+    for tail in ["FOUR\n", "FOUR\nFIVE\n"] {
+        let expected = format!("{merged}{tail}");
+        emacs_save(&fs, &expected);
+        settle_until(&mut engine, "the save landed", |engine| {
+            text_of(engine).len() >= expected.len()
+        });
+        breathe(&mut engine);
+        assert_eq!(
+            text_of(&engine),
+            expected,
+            "history above changes nothing — once each, byte-exact"
+        );
+    }
+}
+
+/// The user's exact repro (2026-09-15): open a WORKING-COPY DIFF of a
+/// file first, then the file in a normal editor, then edit it
+/// externally — the diff's fetch used to orphan a document channel
+/// whose leaked subscription made every later broadcast apply twice.
+#[test]
+fn a_diff_opened_before_the_editor_does_not_double_reloads() {
+    struct OpenWorkingDiff {
+        old: himark::ResourceLocation,
+        new: himark::ResourceLocation,
+    }
+    impl himark::DynamicCommand for OpenWorkingDiff {
+        fn id(&self) -> &'static str {
+            "test.open-working-diff"
+        }
+        fn name(&self) -> String {
+            "Open Working Diff".to_owned()
+        }
+        fn perform(
+            &self,
+            _app: &mut himark::Application,
+            _store: &mut imba::store::Store,
+            window: himark::WindowId,
+            fx: &mut himark::AppFx<'_>,
+        ) {
+            fx.push(imba::effect::AnyEffect::new(
+                himark::OpenDiffByLocationsEffect {
+                    window,
+                    old: self.old.clone(),
+                    new: self.new.clone(),
+                },
+            ));
+        }
+    }
+
+    let (_host, mut engine, window, fs) = hosted_engine();
+    fs.write(&["old.md"], "alpha\n");
+    fs.write(&["live.md"], "alpha\nbeta\n");
+
+    // The diff FIRST — its sides fetch and register.
+    let _ = engine.app.perform_batch(vec![himark::AppCommand::Dynamic(
+        himark::WindowId::from_raw(window),
+        std::sync::Arc::new(OpenWorkingDiff {
+            old: fs.doc(&["old.md"]),
+            new: fs.doc(&["live.md"]),
+        }),
+    )]);
+    settle_until(&mut engine, "the diff registered its sides", |engine| {
+        himark::OpenDocuments::list(engine.app.store())
+            .into_iter()
+            .any(|(id, entity)| {
+                entity.name() == "live.md"
+                    && himark::OpenDocuments::host_synced(engine.app.store(), id)
+            })
+    });
+
+    // THEN the normal editor.
+    open_picked(&mut engine, window, &fs, &["live.md"], "alpha\nbeta\n");
+    let document_id = himark::OpenDocuments::list(engine.app.store())
+        .into_iter()
+        .find(|(_, entity)| entity.name() == "live.md")
+        .map(|(id, _)| id)
+        .expect("the open");
+    let text_of = |engine: &HimarkEngine| -> String {
+        let document =
+            himark::OpenDocuments::document_ref(engine.app.store(), document_id).expect("open");
+        let mut view = document.text().view();
+        let end = view.byte_count().min(u32::MAX as usize) as u32;
+        view.substring(0..end)
+    };
+
+    // External edits, byte-exact, several in a row.
+    for expected in [
+        "alpha\nEXTERNAL\nbeta\n",
+        "alpha\nEXTERNAL\nbeta\nMORE\n",
+        "alpha\nEXTERNAL\nbeta\nMORE\nSTILL\n",
+    ] {
+        let target = fs.path(&["live.md"]);
+        let temp = fs.path(&["#live.md.tmp#"]);
+        std::fs::write(&temp, expected).expect("temp write");
+        std::fs::rename(&temp, &target).expect("rename over");
+        settle_until(&mut engine, "the save landed", |engine| {
+            text_of(engine).len() >= expected.len()
+        });
+        for _ in 0..20 {
+            settle(&mut engine);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(
+            text_of(&engine),
+            expected,
+            "diff-then-editor: every external change lands exactly ONCE"
+        );
+    }
 }

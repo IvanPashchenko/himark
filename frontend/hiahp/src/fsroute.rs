@@ -13,27 +13,6 @@ use imba::effect::EffectHandler;
 
 const LOCAL_AUTHORITY: &str = "local";
 
-pub trait DocumentChannelSink: Send + Sync {
-    fn ensure(
-        &self,
-        location: ResourceLocation,
-        seat: Arc<dyn himark::higent::AhpServer>,
-        session: String,
-    );
-}
-
-pub struct NoDocumentChannels;
-
-impl DocumentChannelSink for NoDocumentChannels {
-    fn ensure(
-        &self,
-        _location: ResourceLocation,
-        _seat: Arc<dyn himark::higent::AhpServer>,
-        _session: String,
-    ) {
-    }
-}
-
 pub fn seat_of_authority(
     directory: &SeatDirectory,
     authority: &str,
@@ -63,7 +42,6 @@ pub fn served(location: &ResourceLocation) -> bool {
 
 pub struct RouteFetch {
     pub directory: Arc<SeatDirectory>,
-    pub channels: Arc<dyn DocumentChannelSink>,
     pub uris: Arc<dyn himark::higent::ResourceUriMap>,
 }
 
@@ -76,14 +54,13 @@ impl EffectHandler<FetchDocumentEffect> for RouteFetch {
                 .await;
         }
         let (seat, session) = seat_of(&self.directory, &effect.location)?;
-        let text = seat
-            .resource_read(session.clone(), self.uris.uri_of(&effect.location))
-            .await;
-
-        if text.is_some() && effect.location.kind().is_document() {
-            self.channels.ensure(effect.location.clone(), seat, session);
-        }
-        text
+        // NO channel side effects here: document channels ride
+        // REGISTRATION (`DocsyncHook::opened`), never bare fetches —
+        // a fetch for a not-yet-registered document (a diff side
+        // being built) must not open a channel that adoption then
+        // orphans (the 2026-09-15 double-subscription).
+        seat.resource_read(session, self.uris.uri_of(&effect.location))
+            .await
     }
 }
 

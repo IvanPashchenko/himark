@@ -1450,6 +1450,17 @@ impl Application {
                 self.pending_file_events.push(subscription);
             }
             AppCommand::Watched(document, subscription) => {
+                // The channel may have gone live while the subscribe
+                // was in flight: mode one holds — the host watches
+                // the file, this subscription is surplus.
+                if crate::OpenDocuments::host_synced(store, document) {
+                    if let Some(subscription) = subscription {
+                        let _ = fx.push(imba::effect::AnyEffect::notification(
+                            crate::watch::UnsubscribeEffect { subscription },
+                        ));
+                    }
+                    return;
+                }
                 crate::OpenDocuments::set_watch(store, document, subscription);
             }
             AppCommand::Refetched {

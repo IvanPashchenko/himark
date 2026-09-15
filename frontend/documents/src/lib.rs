@@ -143,6 +143,12 @@ pub struct OpenDocument {
 
     pub(crate) watch_requested: bool,
 
+    /// A live document channel makes the HOST the source of truth:
+    /// it reloads the file itself and broadcasts its own edits. While
+    /// set, this client neither watches the file nor absorbs its own
+    /// refetches (docs: agents edit files, clients edit documents).
+    pub(crate) host_synced: bool,
+
     pub(crate) base_requested: bool,
 }
 
@@ -252,6 +258,7 @@ impl OpenDocuments {
                 save_token: None,
                 watch: None,
                 watch_requested: false,
+                host_synced: false,
                 base_requested: false,
             },
         );
@@ -417,6 +424,43 @@ impl OpenDocuments {
         Self::update_entity(store, document, |entity| entity.save_token = token);
     }
 
+    /// The document channel went live (or died): while live, the
+    /// HOST owns disk reloads and this client must not watch the
+    /// file; on fallback the watch machinery re-arms and a refetch
+    /// resyncs from disk.
+    pub fn set_host_synced<R: 'static>(
+        store: &mut Store,
+        document: DocumentId,
+        synced: bool,
+        fx: &mut imba::effect::Effects<'_, R>,
+    ) {
+        let Some(entity) = Self::entity(store, document) else {
+            return;
+        };
+        if entity.host_synced == synced {
+            return;
+        }
+        if synced {
+            if let Some(subscription) = entity.watch {
+                let _ = fx.push(imba::effect::AnyEffect::notification(
+                    crate::watch::UnsubscribeEffect { subscription },
+                ));
+            }
+        }
+        Self::update_entity(store, document, |entity| {
+            entity.host_synced = synced;
+            if synced {
+                entity.watch = None;
+            }
+            // Either way the sweep decides afresh.
+            entity.watch_requested = false;
+        });
+    }
+
+    pub fn host_synced(store: &Store, document: DocumentId) -> bool {
+        Self::entity(store, document).is_some_and(|entity| entity.host_synced)
+    }
+
     pub fn set_watch_requested(store: &mut Store, document: DocumentId) {
         Self::update_entity(store, document, |entity| entity.watch_requested = true);
     }
@@ -559,7 +603,13 @@ impl OpenDocuments {
         synced: bool,
         fx: &mut imba::effect::Effects<'_, editor::EditorCommand>,
     ) -> bool {
-        if Self::entity(store, document_id).is_none_or(|entity| entity.refetch_serial != serial) {
+        let Some(entity) = Self::entity(store, document_id) else {
+            return false;
+        };
+        // The channel went live while this landing was in flight: the
+        // HOST owns disk truth now; a client-side merge would fight
+        // its broadcasts.
+        if entity.host_synced || entity.refetch_serial != serial {
             return false;
         }
         let Some(mut document) = Self::document(store, document_id) else {

@@ -261,7 +261,7 @@ pub fn sync_document_watches<R: 'static>(
         return;
     }
     for (document, entity) in OpenDocuments::list(store) {
-        if entity.watch.is_some() || entity.watch_requested {
+        if entity.watch.is_some() || entity.watch_requested || entity.host_synced {
             continue;
         }
         let Some(location) = entity.location.clone() else {
@@ -300,9 +300,13 @@ pub fn refetch_watched<R: 'static>(
         );
     }
     for document in riders {
-        let Some(location) =
-            OpenDocuments::entity(store, document).and_then(|entity| entity.location)
-        else {
+        let Some(entity) = OpenDocuments::entity(store, document) else {
+            continue;
+        };
+        if entity.host_synced {
+            continue;
+        }
+        let Some(location) = entity.location else {
             continue;
         };
 

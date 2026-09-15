@@ -2833,3 +2833,133 @@ async fn a_binary_resource_reads_as_base64() {
         .expect("valid base64");
     assert_eq!(String::from_utf8(decoded).expect("utf-8"), "hello\n");
 }
+
+/// Mode one, the host's half: agents edit FILES; the host owns the
+/// mirror's disk reload and broadcasts the result as its own edit.
+#[tokio::test]
+async fn a_mirrored_files_change_broadcasts_as_the_hosts_edit() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = dir.path().join("agent.md");
+    std::fs::write(&file, "alpha\nbeta\n").unwrap();
+    let host = host_at(dir.path());
+    let mut client = Client::connect(host.clone()).await;
+    client
+        .request(
+            "initialize",
+            json!({"channel": ROOT, "protocolVersions": ["0.7.0"], "clientId": "test"}),
+        )
+        .await;
+    let uri = format!("file://{}", file.display());
+    let opened = client
+        .request(
+            "openDocument",
+            json!({"channel": "hihost-fs:/local", "uri": uri}),
+        )
+        .await;
+    let channel = opened["document"].as_str().expect("a channel").to_owned();
+    let v0 = opened["version"].as_str().expect("a version").to_owned();
+    client
+        .request("subscribe", json!({"channel": channel}))
+        .await;
+
+    // The agent writes the file behind the host's back.
+    std::fs::write(&file, "alpha\nAGENT\nbeta\n").unwrap();
+
+    let action = client.next_action(&channel).await;
+    assert_eq!(action["type"], "document/applied");
+    assert_eq!(
+        action["base"],
+        v0.as_str(),
+        "the edit chains off the mirror"
+    );
+    let replacements = action["operation"]["replacements"]
+        .as_array()
+        .expect("replacements");
+    assert!(
+        replacements
+            .iter()
+            .any(|span| span["text"].as_str().unwrap_or_default().contains("AGENT")),
+        "the broadcast carries the agent's change: {action}"
+    );
+
+    // The mirror moved with it: reopening reports the host edit's id.
+    let reopened = client
+        .request(
+            "openDocument",
+            json!({"channel": "hihost-fs:/local", "uri": uri}),
+        )
+        .await;
+    assert_eq!(reopened["document"], channel.as_str());
+    assert_eq!(
+        reopened["version"], action["id"],
+        "the host's edit is the mirror's head"
+    );
+}
+
+/// Mode one with unflushed client edits: the host three-way merges
+/// the disk change over them — nobody's bytes lost, one broadcast.
+#[tokio::test]
+async fn unflushed_client_edits_survive_the_hosts_file_reload() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = dir.path().join("shared.md");
+    std::fs::write(&file, "alpha\nbeta\n").unwrap();
+    let host = host_at(dir.path());
+    let mut client = Client::connect(host.clone()).await;
+    client
+        .request(
+            "initialize",
+            json!({"channel": ROOT, "protocolVersions": ["0.7.0"], "clientId": "test"}),
+        )
+        .await;
+    let uri = format!("file://{}", file.display());
+    let opened = client
+        .request(
+            "openDocument",
+            json!({"channel": "hihost-fs:/local", "uri": uri}),
+        )
+        .await;
+    let channel = opened["document"].as_str().expect("a channel").to_owned();
+    let v0 = opened["version"].as_str().expect("a version").to_owned();
+    client
+        .request("subscribe", json!({"channel": channel}))
+        .await;
+
+    // A client edit the disk has not seen (unflushed typing).
+    dispatch_applied(
+        &mut client,
+        &channel,
+        &v0,
+        uid(0xa1),
+        insert_at(0, 0, "OURS "),
+    )
+    .await;
+    let echo = client.next_action(&channel).await;
+    assert_eq!(echo["id"], uid(0xa1).as_str());
+
+    // The agent appends a line on disk.
+    std::fs::write(&file, "alpha\nbeta\nAGENT\n").unwrap();
+
+    let action = client.next_action(&channel).await;
+    assert_eq!(action["type"], "document/applied");
+    assert_eq!(
+        action["base"],
+        uid(0xa1).as_str(),
+        "the reload chains off the client's edit, not the stale disk"
+    );
+
+    // A second subscriber sees the MERGE: typing kept, agent's line in.
+    let mut witness = Client::connect(host.clone()).await;
+    witness
+        .request(
+            "initialize",
+            json!({"channel": ROOT, "protocolVersions": ["0.7.0"], "clientId": "witness"}),
+        )
+        .await;
+    let snapshot = witness
+        .request("subscribe", json!({"channel": channel}))
+        .await;
+    assert_eq!(
+        snapshot["snapshot"]["state"]["text"], "OURS alpha\nbeta\nAGENT\n",
+        "three-way: unflushed typing survives the agent's reload"
+    );
+}

@@ -385,6 +385,11 @@ struct SessionEntry {
 
     mirrors: rpds::HashTrieMapSync<Uri, Uri>,
 
+    /// The disk text each mirrored channel last reconciled with —
+    /// the three-way base when the file changes under unflushed
+    /// client edits (documents/reload.rs).
+    disk_texts: rpds::HashTrieMapSync<Uri, String>,
+
     annotations: AnnotationsState,
 }
 
@@ -505,6 +510,11 @@ struct State {
 
     watches: rpds::HashTrieMapSync<Uri, WatchEntry>,
 
+    /// One file watcher per mirrored document channel: the host owns
+    /// disk reloads for mirrors (documents/reload.rs) and broadcasts
+    /// them as its own edits.
+    mirror_watches: rpds::HashTrieMapSync<Uri, WatchEntry>,
+
     contents: rpds::HashTrieMapSync<Uri, String>,
 
     replay: rpds::QueueSync<ahp_types::actions::ActionEnvelope>,
@@ -588,6 +598,7 @@ impl Host {
                     manifest,
                     documents: rpds::HashTrieMapSync::new_sync(),
                     mirrors: rpds::HashTrieMapSync::new_sync(),
+                    disk_texts: rpds::HashTrieMapSync::new_sync(),
                 },
             );
         }
@@ -625,6 +636,7 @@ impl Host {
                 manifest: local,
                 documents: rpds::HashTrieMapSync::new_sync(),
                 mirrors: rpds::HashTrieMapSync::new_sync(),
+                disk_texts: rpds::HashTrieMapSync::new_sync(),
             },
         );
         Arc::new_cyclic(|weak: &std::sync::Weak<Self>| {
@@ -659,6 +671,7 @@ impl Host {
                     document_seq: 0,
                     lsp_diagnostics: rpds::HashTrieMapSync::new_sync(),
                     watches: rpds::HashTrieMapSync::new_sync(),
+                    mirror_watches: rpds::HashTrieMapSync::new_sync(),
                     contents: rpds::HashTrieMapSync::new_sync(),
                     replay: rpds::QueueSync::new_sync(),
                     next_connection: 0,
@@ -956,9 +969,11 @@ impl Host {
                                 })
                                 .map(|(uri, _)| uri.clone())
                                 .collect();
+                            state.mirror_watches.remove_mut(&params.channel);
                             for uri in owners {
                                 let mut session = state.sessions[&uri].clone();
                                 session.documents.remove_mut(&params.channel);
+                                session.disk_texts.remove_mut(&params.channel);
                                 let mirrors: Vec<Uri> = session
                                     .mirrors
                                     .iter()
@@ -1332,6 +1347,7 @@ impl Host {
                     manifest,
                     documents: rpds::HashTrieMapSync::new_sync(),
                     mirrors: rpds::HashTrieMapSync::new_sync(),
+                    disk_texts: rpds::HashTrieMapSync::new_sync(),
                     annotations: AnnotationsState {
                         annotations: Vec::new(),
                     },
@@ -1550,6 +1566,7 @@ impl Host {
                     manifest: manifest.clone(),
                     documents: rpds::HashTrieMapSync::new_sync(),
                     mirrors: rpds::HashTrieMapSync::new_sync(),
+                    disk_texts: rpds::HashTrieMapSync::new_sync(),
                     annotations: AnnotationsState {
                         annotations: Vec::new(),
                     },
@@ -2633,7 +2650,7 @@ impl Host {
         }
     }
 
-    fn open_document(&self, id: u64, params: Value) -> JsonRpcMessage {
+    fn open_document(self: &Arc<Self>, id: u64, params: Value) -> JsonRpcMessage {
         let params =
             match serde_json::from_value::<himark_ahp_ext_types::OpenDocumentParams>(params) {
                 Ok(params) => params,
@@ -2688,6 +2705,7 @@ impl Host {
             });
             if let Some(uri) = &params.uri {
                 session.mirrors.insert_mut(uri.clone(), channel.clone());
+                session.disk_texts.insert_mut(channel.clone(), text.clone());
             }
             state.document_seq = seq;
             state.sessions.insert_mut(params.channel.clone(), session);
@@ -2699,6 +2717,8 @@ impl Host {
 
         if let Some((dirs, uri)) = feed {
             self.lsp_feed_open(&dirs, &uri, &text, version);
+            // The host owns disk reloads for this mirror from here on.
+            self.watch_mirror(channel.clone(), uri);
         }
         rpc::success(
             id,
@@ -2707,6 +2727,160 @@ impl Host {
                 version,
             },
         )
+    }
+
+    /// Arm the file watcher behind a freshly minted mirror: the file
+    /// is the agent's; when it changes, the HOST reconciles the
+    /// mirror and broadcasts its own edit
+    /// (docs: agents edit files; clients edit documents).
+    fn watch_mirror(self: &Arc<Self>, channel: Uri, uri: Uri) {
+        let Some(path) = crate::uris::file_path(&uri) else {
+            return;
+        };
+        let host = Arc::downgrade(self);
+        let target = channel.clone();
+        let watcher = notify::PollWatcher::new(
+            move |outcome: notify::Result<notify::Event>| {
+                let Ok(_) = outcome else { return };
+                let Some(host) = host.upgrade() else { return };
+                host.reload_mirror(&target);
+            },
+            notify::Config::default()
+                .with_compare_contents(true)
+                .with_poll_interval(std::time::Duration::from_millis(400)),
+        );
+        let Ok(mut watcher) = watcher else {
+            return;
+        };
+        if notify::Watcher::watch(&mut watcher, &path, notify::RecursiveMode::NonRecursive).is_err()
+        {
+            return;
+        }
+        self.update(|state| {
+            state.mirror_watches.insert_mut(
+                channel.clone(),
+                WatchEntry {
+                    _watcher: Arc::new(watcher),
+                    root: uri.clone(),
+                },
+            );
+        });
+    }
+
+    /// The file under a mirror changed: reconcile and BROADCAST. The
+    /// mirror is the source of truth; the disk text last reconciled
+    /// is the three-way base when clients hold unflushed edits; the
+    /// result goes out as the host's own edit, exactly like a
+    /// client's would.
+    fn reload_mirror(self: &Arc<Self>, channel: &Uri) {
+        let path = {
+            let state = self.snapshot();
+            let Some(entry) = state.mirror_watches.get(channel) else {
+                return;
+            };
+            let Some(path) = crate::uris::file_path(&entry.root) else {
+                return;
+            };
+            path
+        };
+        let Ok(fetched) = std::fs::read_to_string(&path) else {
+            return;
+        };
+        if std::env::var_os("HIHOST_TRACE").is_some() {
+            eprintln!(
+                "[hihost] reload_mirror {channel}: fetched {} bytes",
+                fetched.len()
+            );
+        }
+        let feed = self.update(|state| {
+            let (owner, session) = state
+                .sessions
+                .iter()
+                .find(|(_, session)| session.documents.contains_key(channel))
+                .map(|(uri, session)| (uri.clone(), session.clone()))?;
+            let mut session = session;
+            let mut document = session.documents[channel].clone();
+            let current = himark_ahp_ext_types::text::materialize(document.text());
+            let base = session
+                .disk_texts
+                .get(channel)
+                .cloned()
+                .unwrap_or_else(|| current.clone());
+            if fetched == base {
+                return None;
+            }
+            let target = match current == base {
+                true => fetched.clone(),
+                false => crate::documents::reload::merged(&base, &current, &fetched),
+            };
+            let spans = crate::documents::reload::spans(&current, &target);
+            session
+                .disk_texts
+                .insert_mut(channel.clone(), fetched.clone());
+            if spans.is_empty() {
+                state.sessions.insert_mut(owner, session);
+                return None;
+            }
+            let seq = state.document_seq + 1;
+            state.document_seq = seq;
+            if std::env::var_os("HIHOST_TRACE").is_some() {
+                eprintln!(
+                    "[hihost] reload_mirror {channel}: {} span(s), base v{}",
+                    spans.len(),
+                    document.version(),
+                );
+            }
+            let action = himark_ahp_ext_types::DocumentApplied {
+                base: document.version(),
+                operation: himark_ahp_ext_types::text::wire_of(document.text(), &spans),
+                id: crate::documents::mint(seq),
+                origin: None,
+            };
+            if !document.dispatch(&action) {
+                return None;
+            }
+            let uri = session
+                .mirrors
+                .iter()
+                .find(|(_, held)| *held == channel)
+                .map(|(uri, _)| uri.clone());
+            let dirs = session.state.working_directories.clone();
+            session.documents.insert_mut(channel.clone(), document);
+            state.sessions.insert_mut(owner, session);
+
+            state.server_seq += 1;
+            let mut value = serde_json::to_value(&action).expect("a wire action");
+            value["type"] = Value::String(himark_ahp_ext_types::DOCUMENT_APPLIED.to_owned());
+            let envelope = ahp_types::actions::ActionEnvelope {
+                channel: channel.clone(),
+                action: StateAction::Unknown(value),
+                server_seq: state.server_seq as u64,
+                origin: None,
+                rejection_reason: None,
+            };
+            let line = rpc::line(&rpc::notification("action", &envelope));
+            if let Some(subscribers) = state.subscribers.get(channel) {
+                for (_, outbox) in subscribers.iter() {
+                    let _ = outbox.send(line.clone());
+                }
+            }
+            state.replay.enqueue_mut(envelope);
+            if state.replay.len() > REPLAY_DEPTH {
+                state.replay.dequeue_mut();
+            }
+            Some((uri, dirs, action))
+        });
+        let Some((uri, dirs, action)) = feed else {
+            return;
+        };
+        if let Some(uri) = uri {
+            self.lsp_feed_change(
+                &dirs.unwrap_or_default(),
+                &uri,
+                &action.operation,
+                action.id,
+            );
+        }
     }
 
     fn subscribe_document(

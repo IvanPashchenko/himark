@@ -1140,3 +1140,82 @@ fn a_same_line_conflict_keeps_both_sides_bytes() {
         "the merge holds more than disk — dirty"
     );
 }
+
+/// Mode one, the client's half: a live document channel makes the
+/// HOST the source of truth — this client releases its file watch,
+/// refuses its own refetch landings, and re-arms both when the
+/// channel dies (mode two).
+#[test]
+fn a_host_synced_document_stops_watching_and_absorbing() {
+    let mut store = Store::new();
+    Watching::install(&mut store);
+    let id = registered(&mut store, "alpha\n");
+    OpenDocuments::set_watch(&mut store, id, Some(Subscription(7)));
+
+    // The channel goes live: the watch is released...
+    let mut batch: imba::effect::Batch<crate::AppCommand> = imba::effect::Batch::new();
+    OpenDocuments::set_host_synced(&mut store, id, true, &mut batch.effects());
+    let released = crate::test_support::surviving_launches(batch);
+    assert!(
+        released
+            .iter()
+            .any(|effect| effect.is::<UnsubscribeEffect>()),
+        "the file watch is the host's job now"
+    );
+    assert_eq!(
+        OpenDocuments::entity(&store, id)
+            .expect("registered")
+            .watch(),
+        None
+    );
+
+    // ...the sweep leaves it alone...
+    let mut batch: imba::effect::Batch<crate::AppCommand> = imba::effect::Batch::new();
+    crate::watch::sync_document_watches(&mut store, &mut batch.effects());
+    assert!(
+        crate::test_support::surviving_launches(batch).is_empty(),
+        "a host-synced document never re-subscribes"
+    );
+
+    // ...and an in-flight refetch landing is refused.
+    let serial = OpenDocuments::stamp_refetch(&mut store, id);
+    let mut batch = imba::effect::Batch::new();
+    apply_refetched(
+        &mut store,
+        id,
+        serial,
+        Some("alpha\nDISK\n".to_owned()),
+        &mut batch.effects(),
+    );
+    let base_revision = OpenDocuments::document_ref(&store, id)
+        .expect("the document")
+        .revision();
+    let rebase = landed_rebase(batch);
+    let retry = OpenDocuments::absorb_refetched(
+        &mut store,
+        id,
+        base_revision,
+        serial,
+        &rebase.operation,
+        rebase.fetched,
+        rebase.synced,
+        &mut imba::effect::Batch::new().effects(),
+    );
+    assert!(!retry, "no retry either — the host owns disk truth");
+    assert_eq!(
+        text_of(&OpenDocuments::document_ref(&store, id).expect("the document")),
+        "alpha\n",
+        "the client-side landing is refused wholesale"
+    );
+
+    // The channel dies: mode two re-arms the client's own watching.
+    let mut batch: imba::effect::Batch<crate::AppCommand> = imba::effect::Batch::new();
+    OpenDocuments::set_host_synced(&mut store, id, false, &mut batch.effects());
+    crate::watch::sync_document_watches(&mut store, &mut batch.effects());
+    assert!(
+        crate::test_support::surviving_launches(batch)
+            .iter()
+            .any(|effect| effect.is::<SubscribeEffect>()),
+        "the fallback subscribes the resource again"
+    );
+}
