@@ -322,6 +322,10 @@ impl Engine {
         self.inner.unmark_text(self.window)
     }
 
+    fn has_marked_text(&mut self) -> bool {
+        self.inner.has_marked_text(self.window)
+    }
+
     fn ime_cursor_rect(&mut self) -> Option<himark_api::HimarkRect> {
         let range = self.inner.selected_range(self.window)?;
         self.inner.first_rect(self.window, range)
@@ -1042,31 +1046,28 @@ impl WinitHost {
             return;
         }
 
+        if self.engine.has_marked_text() {
+            return;
+        }
+
+        let dispatch = key_dispatch(
+            event.logical_key.as_ref(),
+            event.text.as_deref(),
+            self.text_input_blocked_by_modifiers(),
+        );
         let event_time = self.event_time();
         let mods = self.himark_mods();
-        let changed = match event.logical_key.as_ref() {
-            Key::Named(named) => match named_key_code(named) {
-                Some(code) => self.engine.key_down_at(code, mods, event_time),
-                None => false,
-            },
 
-            Key::Character(text) if self.text_input_blocked_by_modifiers() => {
-                text.chars().next().map_or(false, |ch| {
-                    self.engine.key_down_at(ch as u32, mods, event_time)
-                })
+        if let Some(code) = dispatch.key_code {
+            if self.engine.key_down_at(code, mods, event_time) {
+                self.event_changed(true);
+                return;
             }
-            _ => {
-                if self.text_input_blocked_by_modifiers() {
-                    false
-                } else {
-                    event
-                        .text
-                        .as_deref()
-                        .filter(|text| is_insertable_text(text))
-                        .map_or(false, |text| self.engine.text_input_at(text, event_time))
-                }
-            }
-        };
+        }
+
+        let changed = dispatch
+            .fallback_text
+            .is_some_and(|text| self.engine.text_input_at(&text, event_time));
         self.event_changed(changed);
     }
 
@@ -1475,6 +1476,38 @@ struct HostDocument {
     source: String,
 }
 
+struct KeyDispatch {
+    key_code: Option<u32>,
+    fallback_text: Option<String>,
+}
+
+fn key_dispatch(logical_key: Key<&str>, text: Option<&str>, text_blocked: bool) -> KeyDispatch {
+    let (key_code, insertable) = match logical_key {
+        Key::Named(NamedKey::Space) => (Some(' ' as u32), text.or(Some(" "))),
+        Key::Named(named) => (named_key_code(named), None),
+        Key::Character(character) => {
+            let code = character
+                .chars()
+                .next()
+                .map(|ch| ch as u32)
+                .filter(|code| *code >= himark_api::HIMARK_KEY_CHAR_BASE);
+            (code, text)
+        }
+        Key::Dead(_) => (None, text),
+        Key::Unidentified(_) => (None, None),
+    };
+
+    let fallback_text = insertable
+        .filter(|_| !text_blocked)
+        .filter(|text| is_insertable_text(text))
+        .map(str::to_owned);
+
+    KeyDispatch {
+        key_code,
+        fallback_text,
+    }
+}
+
 fn named_key_code(key: NamedKey) -> Option<u32> {
     Some(match key {
         NamedKey::Backspace => himark_api::HIMARK_KEY_BACKSPACE,
@@ -1570,5 +1603,62 @@ mod tests {
     fn winit_registers_the_files_tree_capability() {
         let mut engine = Engine::new();
         assert!(engine.perform_command("files.tree"));
+    }
+
+    #[test]
+    fn space_reaches_the_engine_as_a_key_and_then_as_text() {
+        let unblocked = key_dispatch(Key::Named(NamedKey::Space), Some(" "), false);
+        assert_eq!(unblocked.key_code, Some(' ' as u32));
+        assert_eq!(unblocked.fallback_text.as_deref(), Some(" "));
+
+        let blocked = key_dispatch(Key::Named(NamedKey::Space), Some(" "), true);
+        assert_eq!(blocked.key_code, Some(' ' as u32));
+        assert_eq!(blocked.fallback_text, None);
+    }
+
+    #[test]
+    fn space_without_winit_text_still_inserts_a_space() {
+        let dispatch = key_dispatch(Key::Named(NamedKey::Space), None, false);
+        assert_eq!(dispatch.key_code, Some(' ' as u32));
+        assert_eq!(dispatch.fallback_text.as_deref(), Some(" "));
+    }
+
+    #[test]
+    fn characters_reach_the_engine_as_a_key_before_text_input() {
+        let unblocked = key_dispatch(Key::Character("a"), Some("a"), false);
+        assert_eq!(unblocked.key_code, Some('a' as u32));
+        assert_eq!(unblocked.fallback_text.as_deref(), Some("a"));
+
+        let blocked = key_dispatch(Key::Character("a"), Some("a"), true);
+        assert_eq!(blocked.key_code, Some('a' as u32));
+        assert_eq!(blocked.fallback_text, None);
+    }
+
+    #[test]
+    fn named_keys_never_fall_back_to_text() {
+        let dispatch = key_dispatch(Key::Named(NamedKey::Enter), Some("\r"), false);
+        assert_eq!(dispatch.key_code, Some(himark_api::HIMARK_KEY_ENTER));
+        assert_eq!(dispatch.fallback_text, None);
+    }
+
+    #[test]
+    fn bare_modifier_keys_dispatch_nothing() {
+        let dispatch = key_dispatch(Key::Named(NamedKey::Shift), None, false);
+        assert_eq!(dispatch.key_code, None);
+        assert_eq!(dispatch.fallback_text, None);
+    }
+
+    #[test]
+    fn dead_keys_only_insert_their_composed_text() {
+        let dispatch = key_dispatch(Key::Dead(None), Some("é"), false);
+        assert_eq!(dispatch.key_code, None);
+        assert_eq!(dispatch.fallback_text.as_deref(), Some("é"));
+    }
+
+    #[test]
+    fn control_characters_are_neither_a_key_nor_text() {
+        let dispatch = key_dispatch(Key::Character("\u{1}"), Some("\u{1}"), false);
+        assert_eq!(dispatch.key_code, None);
+        assert_eq!(dispatch.fallback_text, None);
     }
 }
