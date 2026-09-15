@@ -256,7 +256,7 @@ fn a_scrolled_turn_of_cells_paints_and_keeps_its_extent() {
         (137.5, "turn_scroll_137.png"),
         (400.0, "turn_scroll_400.png"),
     ] {
-        scroll.set_scroll_y(scroll_y);
+        scroll.restore_scroll_y(scroll_y);
         let arena = Arena::default();
         let thunk = imba::View::layout(
             &scroll,

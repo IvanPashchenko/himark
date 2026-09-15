@@ -83,6 +83,16 @@ pub trait View {
         fx: &mut effect::Effects<'_, Self::Command>,
     );
 
+    /// The enclosing scroll moved this content's viewport top —
+    /// called from the scroll's own perform, so it is ordinary
+    /// retained-state mutation, not a paint back-channel. Content
+    /// that anchors its viewport (docs/viewport-preservation.md)
+    /// keeps the top here (and drops any pending correction — a
+    /// landed scroll supersedes it); everyone else ignores it.
+    fn scrolled(&mut self, store: &mut Store, top: f32) {
+        let _ = (store, top);
+    }
+
     /// Read the state, name the structure (docs/UI.md, revision 3) —
     /// the ONLY stage with the store in scope; borrows from it and
     /// from the view ride the returned layout for the frame.

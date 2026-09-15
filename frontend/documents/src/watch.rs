@@ -63,7 +63,17 @@ pub struct RefetchRebase {
 
     pub fetched: editor::Text,
 
+    /// The disk text as fetched — carried through so a raced landing
+    /// can re-diff without an O(file) rope extraction on the UI
+    /// thread.
+    pub fetched_source: String,
+
     pub clean: bool,
+
+    /// Applying `operation` lands the buffer EXACTLY on the disk's
+    /// text — computed on the worker, where the strings already
+    /// exist; the landing must not compare texts on the UI thread.
+    pub synced: bool,
 }
 
 impl Effect for RefetchDiffEffect {
@@ -202,14 +212,16 @@ impl imba::effect::EffectHandler<RefetchDiffEffect> for RefetchDiffHandler {
             return RefetchRebase {
                 operation: operation::Operation::from_ops([operation::Op::Retain(len)]),
                 fetched,
+                fetched_source: effect.fetched,
                 clean: true,
+                synced: true,
             };
         }
         let theirs = ::editor::diff::diff(&effect.baseline, &fetched);
         let ours = ::editor::diff::diff(&effect.baseline, &effect.current);
         let clean = ours.iter().all(|op| matches!(op, operation::Op::Retain(_)));
-        let operation = match clean {
-            true => theirs,
+        let (operation, synced) = match clean {
+            true => (theirs, true),
             false => {
                 // Merge the two descendants of the baseline, then
                 // aim the buffer at the merge DIRECTLY — positions
@@ -220,13 +232,22 @@ impl imba::effect::EffectHandler<RefetchDiffEffect> for RefetchDiffHandler {
                     &hunks(&ours),
                     &hunks(&theirs),
                 );
-                ::editor::diff::diff(&effect.current, &editor::Text::from_string_exact(&target))
+                let synced = target == effect.fetched;
+                (
+                    ::editor::diff::diff(
+                        &effect.current,
+                        &editor::Text::from_string_exact(&target),
+                    ),
+                    synced,
+                )
             }
         };
         RefetchRebase {
             operation,
             fetched,
+            fetched_source: effect.fetched,
             clean,
+            synced,
         }
     }
 }

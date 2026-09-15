@@ -90,6 +90,25 @@ impl View for EditorIdView {
         crate::OpenDocuments::remove_if_editorless(store, self.document, fx);
     }
 
+    fn scrolled(&mut self, store: &mut Store, top: f32) {
+        // Keep the document's retained viewport honest on EVERY
+        // scroll landing — paint only re-reports on large moves —
+        // and drop any pending settle correction, which the landed
+        // scroll supersedes (docs/viewport-preservation.md §3.1).
+        // The cheap read first: cloning the entity in and out on
+        // every wheel tick is only worth it when something changes.
+        let stale = crate::OpenDocuments::document_ref(store, self.document)
+            .is_some_and(|document| !document.scroll_note_current(self.editor, top));
+        if !stale {
+            return;
+        }
+        let Some(mut document) = crate::OpenDocuments::document(store, self.document) else {
+            return;
+        };
+        document.note_scrolled(self.editor, top);
+        crate::OpenDocuments::put_document(store, self.document, document);
+    }
+
     fn perform(
         &mut self,
         store: &mut Store,

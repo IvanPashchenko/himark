@@ -4909,3 +4909,190 @@ fn inline_diff_wash_is_seamless_at_retina_scale() {
         }
     }
 }
+
+#[test]
+fn an_edit_above_the_viewport_leaves_an_exact_settle_target() {
+    let mut store = imba::store::Store::new();
+    let ui = imba::UiCtx::cold();
+    let mut document = crate::test_document::plain_document(
+        "line 0\nline 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\n",
+    );
+    let editor = document.add_editor(
+        400.0,
+        None,
+        crate::EditorBuild::Complete,
+        &[],
+        &test_fonts(),
+        &test_theme(),
+        fx!(),
+    );
+
+    // The widget's Viewport report: the top edge cuts 3px into
+    // line 4 — RETAINED state, landed through the command road.
+    let line4 = document.text().to_string().find("line 4").unwrap() as u32;
+    let top = document.height_before(editor, line4) + 3.0;
+    let mut report = |document: &mut Document, top: f32| {
+        let width = document.layout_width(editor);
+        let mut batch = imba::effect::Batch::new();
+        document.perform(
+            &mut store,
+            &ui,
+            editor,
+            crate::EditorCommand::Viewport {
+                width,
+                top,
+                bottom: top + 100.0,
+                anchor: document.first_visible_byte(editor, top),
+            },
+            &mut batch.effects(),
+        );
+    };
+    report(&mut document, top);
+    assert_eq!(
+        document.settle_target(editor),
+        None,
+        "an untouched viewport has nothing to settle"
+    );
+
+    // Two lines land ABOVE the anchor.
+    let before = document.height_before(editor, line4);
+    let insert = Operation::from_ops([
+        Op::Insert("intruder A\nintruder B\n".to_owned()),
+        Op::Retain(document.text().to_string().len() as u32),
+    ]);
+    document.edit(&insert, &test_fonts(), &test_theme(), fx!());
+    let after = document.height_before(editor, line4 + "intruder A\nintruder B\n".len() as u32);
+    assert!(after > before, "the insert grew the prefix");
+
+    assert_eq!(
+        document.settle_target(editor),
+        Some(after + 3.0),
+        "the door notes exactly where the anchored line went"
+    );
+
+    // The next Viewport report (a frame painted at the corrected
+    // offset) clears the pending correction.
+    report(&mut document, after + 3.0);
+    assert_eq!(
+        document.settle_target(editor),
+        None,
+        "the correction landed"
+    );
+
+    // An edit BELOW the anchor moves nothing.
+    let text_len = document.text().to_string().len() as u32;
+    let tail = Operation::from_ops([
+        Op::Retain(text_len),
+        Op::Insert("\ntrailing noise".to_owned()),
+    ]);
+    document.edit(&tail, &test_fonts(), &test_theme(), fx!());
+    assert_eq!(
+        document.settle_target(editor),
+        None,
+        "content below the anchor never disturbs it"
+    );
+}
+
+#[test]
+fn a_rewrap_keeps_the_viewport_anchor_in_view() {
+    use imba::effect::{block_on, Batch, EffectHandler, Message};
+    let mut store = imba::store::Store::new();
+    let ui = imba::UiCtx::cold();
+    let long = "a long enough line that will wrap once the pane narrows down a lot\n";
+    let mut document =
+        crate::test_document::plain_document(&format!("{}{}", long.repeat(8), "short tail\n"));
+    let editor = document.add_editor(
+        600.0,
+        None,
+        crate::EditorBuild::Complete,
+        &[],
+        &test_fonts(),
+        &test_theme(),
+        fx!(),
+    );
+
+    // The viewport top cuts 2px into the sixth long line.
+    let line6 = (long.len() * 5) as u32;
+    let top = document.height_before(editor, line6) + 2.0;
+    let mut batch = Batch::new();
+    document.perform(
+        &mut store,
+        &ui,
+        editor,
+        crate::EditorCommand::Viewport {
+            width: 600.0,
+            top,
+            bottom: top + 100.0,
+            anchor: document.first_visible_byte(editor, top),
+        },
+        &mut batch.effects(),
+    );
+    assert_eq!(document.settle_target(editor), None);
+
+    // The pane narrows. The sync rewrap repairs forward from the
+    // anchor; the PREFIX lands through the async repair lane, whose
+    // door must note the shift.
+    let before = document.height_before(editor, line6);
+    let mut batch = Batch::new();
+    document.perform(
+        &mut store,
+        &ui,
+        editor,
+        crate::EditorCommand::Viewport {
+            width: 220.0,
+            top,
+            bottom: top + 100.0,
+            anchor: line6,
+        },
+        &mut batch.effects(),
+    );
+
+    // Drive the repair lane to completion, the way the engine would.
+    let workshop = std::sync::Arc::new(crate::env::Workshop::new(
+        std::sync::Arc::new(test_fonts),
+        crate::theme::Theme::embedded(),
+    ));
+    let mut rounds = 0;
+    loop {
+        let launched: Vec<_> = batch
+            .drain()
+            .into_iter()
+            .filter_map(|message| match message {
+                Message::Launch(_, effect) | Message::Relaunch(_, _, effect)
+                    if effect.is::<crate::repair::RepairEffect>() =>
+                {
+                    Some(effect)
+                }
+                _ => None,
+            })
+            .collect();
+        if launched.is_empty() || rounds > 8 {
+            break;
+        }
+        rounds += 1;
+        batch = Batch::new();
+        for effect in launched {
+            let (value, lift) = effect.into_payload().split();
+            let repair = value
+                .downcast::<crate::repair::RepairEffect>()
+                .expect("a repair effect");
+            let handler = crate::repair::RepairHandler(std::sync::Arc::clone(&workshop));
+            let outcome: Box<dyn std::any::Any + Send + Sync> = Box::new(block_on(Box::pin(
+                async move { handler.handle(*repair).await },
+            )));
+            let command = lift(outcome).expect("a repair lands a command");
+            document.perform(&mut store, &ui, editor, command, &mut batch.effects());
+        }
+    }
+
+    let after = document.height_before(editor, line6);
+    assert!(
+        after > before + 0.5,
+        "the rewrap grew the prefix: {before} -> {after}"
+    );
+    assert_eq!(
+        document.settle_target(editor),
+        Some(after + 2.0),
+        "the landed rewrap re-aims at the anchored byte"
+    );
+}

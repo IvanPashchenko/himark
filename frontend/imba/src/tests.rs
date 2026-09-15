@@ -408,7 +408,7 @@ fn an_exhausted_owner_eats_the_gesture() {
         EventResult::Command(ScrollCommand::SetScrollY(y)) => assert_eq!(y, 380.0),
         _ => panic!("the view claims and scrolls"),
     }
-    view.set_scroll_y(380.0);
+    view.set_scroll_y(&mut Store::new(), 380.0);
 
     match scrolled(&view, &gesture, 0.0, 100.0) {
         EventResult::Handled => {}
@@ -1813,25 +1813,33 @@ mod animated_splice {
 }
 
 mod reveal {
-    use crate::event::{reveal_satisfied, reveal_scroll_target, EventResult};
+    use crate::event::{reveal_satisfied, reveal_scroll_target, EventResult, Reveal};
     use skia_safe::Rect;
 
     #[test]
     fn merge_lets_commands_dominate_a_reveal() {
-        let reveal: EventResult<u32> = EventResult::Reveal(Rect::from_xywh(0.0, 0.0, 1.0, 1.0));
+        let reveal: EventResult<u32> =
+            EventResult::Reveal(Reveal::visible(Rect::from_xywh(0.0, 0.0, 1.0, 1.0)));
         match reveal.merge(EventResult::Command(7)) {
             EventResult::Commands(commands) => assert_eq!(commands, vec![7]),
             _ => panic!("commands win the merge"),
         }
-        let reveal: EventResult<u32> = EventResult::Reveal(Rect::from_xywh(1.0, 2.0, 3.0, 4.0));
+        let reveal: EventResult<u32> =
+            EventResult::Reveal(Reveal::visible(Rect::from_xywh(1.0, 2.0, 3.0, 4.0)));
         match reveal.merge(EventResult::Ignored) {
-            EventResult::Reveal(rect) => assert_eq!(rect, Rect::from_xywh(1.0, 2.0, 3.0, 4.0)),
+            EventResult::Reveal(reveal) => {
+                assert_eq!(reveal.rect, Rect::from_xywh(1.0, 2.0, 3.0, 4.0))
+            }
             _ => panic!("a lone reveal survives the merge"),
         }
-        let first: EventResult<u32> = EventResult::Reveal(Rect::from_xywh(1.0, 0.0, 1.0, 1.0));
-        let second: EventResult<u32> = EventResult::Reveal(Rect::from_xywh(2.0, 0.0, 1.0, 1.0));
+        let first: EventResult<u32> =
+            EventResult::Reveal(Reveal::visible(Rect::from_xywh(1.0, 0.0, 1.0, 1.0)));
+        let second: EventResult<u32> =
+            EventResult::Reveal(Reveal::visible(Rect::from_xywh(2.0, 0.0, 1.0, 1.0)));
         match first.merge(second) {
-            EventResult::Reveal(rect) => assert_eq!(rect.left, 1.0, "the first reveal wins"),
+            EventResult::Reveal(reveal) => {
+                assert_eq!(reveal.rect.left, 1.0, "the first reveal wins")
+            }
             _ => panic!("one reveal survives"),
         }
     }
@@ -2054,4 +2062,135 @@ fn a_track_press_jumps_the_knob_under_the_pointer() {
         ),
         "content presses still route to the content"
     );
+}
+
+mod viewport_preservation {
+    use super::*;
+    use crate::event::Placement;
+    use crate::list::{ListSlice, ListView};
+    use crate::scroll::{ScrollCommand, ScrollView};
+
+    fn keyed_rows(rows: &[(u64, f32)]) -> ListView<Row, u64> {
+        let mut slice: ListSlice<Row, u64> = ListSlice::new();
+        for (key, height) in rows {
+            slice.push_keyed_sized(*key, Row { height: *height }, *height);
+        }
+        ListView::from_slice_at(100.0, slice)
+    }
+
+    fn pulse_list(
+        list: &ListView<Row, u64>,
+        store: &Store,
+        ui: &crate::ui::UiCtx,
+        event: &Event<'_>,
+        viewport: Rect,
+    ) -> EventResult<ListCommand<RowCommand>> {
+        let arena = Arena::default();
+        let widget = list
+            .layout(
+                &arena,
+                store,
+                ui,
+                Constraints {
+                    min: Size::default(),
+                    max: Size::new(100.0, f32::MAX),
+                },
+            )
+            .realize(&arena, viewport);
+        widget.handle_event(&arena, event, viewport)
+    }
+
+    #[test]
+    fn a_splice_above_the_viewport_re_aims_the_anchor_exactly() {
+        let mut store = Store::new();
+        let ui = crate::ui::UiCtx::cold();
+        // Ten rows of 20px; the viewport's top edge cuts 5px into the
+        // third row (key 3, offset 40). The enclosing scroll pushes
+        // the top in through the `scrolled` hook — retained state,
+        // mutated where every scroll mutation happens.
+        let mut list = keyed_rows(&(1..=10).map(|key| (key, 20.0)).collect::<Vec<_>>());
+        list.scrolled(&mut store, 45.0);
+        let viewport = Rect::from_xywh(0.0, 45.0, 100.0, 60.0);
+
+        // Three 30px rows land ABOVE the viewport.
+        list.splice(0..0, (0..3).map(|_| (Row { height: 30.0 }, 30.0)));
+
+        match pulse_list(&list, &store, &ui, &Event::Settle, viewport) {
+            EventResult::Reveal(reveal) => {
+                assert_eq!(reveal.placement, Placement::TopLeftAt);
+                assert_eq!(
+                    reveal.rect.top, 135.0,
+                    "the anchored row's dy is preserved to the pixel"
+                );
+            }
+            _ => panic!("the settle pulse re-aims the moved anchor"),
+        }
+
+        // The correction lands as a scroll — which supersedes it.
+        list.scrolled(&mut store, 135.0);
+        assert!(
+            matches!(
+                pulse_list(
+                    &list,
+                    &store,
+                    &ui,
+                    &Event::Settle,
+                    Rect::from_xywh(0.0, 135.0, 100.0, 60.0)
+                ),
+                EventResult::Handled
+            ),
+            "a landed correction stays landed"
+        );
+    }
+
+    #[test]
+    fn a_splice_below_the_viewport_disturbs_nothing() {
+        let mut store = Store::new();
+        let ui = crate::ui::UiCtx::cold();
+        let mut list = keyed_rows(&(1..=10).map(|key| (key, 20.0)).collect::<Vec<_>>());
+        list.scrolled(&mut store, 45.0);
+        let viewport = Rect::from_xywh(0.0, 45.0, 100.0, 60.0);
+
+        list.splice(10..10, (0..3).map(|_| (Row { height: 30.0 }, 30.0)));
+
+        assert!(
+            matches!(
+                pulse_list(&list, &store, &ui, &Event::Settle, viewport),
+                EventResult::Handled
+            ),
+            "content below the viewport does not move the anchor"
+        );
+    }
+
+    #[test]
+    fn the_scroll_view_jumps_to_the_settled_anchor() {
+        let mut store = Store::new();
+        let ui = crate::ui::UiCtx::cold();
+        let mut scroll = ScrollView::new(keyed_rows(
+            &(1..=10).map(|key| (key, 20.0)).collect::<Vec<_>>(),
+        ));
+        // set_scroll_y pushes the top into the content by itself.
+        scroll.set_scroll_y(&mut store, 45.0);
+
+        scroll
+            .content_mut()
+            .splice(0..0, (0..3).map(|_| (Row { height: 30.0 }, 30.0)));
+
+        let arena = Arena::default();
+        let result = scroll
+            .layout(
+                &arena,
+                &store,
+                &ui,
+                Constraints::tight(Size::new(100.0, 60.0)),
+            )
+            .realize(&arena, Rect::from_wh(100.0, 60.0))
+            .handle_event(&arena, &Event::Settle, Rect::from_wh(100.0, 60.0));
+        match result {
+            EventResult::Command(ScrollCommand::JumpTo(target)) => {
+                assert_eq!(target, 135.0, "the corner lands back on the anchored row");
+            }
+            _ => panic!("the settle pulse becomes an exact jump"),
+        }
+    }
 }

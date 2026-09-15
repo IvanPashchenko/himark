@@ -93,6 +93,12 @@ pub enum Event<'a> {
         now: crate::anim::AnimationClock,
     },
 
+    /// The engine's synchronous reconcile pulse: dispatched between a
+    /// perform batch and the paint whenever a view raised the settle
+    /// bit (`Effects::settle`). Anchor-holding widgets answer with
+    /// exact-placement reveals; nothing else should react.
+    Settle,
+
     ThemeChanged,
 
     UserEvent(&'a dyn std::any::Any),
@@ -206,7 +212,56 @@ pub enum EventResult<Command> {
 
     Commands(Vec<Command>),
 
-    Reveal(Rect),
+    Reveal(Reveal),
+}
+
+/// A parameterized reveal: WHAT to show and HOW to place it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Reveal {
+    pub rect: Rect,
+    pub placement: Placement,
+    pub motion: Motion,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Placement {
+    /// Make the rect visible; if it is not, aim its top at the golden
+    /// section. Today's only behavior.
+    EnsureVisible,
+    /// The rect's origin becomes the viewport's top-left, EXACTLY —
+    /// viewport preservation and pixel-true restores.
+    TopLeftAt,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Motion {
+    /// Jump when near, glide when far. Today's only behavior.
+    Auto,
+    /// Always jump: the correction must land in the current frame.
+    Jump,
+}
+
+impl Reveal {
+    pub fn visible(rect: Rect) -> Self {
+        Self {
+            rect,
+            placement: Placement::EnsureVisible,
+            motion: Motion::Auto,
+        }
+    }
+
+    pub fn top_left_at(rect: Rect) -> Self {
+        Self {
+            rect,
+            placement: Placement::TopLeftAt,
+            motion: Motion::Jump,
+        }
+    }
+
+    pub fn translated(mut self, dx: f32, dy: f32) -> Self {
+        self.rect = self.rect.with_offset((dx, dy));
+        self
+    }
 }
 
 impl<Command> EventResult<Command> {
@@ -221,13 +276,13 @@ impl<Command> EventResult<Command> {
             EventResult::Commands(commands) => {
                 EventResult::Commands(commands.into_iter().map(f).collect())
             }
-            EventResult::Reveal(rect) => EventResult::Reveal(rect),
+            EventResult::Reveal(reveal) => EventResult::Reveal(reveal),
         }
     }
 
     pub fn reveal_translated(self, dx: f32, dy: f32) -> EventResult<Command> {
         match self {
-            EventResult::Reveal(rect) => EventResult::Reveal(rect.with_offset((dx, dy))),
+            EventResult::Reveal(reveal) => EventResult::Reveal(reveal.translated(dx, dy)),
             result => result,
         }
     }
@@ -237,8 +292,8 @@ impl<Command> EventResult<Command> {
         let mut commands = match self {
             EventResult::Commands(commands) => commands,
             EventResult::Command(command) => vec![command],
-            EventResult::Reveal(rect) => {
-                reveal = Some(rect);
+            EventResult::Reveal(inner) => {
+                reveal = Some(inner);
                 Vec::new()
             }
             _ => Vec::new(),
@@ -249,12 +304,12 @@ impl<Command> EventResult<Command> {
                 true => commands = more,
                 false => commands.extend(more),
             },
-            EventResult::Reveal(rect) => reveal = reveal.or(Some(rect)),
+            EventResult::Reveal(inner) => reveal = reveal.or(Some(inner)),
             _ => {}
         }
         match (commands.is_empty(), reveal) {
             (false, _) => EventResult::Commands(commands),
-            (true, Some(rect)) => EventResult::Reveal(rect),
+            (true, Some(inner)) => EventResult::Reveal(inner),
             (true, None) => EventResult::Ignored,
         }
     }

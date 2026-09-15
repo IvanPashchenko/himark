@@ -79,6 +79,13 @@ pub struct Editor {
     pub(crate) placeholder: Option<EditorPlaceholder>,
 
     pub(crate) scroll_stripes: crate::scroll_stripe::StripeSlot,
+
+    /// Where the viewport's anchored content sits AFTER a height
+    /// mutation above it (docs/viewport-preservation.md §3): set by
+    /// the mutation doors from the RETAINED `viewport` report, read
+    /// by the settle pulse, cleared when the next Viewport report
+    /// lands. Absolute, so repeated pulses converge.
+    pub(crate) settle_to: Option<f32>,
 }
 
 impl Editor {
@@ -166,6 +173,7 @@ impl Editor {
             pair_managed: false,
             placeholder: None,
             scroll_stripes: crate::scroll_stripe::StripeSlot::default(),
+            settle_to: None,
         }
     }
 }

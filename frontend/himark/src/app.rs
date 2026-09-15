@@ -46,6 +46,12 @@ pub struct Application {
     pending_file_events: Vec<crate::watch::Subscription>,
 
     pending_diff_events: Vec<::editor::diff::DiffId>,
+
+    /// A perform raised the settle bit (`Effects::settle`): run the
+    /// synchronous `Event::Settle` pulse before the next paint so
+    /// viewport corrections land in the SAME frame
+    /// (docs/viewport-preservation.md §3.2).
+    settle_requested: bool,
 }
 
 pub struct OpenedDocument {
@@ -352,6 +358,7 @@ impl Application {
             ui_arena: Arena::default(),
             pending_file_events: Vec::new(),
             pending_diff_events: Vec::new(),
+            settle_requested: false,
         };
         crate::startup_profile::log("Application::new", total_started);
         application
@@ -687,6 +694,17 @@ impl Application {
     }
 
     pub(crate) fn dispatch_paint(&mut self, window: WindowId, canvas: &Canvas, size: Size) -> bool {
+        // The settle loop: anchor-holding widgets answer the pulse
+        // with exact reveals; the resulting JumpTo commands perform
+        // inside the loop, so the frame below paints already
+        // corrected. Bounded — a correction that re-raises the bit
+        // gets a couple of rounds, then we take what we have.
+        let mut rounds = 0;
+        while self.settle_requested && rounds < 3 {
+            self.settle_requested = false;
+            self.dispatch_event(window, Event::Settle, size);
+            rounds += 1;
+        }
         let mut arena = std::mem::take(&mut self.ui_arena);
         arena.reset();
 
@@ -888,6 +906,9 @@ impl Application {
             }
         }
         let probe_commit = probe.elapsed().saturating_sub(probe_perform);
+        if batch.take_settle() {
+            self.settle_requested = true;
+        }
         self.launch(batch);
         if theme_before.name() != ::editor::env::Themes::of(&self.committed).name() {
             self.propagate_theme_change();
@@ -1444,24 +1465,31 @@ impl Application {
                 serial,
                 rebase,
             } => {
+                let documents::watch::RefetchRebase {
+                    operation,
+                    fetched,
+                    fetched_source,
+                    synced,
+                    ..
+                } = rebase;
                 let retry = entity_scope(document, fx, |fx| {
                     crate::OpenDocuments::absorb_refetched(
                         store,
                         document,
                         base_revision,
                         serial,
-                        &rebase.operation,
-                        rebase.fetched,
-                        rebase.clean,
+                        &operation,
+                        fetched,
+                        synced,
                         fx,
                     )
                 });
-                if let Some(fetched) = retry {
+                if retry {
                     documents::watch::rediff(
                         store,
                         document,
                         serial,
-                        fetched,
+                        fetched_source,
                         fx,
                         |document, base_revision, serial, rebase| AppCommand::RefetchDiffed {
                             document,

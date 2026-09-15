@@ -1435,6 +1435,29 @@ impl<'a> Widget<'a, EditorCommand> for EditorCoreView<'a> {
     ) -> EventResult<EditorCommand> {
         let text_focused = self.document().focus(self.editor()) == EditorFocus::Text;
         match event {
+            Event::Settle => {
+                // The settle pulse (docs/viewport-preservation.md
+                // §3.2): if this editor holds the viewport's corner
+                // (its top is clipped from above) and a door left a
+                // pending correction, re-aim the owning scroll —
+                // exactly. The target is absolute; re-emitting until
+                // the next Viewport report clears it converges at
+                // the scroll.
+                if viewport.top <= 0.5 {
+                    return EventResult::Ignored;
+                }
+                match self.document().settle_target(self.editor()) {
+                    Some(fresh) => {
+                        EventResult::Reveal(imba::event::Reveal::top_left_at(Rect::from_xywh(
+                            0.0,
+                            fresh,
+                            imba::Widget::size(self).width,
+                            viewport.height(),
+                        )))
+                    }
+                    None => EventResult::Ignored,
+                }
+            }
             Event::Paint { canvas, focused } => {
                 {
                     let data = self
@@ -1558,7 +1581,7 @@ impl<'a> Widget<'a, EditorCommand> for EditorCoreView<'a> {
                 if imba::event::reveal_satisfied(viewport, rect) {
                     return EventResult::Command(EditorCommand::RevealSettled);
                 }
-                EventResult::Reveal(rect)
+                EventResult::Reveal(imba::event::Reveal::visible(rect))
             }
             Event::MouseDown {
                 button: MouseButton::Left,

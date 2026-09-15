@@ -224,6 +224,16 @@ impl<R: 'static> Batch<R> {
         self.messages
     }
 
+    /// Strip any settle requests out of the batch (they must never
+    /// reach a handler) and say whether one was present.
+    pub fn take_settle(&mut self) -> bool {
+        let before = self.messages.len();
+        self.messages.retain(
+            |message| !matches!(message, Message::Launch(_, effect) if effect.is::<Settle>()),
+        );
+        self.messages.len() != before
+    }
+
     pub fn is_empty(&self) -> bool {
         self.messages.is_empty()
     }
@@ -305,11 +315,27 @@ impl<C: 'static, K: Fn(&AnyEffect<C>) -> bool> Sink<C> for Filtered<'_, C, K> {
     }
 }
 
+/// The engine-unwrapped settle request. Never reaches a handler:
+/// `Batch::take_settle` strips it before launch and the engine runs a
+/// synchronous `Event::Settle` pulse before the frame paints. Push it
+/// (via `Effects::settle`) from any perform that changed content
+/// heights above someone's viewport.
+pub struct Settle;
+
+impl Effect for Settle {
+    type Result = ();
+}
+
 pub struct Effects<'a, R> {
     sink: &'a mut dyn Sink<R>,
 }
 
 impl<'a, R: 'static> Effects<'a, R> {
+    /// Ask the engine for a settle pulse before this frame paints.
+    pub fn settle(&mut self) {
+        self.notify(Settle);
+    }
+
     pub fn launch<E: Effect<Result = R>>(&mut self, effect: E) -> CancellationToken {
         self.push(AnyEffect::new(effect))
     }

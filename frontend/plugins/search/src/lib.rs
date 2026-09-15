@@ -479,7 +479,7 @@ impl View for SearchView {
                         },
                     );
 
-                    entry.list.set_scroll_y(0.0);
+                    entry.list.set_scroll_y(store, 0.0);
                     self.put_list(store, entry);
 
                     self.refresh_contents(store, ui);

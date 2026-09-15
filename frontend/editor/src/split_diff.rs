@@ -867,8 +867,11 @@ impl View for SplitDiffView {
                 match landable {
                     true => {
                         self.state.pair_seq += 1;
-                        self.left.document.apply_repair(left);
-                        self.right.document.apply_repair(right);
+                        let moved = self.left.document.apply_repair_anchored(left)
+                            | self.right.document.apply_repair_anchored(right);
+                        if moved {
+                            fx.settle();
+                        }
 
                         if let Some(fold) = self.left.document.take_swap_fold(self.left.editor) {
                             self.widen_align_pending(fold);

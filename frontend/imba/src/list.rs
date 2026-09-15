@@ -294,6 +294,18 @@ pub struct ListView<T: Clone, K: Clone + Eq + Hash = ()> {
 
     laid_width: std::sync::atomic::AtomicU32,
 
+    /// The viewport's top edge — the enclosing scroll's own
+    /// `scroll_y`, pushed in via `View::scrolled` from the scroll's
+    /// perform (docs/viewport-preservation.md §3.1). Height mutations
+    /// read it to anchor what the user was looking at.
+    viewport_top: f32,
+
+    /// Where the anchored content sits AFTER a height mutation above
+    /// the viewport — set by the mutation door, read by the settle
+    /// pulse, cleared when the next Viewport report lands. Absolute,
+    /// so repeated pulses converge instead of compounding.
+    settle_to: Option<f32>,
+
     animations: Vec<SpliceAnimation>,
 
     generation: u64,
@@ -349,6 +361,8 @@ impl<T: Clone, K: Clone + Eq + Hash> ListView<T, K> {
             focused: None,
             separators: None,
             laid_width: std::sync::atomic::AtomicU32::new(width.to_bits()),
+            viewport_top: 0.0,
+            settle_to: None,
             animations: Vec::new(),
             generation: 0,
         }
@@ -769,6 +783,7 @@ impl<T: Clone, K: Clone + Eq + Hash> ListView<T, K> {
         if heights.len() == 0 || self.items.is_empty() {
             return;
         }
+        let door = self.door_anchor();
         let mut cursor = self.items.cursor();
         if !cursor.seek_to_index(start as u32) {
             return;
@@ -790,6 +805,7 @@ impl<T: Clone, K: Clone + Eq + Hash> ListView<T, K> {
         cursor.delete(count);
         cursor.insert(Rope::from_iter(rebuilt));
         self.items = cursor.rope();
+        self.door_resolve(door);
     }
 
     fn reconcile_animations(&mut self, range: std::ops::Range<usize>, inserted: usize) {
@@ -818,7 +834,45 @@ impl<T: Clone, K: Clone + Eq + Hash> ListView<T, K> {
         self.generation
     }
 
+    /// The viewport anchor, captured BEFORE a height mutation: the
+    /// keyed row under the reported viewport top, the offset into it
+    /// and the top itself (docs/viewport-preservation.md §3).
+    fn door_anchor(&self) -> Option<(K, f32, f32)> {
+        let top = self.viewport_top;
+        if top <= 0.5 || self.items.is_empty() {
+            return None;
+        }
+        let mut cursor = self.items.cursor();
+        if !cursor.seek(ROW_PX, top as u32, SeekMode::After) {
+            return None;
+        }
+        let key = self.key_at(cursor.index() as usize)?.clone();
+        let row_top = cursor.position().metric_at(ROW_PX) as f32;
+        Some((key, top - row_top, top))
+    }
+
+    /// Resolve the captured anchor against the mutated rope; if the
+    /// anchored row moved, note where the viewport must re-aim. A
+    /// deleted anchor row keeps plain pixels — the fallback.
+    fn door_resolve(&mut self, anchor: Option<(K, f32, f32)>) {
+        let Some((key, dy, was)) = anchor else {
+            return;
+        };
+        let Some(interval) = self.structure.find_by_id(&key) else {
+            return;
+        };
+        let mut cursor = self.items.cursor();
+        if !cursor.seek_to_index(interval.range.start) {
+            return;
+        }
+        let fresh = cursor.position().metric_at(ROW_PX) as f32 + dy;
+        if (fresh - was).abs() > 0.5 {
+            self.settle_to = Some(fresh);
+        }
+    }
+
     fn splice_impl(&mut self, range: std::ops::Range<usize>, slice: ListSlice<T, K>) {
+        let door = self.door_anchor();
         self.generation += 1;
         let len = self.items.len();
         let start = range.start.min(len);
@@ -927,6 +981,7 @@ impl<T: Clone, K: Clone + Eq + Hash> ListView<T, K> {
                 }]);
             }
         }
+        self.door_resolve(door);
 
         self.focused = self.focused.and_then(|focused| {
             if focused < start {
@@ -1091,6 +1146,8 @@ impl<T: Clone, K: Clone + Eq + Hash> Clone for ListView<T, K> {
             laid_width: std::sync::atomic::AtomicU32::new(
                 self.laid_width.load(std::sync::atomic::Ordering::Relaxed),
             ),
+            viewport_top: self.viewport_top,
+            settle_to: self.settle_to,
 
             animations: self.animations.clone(),
             generation: self.generation,
@@ -1135,6 +1192,13 @@ where
                 |fx| view.destroy(store, fx),
             );
         }
+    }
+
+    fn scrolled(&mut self, _store: &mut Store, top: f32) {
+        self.viewport_top = top;
+        // A scroll landing — the user's, or our own settled JumpTo —
+        // supersedes any pending correction.
+        self.settle_to = None;
     }
 
     fn perform(
@@ -1246,6 +1310,7 @@ where
                 if self.items.is_empty() {
                     return;
                 }
+                let door = self.door_anchor();
                 let mut cursor = self.items.cursor();
                 if !cursor.seek_to_index(index as u32) {
                     return;
@@ -1255,6 +1320,10 @@ where
                 cursor.delete(1u32);
                 cursor.insert(Rope::from_iter([element]));
                 self.items = cursor.rope();
+                self.door_resolve(door);
+                if self.settle_to.is_some() {
+                    fx.settle();
+                }
             }
         }
     }
@@ -1287,6 +1356,7 @@ where
                 items: &self.items,
                 selection: self.selection.as_ref(),
                 matches: &self.matches,
+                settle_to: self.settle_to,
                 reveal,
                 animations: &self.animations,
                 separators: self.separators,
@@ -1307,6 +1377,7 @@ struct ListWidget<'a, T: Clone, K: Clone + Eq + Hash> {
     items: &'a Rope<ListElement<T>, ListMeasure>,
     selection: Option<&'a SelectionState<K>>,
     matches: &'a Intervals<K, ()>,
+    settle_to: Option<f32>,
 
     reveal: Option<Rect>,
     animations: &'a [SpliceAnimation],
@@ -1691,13 +1762,34 @@ where
                 }
             }
 
-            Event::AnimationClock { .. } | Event::ThemeChanged => {
+            Event::AnimationClock { .. } | Event::Settle | Event::ThemeChanged => {
                 let mut merged = EventResult::Ignored;
                 self.for_visible(viewport, |cursor, rect| {
                     let child_viewport = viewport_for_child(viewport, rect).unwrap_or_default();
                     let result = self.route(cursor, arena, event, child_viewport);
                     merged = std::mem::replace(&mut merged, EventResult::Ignored).merge(result);
                 });
+                if let Event::Settle = event {
+                    // The deepest anchor speaks: a row's inner editor
+                    // that already answered owns the corner; the
+                    // list's own note only fills silence. The target
+                    // is absolute, so re-emitting until the next
+                    // Viewport report clears it converges at the
+                    // scroll instead of compounding.
+                    if !matches!(merged, EventResult::Reveal(_)) {
+                        if let Some(fresh) = self.settle_to {
+                            let mine = EventResult::Reveal(crate::event::Reveal::top_left_at(
+                                Rect::from_xywh(0.0, fresh, self.size.width, viewport.height()),
+                            ));
+                            merged =
+                                std::mem::replace(&mut merged, EventResult::Ignored).merge(mine);
+                        }
+                    }
+                    return match merged {
+                        EventResult::Ignored => EventResult::Handled,
+                        merged => merged,
+                    };
+                }
                 if let Event::AnimationClock { now } = event {
                     if !self.animations.is_empty() {
                         merged = std::mem::replace(&mut merged, EventResult::Ignored)
@@ -1707,7 +1799,7 @@ where
                     if let Some(rect) = self.reveal {
                         let mine = match crate::event::reveal_satisfied(viewport, rect) {
                             true => EventResult::Command(ListCommand::Revealed),
-                            false => EventResult::Reveal(rect),
+                            false => EventResult::Reveal(crate::event::Reveal::visible(rect)),
                         };
                         merged = std::mem::replace(&mut merged, EventResult::Ignored).merge(mine);
                     }

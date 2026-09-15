@@ -214,7 +214,7 @@ impl RowList {
             list.select_only(selected);
         }
         self.scroll = ScrollView::new(list);
-        self.scroll.set_scroll_y(scroll_y);
+        self.scroll.restore_scroll_y(scroll_y);
     }
 
     pub fn select(&mut self, index: usize) {

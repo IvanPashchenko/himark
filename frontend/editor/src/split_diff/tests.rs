@@ -60,9 +60,12 @@ fn perform_collect(
 }
 
 fn launches(
-    batch: imba::effect::Batch<SplitDiffCommand>,
+    mut batch: imba::effect::Batch<SplitDiffCommand>,
 ) -> Vec<imba::effect::AnyEffect<SplitDiffCommand>> {
     use imba::effect::Message;
+    // Settle requests are the ENGINE's business (a synchronous pulse
+    // before paint), never a handler's — strip them like it does.
+    let _ = batch.take_settle();
     let messages = batch.drain();
     let cancelled: std::collections::HashSet<_> = messages
         .iter()

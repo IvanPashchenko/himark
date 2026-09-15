@@ -1399,8 +1399,12 @@ impl Document {
             }
 
             EditorCommand::ApplyRepair(repaired) => {
+                let mut moved = false;
                 for item in repaired {
-                    self.apply_repair(item);
+                    moved |= self.apply_repair_anchored(item);
+                }
+                if moved {
+                    fx.settle();
                 }
 
                 self.pending_repairs(fx)
@@ -1413,6 +1417,9 @@ impl Document {
             } => {
                 if let Some(state) = self.editors.get_mut(&editor) {
                     state.viewport = Some(top..bottom);
+                    // A fresh report means a frame painted at the
+                    // settled position — the correction has landed.
+                    state.settle_to = None;
                 }
                 if self.resize(editor, width, anchor, &fonts, theme, fx) {
                     return;
@@ -1730,6 +1737,19 @@ impl Document {
             let Some(editor) = self.editors.get_mut(&id) else {
                 continue;
             };
+            // The viewport anchor, from RETAINED state (the widget's
+            // Viewport report): captured against the pre-edit layout,
+            // resolved after the bounded repair below.
+            let door = editor
+                .viewport
+                .as_ref()
+                .map(|viewport| viewport.start)
+                .and_then(|top| {
+                    (top > 0.5).then(|| {
+                        let byte = editor.layout.byte_at_y(top);
+                        (byte, top - editor.layout.height_before(byte), top)
+                    })
+                });
             let repair_start = editor.layout.edit(&operation);
             editor.carets = editor
                 .carets
@@ -1761,6 +1781,16 @@ impl Document {
                 repair_start,
                 editor.sync_budget(),
             );
+            if let Some((byte, dy, was)) = door {
+                let byte = EditLog::transform_range(byte..byte, &operation)
+                    .start
+                    .min(byte_count);
+                let fresh = editor.layout.height_before(byte) + dy;
+                if (fresh - was).abs() > 0.5 {
+                    editor.settle_to = Some(fresh);
+                    fx.settle();
+                }
+            }
         }
 
         self.pending_repairs(fx)
@@ -2025,6 +2055,41 @@ impl Document {
             .map_or(0.0, |editor| editor.layout.height_before(byte))
     }
 
+    /// Where the settle pulse should re-aim this editor's viewport,
+    /// if a height mutation above it left a correction pending
+    /// (docs/viewport-preservation.md §3).
+    pub fn settle_target(&self, editor: EditorId) -> Option<f32> {
+        self.editors.get(&editor)?.settle_to
+    }
+
+    /// Whether a `note_scrolled(top)` would change anything — the
+    /// free pre-check that spares the store round-trip per wheel
+    /// tick.
+    pub fn scroll_note_current(&self, editor: EditorId, top: f32) -> bool {
+        let Some(state) = self.editors.get(&editor) else {
+            return true;
+        };
+        state.settle_to.is_none()
+            && state
+                .viewport
+                .as_ref()
+                .is_some_and(|viewport| (viewport.start - top).abs() <= 0.5)
+    }
+
+    /// The enclosing scroll moved: keep the retained viewport honest
+    /// (paint only re-reports on LARGE moves) and drop any pending
+    /// correction — the landed scroll supersedes it.
+    pub fn note_scrolled(&mut self, editor: EditorId, top: f32) {
+        let Some(state) = self.editors.get_mut(&editor) else {
+            return;
+        };
+        if let Some(viewport) = &state.viewport {
+            let height = viewport.end - viewport.start;
+            state.viewport = Some(top..top + height);
+        }
+        state.settle_to = None;
+    }
+
     pub fn document_layout(&self, editor: EditorId) -> Option<&crate::DocumentLayout> {
         self.editors.get(&editor).map(|editor| &editor.layout)
     }
@@ -2100,6 +2165,31 @@ impl Document {
             && (repaired.layout.shaped_theme().is_empty()
                 || editor.layout.shaped_theme().is_empty()
                 || repaired.layout.shaped_theme() == editor.layout.shaped_theme())
+    }
+
+    /// `apply_repair` with the viewport door around it: capture the
+    /// anchored byte against the OLD layout, land the repair, note
+    /// where the anchor went. Returns whether a correction is now
+    /// pending (docs/viewport-preservation.md §5).
+    pub fn apply_repair_anchored(&mut self, repaired: RepairedLayout) -> bool {
+        let id = repaired.editor;
+        let door = self.editors.get(&id).and_then(|editor| {
+            let top = editor.viewport.as_ref()?.start;
+            (top > 0.5).then(|| {
+                let byte = editor.layout.byte_at_y(top);
+                (byte, top - editor.layout.height_before(byte), top)
+            })
+        });
+        self.apply_repair(repaired);
+        let (Some((byte, dy, was)), Some(editor)) = (door, self.editors.get_mut(&id)) else {
+            return false;
+        };
+        let fresh = editor.layout.height_before(byte) + dy;
+        if (fresh - was).abs() > 0.5 {
+            editor.settle_to = Some(fresh);
+            return true;
+        }
+        false
     }
 
     pub fn apply_repair(&mut self, repaired: RepairedLayout) {
@@ -2183,6 +2273,19 @@ impl Document {
                 state.layout.layout_width()
             );
         }
+        // A rewrap moves EVERY height: capture the viewport anchor
+        // against the old wrap, resolve against the new one
+        // (docs/viewport-preservation.md §5).
+        let door = state
+            .viewport
+            .as_ref()
+            .map(|viewport| viewport.start)
+            .and_then(|top| {
+                (top > 0.5).then(|| {
+                    let byte = state.layout.byte_at_y(top);
+                    (byte, top - state.layout.height_before(byte), top)
+                })
+            });
         state.layout.mark_modified_in(0..byte_count);
         let extras = Self::view_extras(&self.markups, state);
         state.layout.repair_layout_bounded(
@@ -2194,6 +2297,13 @@ impl Document {
             anchor_byte.min(byte_count),
             state.sync_budget(),
         );
+        if let Some((byte, dy, was)) = door {
+            let fresh = state.layout.height_before(byte) + dy;
+            if (fresh - was).abs() > 0.5 {
+                state.settle_to = Some(fresh);
+                fx.settle();
+            }
+        }
         self.pending_repairs(fx);
         true
     }
@@ -2210,6 +2320,16 @@ impl Document {
         let collection = fonts.clone();
         self.note_markup_change(None);
         if let Some(state) = self.editors.get_mut(&editor) {
+            let door = state
+                .viewport
+                .as_ref()
+                .map(|viewport| viewport.start)
+                .and_then(|top| {
+                    (top > 0.5).then(|| {
+                        let byte = state.layout.byte_at_y(top);
+                        (byte, top - state.layout.height_before(byte), top)
+                    })
+                });
             state.layout.mark_modified_in(0..byte_count);
             let extras = Self::view_extras(&self.markups, state);
             let width = state.layout.layout_width();
@@ -2222,6 +2342,13 @@ impl Document {
                 anchor.min(byte_count),
                 state.sync_budget(),
             );
+            if let Some((byte, dy, was)) = door {
+                let fresh = state.layout.height_before(byte) + dy;
+                if (fresh - was).abs() > 0.5 {
+                    state.settle_to = Some(fresh);
+                    fx.settle();
+                }
+            }
         }
         self.pending_repairs(fx)
     }

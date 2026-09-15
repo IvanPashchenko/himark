@@ -209,7 +209,10 @@ impl<'a, Command> Widget<'a, Command> for RealizedContainer<'a, Command> {
         viewport: Rect,
     ) -> EventResult<Command> {
         match event {
-            Event::Paint { .. } | Event::AnimationClock { .. } | Event::ThemeChanged => {
+            Event::Paint { .. }
+            | Event::AnimationClock { .. }
+            | Event::Settle
+            | Event::ThemeChanged => {
                 let mut merged = EventResult::Ignored;
                 for child in self.children.iter() {
                     merged = merged.merge(child.handle_event(arena, event, viewport));

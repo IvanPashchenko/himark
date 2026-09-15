@@ -534,8 +534,8 @@ impl ChatPanel {
         self.rows.scroll_y() + viewport >= total - viewport * 0.5
     }
 
-    fn reveal_tail(&mut self) {
-        self.rows.set_scroll_y(f32::MAX);
+    fn reveal_tail(&mut self, store: &mut Store) {
+        self.rows.set_scroll_y(store, f32::MAX);
     }
 
     fn build_cell(
@@ -661,18 +661,15 @@ impl ChatPanel {
         self.fetch_token = None;
         match result {
             Ok(page) => {
-                let old_total = self.rows.content().total_height();
                 self.cursor = page.next_cursor.clone();
                 let slice = self.build_page(store, ui, &page.turns, fx);
                 let end = usize::from(self.has_loader);
                 self.rows.content_mut().splice_slice(0..end, slice);
                 self.has_loader = self.cursor.is_some();
-
-                let delta = self.rows.content().total_height() - old_total;
-                if delta > 0.0 {
-                    let scroll_y = self.rows.scroll_y();
-                    self.rows.set_scroll_y(scroll_y + delta);
-                }
+                // The prepend landed above the viewport: the settle
+                // pulse re-aims the scroll at the anchored row before
+                // this frame paints (docs/viewport-preservation.md).
+                fx.settle();
             }
             Err(error) => {
                 eprintln!("[higent] fetchTurns failed: {error}");
@@ -713,7 +710,7 @@ impl ChatPanel {
                 let len = self.rows.content().len();
                 self.rows.content_mut().splice_slice(0..len, slice);
                 self.has_loader = self.cursor.is_some();
-                self.reveal_tail();
+                self.reveal_tail(store);
 
                 self.relaunch_poll(store, fx);
 
@@ -1137,7 +1134,7 @@ impl ChatPanel {
             }
         }
         if follow {
-            self.reveal_tail();
+            self.reveal_tail(store);
         }
     }
 
@@ -1414,7 +1411,7 @@ impl ChatPanel {
             }),
         );
         self.composer.clear();
-        self.reveal_tail();
+        self.reveal_tail(store);
     }
 
     fn apply_send_failed(
@@ -1446,7 +1443,7 @@ impl ChatPanel {
         slice.push_keyed_sized(placeholder.clone(), ChatRow::Turn(view), height);
         self.rows.content_mut().splice_slice(range, slice);
         if follow {
-            self.reveal_tail();
+            self.reveal_tail(store);
         }
     }
 

@@ -263,9 +263,9 @@ impl Panel {
         }
     }
 
-    pub fn set_scroll_y(&mut self, scroll_y: f32) {
+    pub fn set_scroll_y(&mut self, store: &mut Store, scroll_y: f32) {
         match self {
-            Self::Editor(pane) => pane.set_scroll_y(scroll_y),
+            Self::Editor(pane) => pane.set_scroll_y(store, scroll_y),
             Self::Plugin(_) => {}
         }
     }
@@ -373,7 +373,7 @@ impl Panel {
                     document.reveal_at(view.editor(), place.caret, &fonts, &theme, fx)
                 });
                 crate::OpenDocuments::put_document(store, view.document(), document);
-                pane.set_scroll_y(place.scroll_y);
+                pane.set_scroll_y(store, place.scroll_y);
                 true
             }
             Self::Plugin(view) => view.navigate_to_dyn(store, target, fx),
@@ -434,7 +434,8 @@ impl View for Panel {
                         if let Some(document) =
                             crate::OpenDocuments::document_ref(store, view.document())
                         {
-                            pane.set_scroll_y(document.height_before(view.editor(), anchor));
+                            let target = document.height_before(view.editor(), anchor);
+                            pane.set_scroll_y(store, target);
                         }
                     }
                 }

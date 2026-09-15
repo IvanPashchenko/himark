@@ -81,7 +81,7 @@ fn a_clean_document_follows_the_disk() {
         .expect("the document")
         .revision();
     let rebase = landed_rebase(batch);
-    assert!(rebase.clean, "ours moved nothing — the plain reload");
+    assert!(rebase.synced, "ours moved nothing — the plain reload");
     let retry = OpenDocuments::absorb_refetched(
         &mut store,
         id,
@@ -89,10 +89,10 @@ fn a_clean_document_follows_the_disk() {
         serial,
         &rebase.operation,
         rebase.fetched,
-        rebase.clean,
+        rebase.synced,
         &mut imba::effect::Batch::new().effects(),
     );
-    assert!(retry.is_none(), "nothing raced this landing");
+    assert!(!retry, "nothing raced this landing");
     let document = &OpenDocuments::document_ref(&store, id).expect("the document");
     assert_eq!(text_of(document), "alpha\nCHANGED\n");
     let entity = OpenDocuments::entity(&store, id).expect("registered");
@@ -232,7 +232,7 @@ fn a_dirty_document_merges_the_external_change() {
         .expect("the document")
         .revision();
     let rebase = landed_rebase(batch);
-    assert!(!rebase.clean, "ours moved — this is a merge, not a reload");
+    assert!(!rebase.synced, "ours moved — this is a merge, not a reload");
     let retry = OpenDocuments::absorb_refetched(
         &mut store,
         id,
@@ -240,10 +240,10 @@ fn a_dirty_document_merges_the_external_change() {
         serial,
         &rebase.operation,
         rebase.fetched,
-        rebase.clean,
+        rebase.synced,
         &mut imba::effect::Batch::new().effects(),
     );
-    assert!(retry.is_none(), "nothing raced this landing");
+    assert!(!retry, "nothing raced this landing");
 
     let document = OpenDocuments::document_ref(&store, id).expect("the document");
     assert_eq!(
@@ -290,10 +290,10 @@ fn a_dirty_save_echo_keeps_the_typing() {
         serial,
         &rebase.operation,
         rebase.fetched,
-        rebase.clean,
+        rebase.synced,
         &mut imba::effect::Batch::new().effects(),
     );
-    assert!(retry.is_none(), "nothing raced this landing");
+    assert!(!retry, "nothing raced this landing");
 
     let document = OpenDocuments::document_ref(&store, id).expect("the document");
     assert_eq!(text_of(document), "typed alpha\n", "the typing stands");
@@ -323,6 +323,7 @@ fn typing_racing_the_merge_rediffs_until_it_converges() {
     let rebase = landed_rebase(batch);
 
     typed(&mut store, id, 0, "raced ");
+    let fetched = rebase.fetched_source.clone();
     let retry = OpenDocuments::absorb_refetched(
         &mut store,
         id,
@@ -330,12 +331,12 @@ fn typing_racing_the_merge_rediffs_until_it_converges() {
         serial,
         &rebase.operation,
         rebase.fetched,
-        rebase.clean,
+        rebase.synced,
         &mut imba::effect::Batch::new().effects(),
     );
     // The raced landing applies nothing YET — but it does not give
-    // up either: it hands the disk text back for a re-diff.
-    let fetched = retry.expect("the raced landing asks for a re-diff");
+    // up either: the caller re-diffs the kept disk text.
+    assert!(retry, "the raced landing asks for a re-diff");
     let document = OpenDocuments::document_ref(&store, id).expect("the document");
     assert_eq!(text_of(document), "raced alpha\n", "nothing landed yet");
 
@@ -366,10 +367,10 @@ fn typing_racing_the_merge_rediffs_until_it_converges() {
         serial,
         &rebase.operation,
         rebase.fetched,
-        rebase.clean,
+        rebase.synced,
         &mut imba::effect::Batch::new().effects(),
     );
-    assert!(retry.is_none(), "the second round lands");
+    assert!(!retry, "the second round lands");
 
     let document = OpenDocuments::document_ref(&store, id).expect("the document");
     assert_eq!(
@@ -439,6 +440,7 @@ fn rapid_agent_writes_land_exactly_once_and_never_go_stale() {
         }
         let mut rounds = 0;
         loop {
+            let fetched = rebase.fetched_source.clone();
             let retry = OpenDocuments::absorb_refetched(
                 store,
                 id,
@@ -446,10 +448,12 @@ fn rapid_agent_writes_land_exactly_once_and_never_go_stale() {
                 serial,
                 &rebase.operation,
                 rebase.fetched,
-                rebase.clean,
+                rebase.synced,
                 &mut imba::effect::Batch::new().effects(),
             );
-            let Some(fetched) = retry else { break };
+            if !retry {
+                break;
+            }
             rounds += 1;
             assert!(rounds < 4, "the re-diff loop must converge");
             let mut batch = imba::effect::Batch::new();
@@ -557,10 +561,10 @@ fn a_stale_fetch_landing_never_reverts_the_fresh_reload() {
         fresh_serial,
         &rebase.operation,
         rebase.fetched,
-        rebase.clean,
+        rebase.synced,
         &mut imba::effect::Batch::new().effects(),
     );
-    assert!(retry.is_none(), "nothing raced this landing");
+    assert!(!retry, "nothing raced this landing");
     assert_eq!(
         text_of(&OpenDocuments::document_ref(&store, id).expect("the document")),
         "NEW\n"
@@ -614,10 +618,10 @@ fn a_stale_diff_landing_drops_by_serial() {
         stale_serial,
         &rebase.operation,
         rebase.fetched,
-        rebase.clean,
+        rebase.synced,
         &mut imba::effect::Batch::new().effects(),
     );
-    assert!(retry.is_none(), "nothing raced this landing");
+    assert!(!retry, "nothing raced this landing");
     let document = OpenDocuments::document_ref(&store, id).expect("the document");
     assert_eq!(
         text_of(document),
@@ -911,10 +915,10 @@ fn an_agents_shared_edit_is_not_applied_twice_by_its_file_echo() {
         serial,
         &rebase.operation,
         rebase.fetched,
-        rebase.clean,
+        rebase.synced,
         &mut imba::effect::Batch::new().effects(),
     );
-    assert!(retry.is_none(), "nothing raced this landing");
+    assert!(!retry, "nothing raced this landing");
 
     let document = OpenDocuments::document_ref(&store, id).expect("the document");
     assert_eq!(
@@ -986,10 +990,10 @@ fn a_trailing_file_echo_of_one_of_two_shared_edits_stays_single() {
         serial,
         &rebase.operation,
         rebase.fetched,
-        rebase.clean,
+        rebase.synced,
         &mut imba::effect::Batch::new().effects(),
     );
-    assert!(retry.is_none(), "nothing raced this landing");
+    assert!(!retry, "nothing raced this landing");
 
     let document = OpenDocuments::document_ref(&store, id).expect("the document");
     assert_eq!(
@@ -1054,10 +1058,10 @@ fn a_shared_deletions_file_echo_deletes_nothing_further() {
         serial,
         &rebase.operation,
         rebase.fetched,
-        rebase.clean,
+        rebase.synced,
         &mut imba::effect::Batch::new().effects(),
     );
-    assert!(retry.is_none());
+    assert!(!retry);
     let document = OpenDocuments::document_ref(&store, id).expect("the document");
     assert_eq!(
         text_of(document),
@@ -1114,10 +1118,10 @@ fn a_same_line_conflict_keeps_both_sides_bytes() {
         serial,
         &rebase.operation,
         rebase.fetched,
-        rebase.clean,
+        rebase.synced,
         &mut imba::effect::Batch::new().effects(),
     );
-    assert!(retry.is_none());
+    assert!(!retry);
     let document = OpenDocuments::document_ref(&store, id).expect("the document");
     let text = text_of(document);
     assert!(

@@ -182,8 +182,21 @@ impl<Content> ScrollView<Content> {
         self.scroll_y
     }
 
-    pub fn set_scroll_y(&mut self, scroll_y: f32) {
+    /// Constructor-time restore for a FRESHLY built scroll: places
+    /// the offset without notifying the content (there is no stale
+    /// viewport state to supersede yet). Live scrolls go through
+    /// `set_scroll_y`, which keeps the content's retained viewport
+    /// honest.
+    pub fn restore_scroll_y(&mut self, scroll_y: f32) {
         self.scroll_y = scroll_y.max(0.0);
+        self.glide = None;
+    }
+}
+
+impl<Content: View> ScrollView<Content> {
+    pub fn set_scroll_y(&mut self, store: &mut Store, scroll_y: f32) {
+        self.scroll_y = scroll_y.max(0.0);
+        self.content.scrolled(store, self.scroll_y);
         self.glide = None;
     }
 }
@@ -212,11 +225,13 @@ where
             }),
             ScrollCommand::SetScrollY(scroll_y) => {
                 self.scroll_y = scroll_y.max(0.0);
+                self.content.scrolled(store, self.scroll_y);
 
                 self.glide = None;
             }
             ScrollCommand::JumpTo(target) => {
                 self.scroll_y = target.max(0.0);
+                self.content.scrolled(store, self.scroll_y);
 
                 self.glide = None;
             }
@@ -229,6 +244,7 @@ where
             }
             ScrollCommand::GlideStep(next, now) => {
                 self.scroll_y = next.max(0.0);
+                self.content.scrolled(store, self.scroll_y);
                 if let Some(glide) = &mut self.glide {
                     glide.last = Some(now);
                     if (glide.target - self.scroll_y).abs() <= GLIDE_EPSILON {
@@ -239,6 +255,7 @@ where
             }
             ScrollCommand::BeginKnobDrag { scroll_y, grab } => {
                 self.scroll_y = scroll_y.max(0.0);
+                self.content.scrolled(store, self.scroll_y);
                 self.drag = Some(grab);
                 self.glide = None;
             }
@@ -534,28 +551,43 @@ impl<'a, ContentCommand: 'a> RealizedScroll<'a, ContentCommand> {
         &self,
         result: EventResult<ScrollCommand<ContentCommand>>,
     ) -> EventResult<ScrollCommand<ContentCommand>> {
-        let EventResult::Reveal(rect) = result else {
+        let EventResult::Reveal(reveal) = result else {
             return result;
         };
+        let rect = reveal.rect;
         let max_scroll = (self.content.size().height - self.viewport.height).max(0.0);
 
         let effective = self
             .glide
             .map(|glide| glide.target)
             .unwrap_or(self.scroll_y);
-        let target = crate::event::reveal_scroll_target(
-            effective,
-            self.viewport.height,
-            rect.top,
-            rect.bottom,
-        )
-        .clamp(0.0, max_scroll);
+        let target = match reveal.placement {
+            crate::event::Placement::EnsureVisible => crate::event::reveal_scroll_target(
+                effective,
+                self.viewport.height,
+                rect.top,
+                rect.bottom,
+            )
+            .clamp(0.0, max_scroll),
+
+            // The rect's origin becomes the viewport's corner, exactly.
+            crate::event::Placement::TopLeftAt => rect.top.clamp(0.0, max_scroll),
+        };
         let distance = target - effective;
         if distance.abs() > GLIDE_EPSILON {
-            if distance.abs() <= self.viewport.height * 0.6 {
-                return EventResult::Command(ScrollCommand::JumpTo(target));
-            }
-            return EventResult::Command(ScrollCommand::GlideTo(target));
+            let jump = match reveal.motion {
+                crate::event::Motion::Jump => true,
+                crate::event::Motion::Auto => distance.abs() <= self.viewport.height * 0.6,
+            };
+            return match jump {
+                true => EventResult::Command(ScrollCommand::JumpTo(target)),
+                false => EventResult::Command(ScrollCommand::GlideTo(target)),
+            };
+        }
+        if matches!(reveal.placement, crate::event::Placement::TopLeftAt) {
+            // An exact placement is per-scroll business: satisfied
+            // here, it must not leak into an outer scroll's anchor.
+            return EventResult::Handled;
         }
 
         let lifted = Rect::from_ltrb(
@@ -564,7 +596,10 @@ impl<'a, ContentCommand: 'a> RealizedScroll<'a, ContentCommand> {
             rect.right.clamp(0.0, self.viewport.width),
             (rect.bottom - target).clamp(0.0, self.viewport.height),
         );
-        EventResult::Reveal(lifted)
+        EventResult::Reveal(crate::event::Reveal {
+            rect: lifted,
+            ..reveal
+        })
     }
 
     fn content_viewport(&self) -> Rect {
