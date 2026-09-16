@@ -339,6 +339,45 @@ itself. With a host connected, **Save** in the command palette or `Cmd+S` /
 `Ctrl+S` writes an existing file back through it. Scratches, demos, and
 revision-pinned views have no save target in the browser.
 
+## Releases
+
+The `Build` workflow (`.github/workflows/build.yml`) builds packages for
+every platform and attaches them to a **draft** GitHub release. Publish it by
+pushing a version tag:
+
+```sh
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The version in the package names is the tag without the leading `v`; it is
+also written into the macOS bundle's `CFBundleShortVersionString`. Review
+the draft on the Releases page and publish it when the notes look right.
+Every push to `main`, and a manual run from the Actions tab, builds the
+same packages and leaves them as workflow artifacts without creating a
+release.
+
+The packages:
+
+| Package | Contents |
+|---|---|
+| `himark-<v>-macos-arm64.zip` | `himark-macOS.app` with the agent host and the web page bundled |
+| `himark-<v>-linux-{x86_64,aarch64}.tar.gz` | `himark` (the `winit` shell) and `himark-agent-host` |
+| `himark-<v>-windows-{x86_64,aarch64}.zip` | `himark.exe` (no agent host on Windows yet) |
+| `himark-<v>-web.tar.gz` | the static site from `apps/web/tools/build-web.sh` |
+| `SHA256SUMS` | checksums of the above |
+
+The macOS app is only ad-hoc signed, so Gatekeeper blocks it on first
+launch. Either right-click the app and choose **Open**, or clear the
+quarantine flag after unzipping:
+
+```sh
+xattr -dr com.apple.quarantine himark-macOS.app
+```
+
+Signing with a Developer ID and notarizing are not wired up yet; the
+`macos` job is the place to add them.
+
 ## Keyboard shortcuts
 
 The default keymap lives in `frontend/himark/assets/keymap.json`. `cmd` is

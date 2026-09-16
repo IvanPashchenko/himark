@@ -127,7 +127,10 @@ case "$ACTION" in
   mac)
     rm -rf "build/Build/Products/Release/himark-macOS.app/Contents/MacOS/web"
     xcodebuild -project himark.xcodeproj -scheme himark-macOS -configuration Release \
-      -derivedDataPath build build | tail -5
+      -derivedDataPath build \
+      HIMARK_VERSION="${HIMARK_VERSION:-0.1}" \
+      HIMARK_BUILD_NUMBER="${HIMARK_BUILD_NUMBER:-1}" \
+      build | tail -5
     ( cd "$ROOT" && cargo build -p agent-host --release --target "$MACOS_RUST_TARGET" >/dev/null )
     APP="build/Build/Products/Release/himark-macOS.app"
     cp "$ROOT/target/$MACOS_RUST_TARGET/release/himark-agent-host" "$APP/Contents/MacOS/"
@@ -140,7 +143,11 @@ case "$ACTION" in
     fi
     codesign --force --sign - "$APP/Contents/MacOS/himark-agent-host" 2>/dev/null || true
     codesign --force --sign - "$APP" 2>/dev/null || true
-    open "$APP" ;;
+    if [ -n "${CI:-}" ]; then
+      echo "built $APP"
+    else
+      open "$APP"
+    fi ;;
   ios)
     echo "iOS built for aarch64-apple-ios; select the himark-iOS scheme in Xcode to run on a device/simulator." ;;
 esac
