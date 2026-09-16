@@ -141,11 +141,16 @@ pub fn autostart() -> Option<Lockfile> {
     None
 }
 
+#[cfg(unix)]
 pub fn terminate(pid: u32) {
     unsafe {
         let _ = libc_kill(pid as i32, 15);
     }
 }
+
+// The host does not run on Windows yet, so there is never a process to signal.
+#[cfg(not(unix))]
+pub fn terminate(_pid: u32) {}
 
 pub fn write(dir: &Path, socket: &Path, protocol_version: &str) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
@@ -188,11 +193,18 @@ pub fn read_live(dir: &Path) -> Option<Lockfile> {
     alive(lock.pid).then_some(lock)
 }
 
+#[cfg(unix)]
 fn alive(pid: u32) -> bool {
     let outcome = unsafe { libc_kill(pid as i32, 0) };
     outcome == 0 || std::io::Error::last_os_error().raw_os_error() == Some(1)
 }
 
+#[cfg(not(unix))]
+fn alive(_pid: u32) -> bool {
+    false
+}
+
+#[cfg(unix)]
 extern "C" {
     #[link_name = "kill"]
     fn libc_kill(pid: i32, sig: i32) -> i32;

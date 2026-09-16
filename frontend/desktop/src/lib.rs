@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 mod connector;
+#[cfg(unix)]
 mod unix_transport;
 pub use connector::DesktopConnector;
+#[cfg(unix)]
 pub use unix_transport::UnixTransport;
 
 use std::time::{Duration, Instant};
